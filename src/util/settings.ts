@@ -11,6 +11,8 @@ export interface Settings {
   allowRemoteImages: boolean;
   chromiumPath: string;
   chromiumDownload: 'ask' | 'never';
+  /** Days a converted PDF stays in the disk cache after its last use; 0 turns the cache off. */
+  cacheDays: number;
 }
 
 /**
@@ -19,6 +21,7 @@ export interface Settings {
  */
 export function readSettings(): Settings {
   const c = vscode.workspace.getConfiguration(SECTION);
+  const cacheDays = Number(c.get<number>('cacheDays') ?? 7);
   return {
     defaultOpenMode: c.get<string>('defaultOpenMode') === 'full' ? 'full' : 'side',
     pageSize: c.get<string>('pageSize') === 'Letter' ? 'Letter' : 'A4',
@@ -27,6 +30,7 @@ export function readSettings(): Settings {
     allowRemoteImages: c.get<boolean>('allowRemoteImages') !== false,
     chromiumPath: (c.get<string>('chromiumPath') ?? '').trim(),
     chromiumDownload: c.get<string>('chromiumDownload') === 'never' ? 'never' : 'ask',
+    cacheDays: Number.isFinite(cacheDays) ? Math.min(365, Math.max(0, Math.floor(cacheDays))) : 7,
   };
 }
 

@@ -47,6 +47,8 @@ export interface RequestContext {
   docDir?: string;
   warnings: string[];
   log: Logger;
+  /** Counters filled in while serving requests. */
+  stats?: { remoteFailures: number };
 }
 
 function friendlyPath(uriPath: string, docDir?: string): string {
@@ -151,6 +153,7 @@ export function createRequestHandler(ctx: RequestContext): (request: HTTPRequest
           const { body, contentType } = await fetchRemoteImage(rawUrl);
           await respond(request, 200, contentType, body);
         } catch (err) {
+          if (ctx.stats) ctx.stats.remoteFailures++;
           warnOnce(ctx, `Remote image could not be loaded (${errorCode(err)}): ${rawUrl}`);
           await respond(request, 404, 'text/plain', '');
         }

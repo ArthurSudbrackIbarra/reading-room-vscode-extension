@@ -8,11 +8,55 @@ export interface AnnotationInput {
   id: string;
   color: HighlightColor;
   text: string;
+  /** The reader's note; becomes the annotation's comment (otherwise the highlighted text is used). */
+  note?: string;
   createdAt: string;
   pages: PageRects[];
 }
 
-const AUTHOR = 'Markdown PDF Viewer';
+const AUTHOR = 'Document Viewer';
+
+export class EncryptedPdfError extends Error {
+  constructor() {
+    super('This PDF is encrypted and could not be opened for adding highlights. Download it without highlights instead.');
+    this.name = 'EncryptedPdfError';
+  }
+}
+
+/**
+ * Opens a PDF for editing. Encrypted PDFs are decrypted with the password the reader typed (or the
+ * empty password, which opens PDFs that only restrict permissions); the result is saved unencrypted.
+ */
+async function loadForEditing(pdfBytes: Uint8Array, password?: string): Promise<PDFDocument> {
+  try {
+    return await PDFDocument.load(pdfBytes, { updateMetadata: false });
+  } catch (err) {
+    if ((err as { name?: string })?.name !== 'EncryptedPDFError' && !/encrypt/i.test(String(err))) throw err;
+  }
+  for (const candidate of [password, ''].filter((p): p is string => p !== undefined)) {
+    try {
+      const doc = await PDFDocument.load(pdfBytes, { updateMetadata: false, password: candidate });
+      // The objects are decrypted in memory; drop the encryption dictionary so the copy is readable.
+      doc.context.trailerInfo.Encrypt = undefined;
+      // Make sure decryption worked: reading the page tree fails on garbage.
+      doc.getPages();
+      return doc;
+    } catch {
+      // Try the next password.
+    }
+  }
+  throw new EncryptedPdfError();
+}
+
+/** True if the PDF has an encryption dictionary. */
+export async function isEncryptedPdf(pdfBytes: Uint8Array): Promise<boolean> {
+  try {
+    await PDFDocument.load(pdfBytes, { updateMetadata: false });
+    return false;
+  } catch (err) {
+    return (err as { name?: string })?.name === 'EncryptedPDFError';
+  }
+}
 
 function hexToRgb(hex: string): [number, number, number] {
   const value = parseInt(hex.replace('#', ''), 16);
@@ -44,8 +88,8 @@ function appendAnnotation(page: PDFPage, ref: PDFRef): void {
 }
 
 /** Adds one /Highlight annotation per highlight and page. Returns the new PDF bytes. */
-export async function addHighlightAnnotations(pdfBytes: Uint8Array, highlights: AnnotationInput[]): Promise<Uint8Array> {
-  const doc = await PDFDocument.load(pdfBytes, { updateMetadata: false });
+export async function addHighlightAnnotations(pdfBytes: Uint8Array, highlights: AnnotationInput[], password?: string): Promise<Uint8Array> {
+  const doc = await loadForEditing(pdfBytes, password);
   const context = doc.context;
   const pages = doc.getPages();
   const now = pdfDate(new Date());
@@ -82,7 +126,7 @@ export async function addHighlightAnnotations(pdfBytes: Uint8Array, highlights: 
           CA: HIGHLIGHT_OPACITY,
           F: 4,
           T: PDFHexString.fromText(AUTHOR),
-          Contents: PDFHexString.fromText(h.text),
+          Contents: PDFHexString.fromText(h.note?.trim() ? h.note : h.text),
           NM: PDFString.of(`${h.id}-p${pageRects.pageIndex + 1}`),
           M: PDFString.of(now),
           CreationDate: PDFString.of(created),

@@ -62,3 +62,8 @@ export async function moveAside(from: string, to: string): Promise<void> {
 export async function removeFile(path: string): Promise<void> {
   await fs.rm(path, { force: true });
 }
+
+/** Sets a file's modification time (the PDF cache uses it as "last used"). */
+export async function touchFile(path: string, time: Date = new Date()): Promise<void> {
+  await fs.utimes(path, time, time);
+}

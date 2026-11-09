@@ -1,7 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
+import type { DocumentKind } from '../shared/types';
 
+/** Preview panels for Markdown and text files. */
 export const VIEW_TYPE = 'markdownPdfViewer.preview';
+/** Custom editor for PDF files. */
+export const PDF_VIEW_TYPE = 'markdownPdfViewer.pdf';
 
 export function webviewOptions(extensionUri: vscode.Uri): vscode.WebviewPanelOptions & vscode.WebviewOptions {
   return {
@@ -17,7 +21,7 @@ function escapeAttr(value: string): string {
 }
 
 /** The viewer page: a strict CSP (nonce scripts, no inline styles), every resource via asWebviewUri. */
-export function buildWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
+export function buildWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri, kind: DocumentKind): string {
   const nonce = randomBytes(18).toString('base64');
   const asset = (path: string) => webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', ...path.split('/'))).toString();
   const csp = [
@@ -32,6 +36,7 @@ export function buildWebviewHtml(webview: vscode.Webview, extensionUri: vscode.U
   // PDF.js wants folder URLs with a trailing slash; Uri.joinPath drops it.
   const folder = (path: string) => `${asset(path).replace(/\/+$/, '')}/`;
   const config = {
+    kind,
     worker: asset('pdfjs/pdf.worker.min.mjs'),
     cmaps: folder('pdfjs/cmaps'),
     standardFonts: folder('pdfjs/standard_fonts'),
@@ -46,7 +51,7 @@ export function buildWebviewHtml(webview: vscode.Webview, extensionUri: vscode.U
 <link rel="stylesheet" href="${asset('pdfjs/pdf_viewer.css')}">
 <link rel="stylesheet" href="${asset('codicons/codicon.css')}">
 <link rel="stylesheet" href="${asset('styles.css')}">
-<title>PDF Preview</title>
+<title>Document Viewer</title>
 </head>
 <body>
 <div id="app" data-config="${escapeAttr(JSON.stringify(config))}"></div>

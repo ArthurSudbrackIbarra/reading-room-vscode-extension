@@ -1,6 +1,6 @@
 // The viewer toolbar:
-// [☰] [↑] [n / N] [↓] | [−] [zoom ▾] [+] [↺] | [✎] [● ● ● ● ●] | [◐] [⟳] [⤢] [⤓ ▾]
-import { HIGHLIGHT_COLORS, HIGHLIGHT_HEX, MAX_ZOOM, MIN_ZOOM, type HighlightColor, type PageTheme, type ZoomValue } from '../src/shared/types';
+// [☰] [↑] [n / N] [↓] | [−] [zoom ▾] [+] [↺] | [✎] [● ● ● ● ●] | [🔖 ▾] | [◐] [⟳] [⤢] [⤓ ▾]
+import { HIGHLIGHT_COLORS, HIGHLIGHT_HEX, MAX_ZOOM, MIN_ZOOM, type DocumentKind, type HighlightColor, type PageTheme, type ZoomValue } from '../src/shared/types';
 import { h, icon, iconButton, placeFloating } from './dom';
 
 export interface ToolbarActions {
@@ -14,6 +14,9 @@ export interface ToolbarActions {
   setZoom(zoom: ZoomValue): void;
   toggleTool(): void;
   setColor(color: HighlightColor): void;
+  placeMarker(): void;
+  goToMarker(): void;
+  removeMarker(): void;
   toggleTheme(): void;
   refresh(): void;
   toggleFullView(): void;
@@ -35,6 +38,51 @@ const COLOR_NAMES: Record<HighlightColor, string> = {
   orange: 'Orange',
 };
 
+interface MenuItem {
+  icon: string;
+  label: string;
+  run(): void;
+}
+
+/** A drop-down menu opened from a small chevron button. */
+class DropDown {
+  readonly menu: HTMLElement;
+  readonly toggle: HTMLButtonElement;
+  private readonly items = new Map<string, HTMLButtonElement>();
+
+  constructor(title: string, entries: (MenuItem & { key: string })[]) {
+    this.toggle = iconButton('chevron-down', title, { class: 'mpv-btn mpv-btn-narrow' });
+    this.menu = h('div', { class: 'mpv-menu', role: 'menu', hidden: true });
+    for (const entry of entries) {
+      const item = h('button', { class: 'mpv-menu-item', type: 'button', role: 'menuitem' }, icon(entry.icon), h('span', { text: entry.label }));
+      item.addEventListener('click', () => {
+        this.menu.hidden = true;
+        entry.run();
+      });
+      this.items.set(entry.key, item);
+      this.menu.append(item);
+    }
+    document.body.append(this.menu);
+    this.toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!this.menu.hidden) {
+        this.menu.hidden = true;
+        return;
+      }
+      const r = this.toggle.getBoundingClientRect();
+      placeFloating(this.menu, r.right - 110, r.bottom - 4);
+    });
+    document.addEventListener('pointerdown', (e) => {
+      if (!this.menu.contains(e.target as Node) && !this.toggle.contains(e.target as Node)) this.menu.hidden = true;
+    });
+  }
+
+  setEnabled(key: string, enabled: boolean): void {
+    const item = this.items.get(key);
+    if (item) item.disabled = !enabled;
+  }
+}
+
 export class Toolbar {
   readonly element: HTMLElement;
   private readonly listButton = iconButton('list-flat', 'Highlights list');
@@ -44,10 +92,12 @@ export class Toolbar {
   private readonly customZoom = h('option', { value: 'custom', hidden: true });
   private readonly toolButton = iconButton('edit', 'Highlight tool: select text to highlight it');
   private readonly swatches = new Map<HighlightColor, HTMLButtonElement>();
+  private readonly markerButton = iconButton('bookmark', 'Mark where you stopped reading: click this, then click a line');
+  private readonly markerMenu: DropDown;
   private readonly themeButton = iconButton('color-mode', 'Dark pages');
+  private readonly refreshButton = iconButton('refresh', 'Refresh the PDF');
   private readonly fullButton = iconButton('screen-full', 'Full view');
-  private readonly downloadMenu: HTMLElement;
-  private readonly downloadToggle = iconButton('chevron-down', 'More download options', { class: 'mpv-btn mpv-btn-narrow' });
+  private readonly downloadMenu: DropDown;
 
   constructor(private readonly actions: ToolbarActions) {
     const prev = iconButton('arrow-up', 'Previous page');
@@ -55,8 +105,7 @@ export class Toolbar {
     const zoomOut = iconButton('zoom-out', 'Zoom out (Ctrl+-)');
     const zoomIn = iconButton('zoom-in', 'Zoom in (Ctrl+=)');
     const zoomReset = iconButton('discard', 'Reset zoom to fit width (Ctrl+0)');
-    const refresh = iconButton('refresh', 'Refresh the PDF');
-    const download = iconButton('download', 'Download PDF (with highlights)');
+    const download = iconButton('download', 'Download PDF (with highlights and notes)');
 
     this.zoomSelect.append(this.customZoom, ...ZOOM_OPTIONS.map((o) => h('option', { value: o.value, text: o.label })));
 
@@ -76,24 +125,28 @@ export class Toolbar {
       colors.append(swatch);
     }
 
-    this.downloadMenu = h(
-      'div',
-      { class: 'mpv-menu', role: 'menu', hidden: true },
-      this.menuItem('download', 'Download PDF (with highlights)', () => actions.download(true)),
-      this.menuItem('file-pdf', 'Download PDF without highlights', () => actions.download(false)),
-    );
+    this.markerMenu = new DropDown('Reading marker options', [
+      { key: 'place', icon: 'bookmark', label: 'Mark where I stopped reading…', run: () => actions.placeMarker() },
+      { key: 'goto', icon: 'arrow-right', label: 'Go to where I stopped reading', run: () => actions.goToMarker() },
+      { key: 'remove', icon: 'close', label: 'Remove the reading marker', run: () => actions.removeMarker() },
+    ]);
+    this.downloadMenu = new DropDown('More download options', [
+      { key: 'with', icon: 'download', label: 'Download PDF (with highlights and notes)', run: () => actions.download(true) },
+      { key: 'without', icon: 'file-pdf', label: 'Download PDF without highlights', run: () => actions.download(false) },
+    ]);
+    this.setMarkerState(false, false);
 
     this.element = h(
       'header',
-      { class: 'mpv-toolbar', role: 'toolbar', 'aria-label': 'PDF viewer' },
+      { class: 'mpv-toolbar', role: 'toolbar', 'aria-label': 'Document viewer' },
       h('div', { class: 'mpv-group' }, this.listButton),
       h('div', { class: 'mpv-group' }, prev, h('div', { class: 'mpv-page' }, this.pageInput, this.pageCount), next),
       h('div', { class: 'mpv-group' }, zoomOut, this.zoomSelect, zoomIn, zoomReset),
       h('div', { class: 'mpv-group' }, this.toolButton, colors),
+      h('div', { class: 'mpv-group' }, h('div', { class: 'mpv-split' }, this.markerButton, this.markerMenu.toggle)),
       h('div', { class: 'mpv-spacer' }),
-      h('div', { class: 'mpv-group' }, this.themeButton, refresh, this.fullButton, h('div', { class: 'mpv-split' }, download, this.downloadToggle)),
+      h('div', { class: 'mpv-group' }, this.themeButton, this.refreshButton, this.fullButton, h('div', { class: 'mpv-split' }, download, this.downloadMenu.toggle)),
     );
-    document.body.append(this.downloadMenu);
 
     this.listButton.addEventListener('click', () => actions.toggleList());
     prev.addEventListener('click', () => actions.previousPage());
@@ -102,22 +155,11 @@ export class Toolbar {
     zoomIn.addEventListener('click', () => actions.zoomIn());
     zoomReset.addEventListener('click', () => actions.resetZoom());
     this.toolButton.addEventListener('click', () => actions.toggleTool());
+    this.markerButton.addEventListener('click', () => actions.placeMarker());
     this.themeButton.addEventListener('click', () => actions.toggleTheme());
-    refresh.addEventListener('click', () => actions.refresh());
+    this.refreshButton.addEventListener('click', () => actions.refresh());
     this.fullButton.addEventListener('click', () => actions.toggleFullView());
     download.addEventListener('click', () => actions.download(true));
-    this.downloadToggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (!this.downloadMenu.hidden) {
-        this.downloadMenu.hidden = true;
-        return;
-      }
-      const r = this.downloadToggle.getBoundingClientRect();
-      placeFloating(this.downloadMenu, r.right - 110, r.bottom - 4);
-    });
-    document.addEventListener('pointerdown', (e) => {
-      if (!this.downloadMenu.contains(e.target as Node) && e.target !== this.downloadToggle) this.downloadMenu.hidden = true;
-    });
     this.zoomSelect.addEventListener('change', () => {
       const value = this.zoomSelect.value;
       if (value === 'custom') return;
@@ -135,13 +177,11 @@ export class Toolbar {
     this.pageInput.addEventListener('focus', () => this.pageInput.select());
   }
 
-  private menuItem(iconName: string, label: string, run: () => void): HTMLButtonElement {
-    const item = h('button', { class: 'mpv-menu-item', type: 'button', role: 'menuitem' }, icon(iconName), h('span', { text: label }));
-    item.addEventListener('click', () => {
-      this.downloadMenu.hidden = true;
-      run();
-    });
-    return item;
+  /** Adapts the buttons to the kind of document: PDF files have no source to show next to. */
+  setKind(kind: DocumentKind): void {
+    this.fullButton.hidden = kind === 'pdf';
+    this.refreshButton.title = kind === 'pdf' ? 'Reload the PDF from disk' : 'Convert the document again';
+    this.refreshButton.setAttribute('aria-label', this.refreshButton.title);
   }
 
   setPage(page: number, count: number): void {
@@ -177,6 +217,20 @@ export class Toolbar {
     }
   }
 
+  setMarkerState(exists: boolean, placing: boolean): void {
+    this.markerButton.classList.toggle('mpv-active', placing);
+    this.markerButton.classList.toggle('mpv-has-marker', exists);
+    this.markerButton.setAttribute('aria-pressed', String(placing));
+    this.markerButton.title = placing
+      ? 'Click the line where you stopped reading (Esc cancels)'
+      : exists
+        ? 'Move the reading marker: click this, then click a line'
+        : 'Mark where you stopped reading: click this, then click a line';
+    this.markerButton.setAttribute('aria-label', this.markerButton.title);
+    this.markerMenu.setEnabled('goto', exists);
+    this.markerMenu.setEnabled('remove', exists);
+  }
+
   setTheme(theme: PageTheme): void {
     this.themeButton.classList.toggle('mpv-active', theme === 'dark');
     this.themeButton.setAttribute('aria-pressed', String(theme === 'dark'));
@@ -185,7 +239,7 @@ export class Toolbar {
 
   setFullView(full: boolean): void {
     this.fullButton.replaceChildren(icon(full ? 'screen-normal' : 'screen-full'));
-    this.fullButton.title = full ? 'Show the PDF next to the Markdown' : 'Full view: show the PDF in the Markdown editor group';
+    this.fullButton.title = full ? 'Show the PDF next to the source file' : 'Full view: show the PDF in the source file’s editor group';
     this.fullButton.setAttribute('aria-label', this.fullButton.title);
   }
 

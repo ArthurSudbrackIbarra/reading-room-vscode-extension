@@ -33,6 +33,19 @@ export function isZoomValue(value: unknown): value is ZoomValue {
 export type PageTheme = 'light' | 'dark';
 export type PageSize = 'A4' | 'Letter';
 
+/**
+ * What a viewer shows: Markdown and plain text are converted to PDF with Chromium; PDF files are
+ * shown as they are.
+ */
+export type DocumentKind = 'markdown' | 'text' | 'pdf';
+
+export function isConvertedKind(kind: DocumentKind): kind is 'markdown' | 'text' {
+  return kind !== 'pdf';
+}
+
+/** Longest note kept on a highlight (characters). */
+export const MAX_NOTE_LENGTH = 20_000;
+
 /** W3C Web Annotation TextQuoteSelector. */
 export interface TextQuoteSelector {
   type: 'TextQuoteSelector';
@@ -73,6 +86,34 @@ export interface Highlight {
   updatedAt: string;
   status: HighlightStatus;
   target: HighlightTarget;
+  /** The reader's comment on the highlight. Shown on hover and click; exported as the annotation text. */
+  note?: string;
+}
+
+/**
+ * "I stopped reading here": one per document. Anchored to the text of the marked line when there
+ * is any (so it follows edits of converted documents), with the page position as a fallback.
+ */
+export interface ReadingMarker {
+  /** Page index (0-based). */
+  pageIndex: number;
+  /** Top of the marked line, as a fraction of the page height measured from the top. */
+  y: number;
+  /** Text at the start of the marked line; absent when the line has no text (an image, a scan). */
+  selector?: [TextQuoteSelector, TextPositionSelector];
+  createdAt: string;
+}
+
+export function isReadingMarker(value: unknown): value is ReadingMarker {
+  if (!value || typeof value !== 'object') return false;
+  const m = value as Partial<ReadingMarker>;
+  if (typeof m.pageIndex !== 'number' || !Number.isInteger(m.pageIndex) || m.pageIndex < 0) return false;
+  if (typeof m.y !== 'number' || !Number.isFinite(m.y)) return false;
+  if (m.selector !== undefined) {
+    const [quote, position] = Array.isArray(m.selector) ? m.selector : [];
+    if (quote?.type !== 'TextQuoteSelector' || typeof quote.exact !== 'string' || position?.type !== 'TextPositionSelector') return false;
+  }
+  return true;
 }
 
 export interface ViewState {
@@ -85,6 +126,7 @@ export interface StoredRecord {
   fsPath?: string;
   view: ViewState;
   highlights: Highlight[];
+  marker?: ReadingMarker;
   updatedAt: string;
 }
 

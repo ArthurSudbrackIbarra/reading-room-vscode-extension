@@ -6,13 +6,22 @@
     </linearGradient>
   </defs>
   <rect width="128" height="128" rx="26" fill="url(#bg)"/>
+  <!-- the document -->
   <path d="M36 16h42l22 22v70a6 6 0 0 1-6 6H36a6 6 0 0 1-6-6V22a6 6 0 0 1 6-6z" fill="#ffffff"/>
   <path d="M78 16v16a6 6 0 0 0 6 6h16z" fill="#c8d8f3"/>
-  <text x="40" y="45" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-weight="700" font-size="17" fill="#1a5bc4">M↓</text>
-  <rect x="38" y="55" width="54" height="12" rx="2.5" fill="#FFE45C"/>
-  <rect x="41" y="59" width="46" height="4" rx="2" fill="#3d444d"/>
-  <rect x="41" y="74" width="50" height="4" rx="2" fill="#8c959f"/>
+  <!-- text lines, two of them highlighted -->
+  <rect x="41" y="31" width="30" height="4" rx="2" fill="#8c959f"/>
+  <rect x="38" y="43" width="54" height="12" rx="2.5" fill="#FFE45C"/>
+  <rect x="41" y="47" width="46" height="4" rx="2" fill="#3d444d"/>
+  <rect x="41" y="62" width="50" height="4" rx="2" fill="#8c959f"/>
+  <!-- the reading marker -->
+  <path d="M30 76.5h70" stroke="#e5484d" stroke-width="3" stroke-linecap="round"/>
+  <path d="M22 68h14v20l-7-5-7 5z" fill="#e5484d" stroke="#ffffff" stroke-width="2" stroke-linejoin="round"/>
   <rect x="41" y="84" width="40" height="4" rx="2" fill="#8c959f"/>
-  <rect x="38" y="91" width="34" height="11" rx="2.5" fill="#FF8AC6"/>
-  <rect x="41" y="94.5" width="28" height="4" rx="2" fill="#3d444d"/>
+  <rect x="38" y="93" width="34" height="11" rx="2.5" fill="#FF8AC6"/>
+  <rect x="41" y="96.5" width="28" height="4" rx="2" fill="#3d444d"/>
+  <!-- a note on the pink highlight -->
+  <path d="M80 89h16a4 4 0 0 1 4 4v9a4 4 0 0 1-4 4h-9l-5 4v-4h-2a4 4 0 0 1-4-4v-9a4 4 0 0 1 4-4z" fill="#FF8AC6" stroke="#3d444d" stroke-width="1.6" stroke-linejoin="round"/>
+  <rect x="81.5" y="94" width="13" height="2" rx="1" fill="#3d444d"/>
+  <rect x="81.5" y="98.5" width="9" height="2" rx="1" fill="#3d444d"/>
 </svg>

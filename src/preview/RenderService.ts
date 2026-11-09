@@ -2,6 +2,7 @@
 // and turns "no browser" situations into actionable prompts (download, choose a path, …).
 import { pathToFileURL } from 'node:url';
 import * as vscode from 'vscode';
+import type { CacheDependency } from '../cache/PdfCache';
 import type * as ConverterModule from '../converter/index';
 import type { AnnotationInput } from '../export/annotate';
 import type { PageTheme } from '../shared/types';
@@ -9,11 +10,15 @@ import { readSettings, SECTION } from '../util/settings';
 
 type ConverterApi = typeof ConverterModule;
 type Converter = InstanceType<ConverterApi['Converter']>;
-type RenderResult = Awaited<ReturnType<Converter['render']>>;
+type RenderResult = Awaited<ReturnType<Converter['render']>> & {
+  /** Local files the render read, for invalidating the disk cache when they change. */
+  deps: CacheDependency[];
+};
 
 export interface RenderInput {
   uri: vscode.Uri;
   text: string;
+  kind: 'markdown' | 'text';
 }
 
 export class RenderError extends Error {
@@ -81,21 +86,34 @@ export class RenderService implements vscode.Disposable {
 
   async render(input: RenderInput, theme: PageTheme): Promise<RenderResult> {
     const converter = await this.converter();
-    const attempt = () => {
+    const attempt = async (): Promise<RenderResult> => {
       const settings = readSettings();
       const folder = vscode.workspace.getWorkspaceFolder(input.uri);
-      return converter.render({
+      const deps = new Map<string, CacheDependency>();
+      const result = await converter.render({
+        kind: input.kind,
         markdown: input.text,
         docPath: input.uri.path,
         workspaceRootPath: folder && folder.uri.scheme === input.uri.scheme && folder.uri.authority === input.uri.authority ? folder.uri.path : undefined,
-        fileName: input.uri.path.split('/').pop() ?? 'document.md',
+        fileName: input.uri.path.split('/').pop() ?? 'document',
         pageSize: settings.pageSize,
         pageNumbers: settings.pageNumbers,
         allowRemoteImages: settings.allowRemoteImages,
         theme,
         chromiumPath: settings.chromiumPath || undefined,
-        readResource: async (uriPath: string) => vscode.workspace.fs.readFile(input.uri.with({ path: uriPath, query: '', fragment: '' })),
+        readResource: async (uriPath: string) => {
+          const uri = input.uri.with({ path: uriPath, query: '', fragment: '' });
+          try {
+            const [bytes, stat] = await Promise.all([vscode.workspace.fs.readFile(uri), vscode.workspace.fs.stat(uri)]);
+            deps.set(uriPath, { path: uriPath, size: stat.size, mtime: stat.mtime });
+            return bytes;
+          } catch (err) {
+            deps.set(uriPath, { path: uriPath, missing: true });
+            throw err;
+          }
+        },
       });
+      return { ...result, deps: [...deps.values()] };
     };
     try {
       return await attempt();
@@ -105,9 +123,9 @@ export class RenderService implements vscode.Disposable {
     }
   }
 
-  async annotate(pdf: Uint8Array, highlights: AnnotationInput[]): Promise<Uint8Array> {
+  async annotate(pdf: Uint8Array, highlights: AnnotationInput[], password?: string): Promise<Uint8Array> {
     const mod = await this.loadModule();
-    return mod.annotatePdf(pdf, highlights);
+    return mod.annotatePdf(pdf, highlights, password);
   }
 
   /**
@@ -145,7 +163,7 @@ export class RenderService implements vscode.Disposable {
 
     if (name === 'InvalidChromiumPathError') {
       const choice = await vscode.window.showErrorMessage(
-        `Markdown PDF Viewer: the browser path in the "${SECTION}.chromiumPath" setting does not exist: ${settings.chromiumPath}`,
+        `Document Viewer: the browser path in the "${SECTION}.chromiumPath" setting does not exist: ${settings.chromiumPath}`,
         'Clear the Setting',
         'Choose Browser…',
         'Open Settings',
@@ -163,7 +181,7 @@ export class RenderService implements vscode.Disposable {
       const failed = err as { executablePath?: string; source?: string };
       const actions = failed.source === 'downloaded' ? ['Show Log'] : ['Download Chromium', 'Choose Browser…', 'Show Log'];
       const choice = await vscode.window.showErrorMessage(
-        `Markdown PDF Viewer could not start ${failed.executablePath ?? 'the browser'}. This can happen when a company policy blocks headless browsers. ${errorMessage(err)}`,
+        `Document Viewer could not start ${failed.executablePath ?? 'the browser'}. This can happen when a company policy blocks headless browsers. ${errorMessage(err)}`,
         ...actions,
       );
       if (choice === 'Download Chromium') return this.downloadBrowser();
@@ -175,7 +193,7 @@ export class RenderService implements vscode.Disposable {
     // BrowserNotFoundError
     if (settings.chromiumDownload === 'never') {
       const choice = await vscode.window.showErrorMessage(
-        'Markdown PDF Viewer needs Chrome, Edge or Chromium to create PDFs, and none was found. Install one of them, or set the path in the settings.',
+        'Document Viewer needs Chrome, Edge or Chromium to convert Markdown and text files to PDF, and none was found. Install one of them, or set the path in the settings.',
         'Choose Browser…',
         'Open Settings',
       );
@@ -184,7 +202,7 @@ export class RenderService implements vscode.Disposable {
       throw new RenderError('No Chrome, Edge or Chromium installation was found.', true);
     }
     const choice = await vscode.window.showWarningMessage(
-      'Markdown PDF Viewer needs Chrome, Edge or Chromium to create PDFs, and none was found.',
+      'Document Viewer needs Chrome, Edge or Chromium to convert Markdown and text files to PDF, and none was found.',
       {
         modal: true,
         detail:
@@ -214,7 +232,7 @@ export class RenderService implements vscode.Disposable {
     const converter = await this.converter();
     try {
       await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: 'Downloading Chromium for Markdown PDF Viewer', cancellable: false },
+        { location: vscode.ProgressLocation.Notification, title: 'Downloading Chromium for Document Viewer', cancellable: false },
         async (progress) => {
           let reported = 0;
           await converter.downloadBrowser((downloaded, total) => {
@@ -230,7 +248,7 @@ export class RenderService implements vscode.Disposable {
           });
         },
       );
-      void vscode.window.showInformationMessage('Chromium was downloaded. Markdown PDF Viewer will use it from now on.');
+      void vscode.window.showInformationMessage('Chromium was downloaded. Document Viewer will use it from now on.');
       return true;
     } catch (err) {
       this.log.error(`Downloading Chromium failed: ${errorMessage(err)}`);

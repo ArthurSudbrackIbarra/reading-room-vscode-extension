@@ -20,7 +20,14 @@ export function contentBox(pageSize: PageSize): { widthPx: number; heightMm: num
   };
 }
 
-export function buildDocumentHtml(options: { body: string; title: string; theme: PageTheme; pageSize: PageSize }): string {
+export function buildDocumentHtml(options: {
+  body: string;
+  title: string;
+  theme: PageTheme;
+  pageSize: PageSize;
+  /** `markdown-body` (default) or `text-body` for plain text documents. */
+  bodyClass?: string;
+}): string {
   const { heightMm } = contentBox(options.pageSize);
   return `<!doctype html>
 <html lang="en" class="theme-${options.theme}">
@@ -32,7 +39,7 @@ export function buildDocumentHtml(options: { body: string; title: string; theme:
 <style>:root { --content-height: ${heightMm.toFixed(1)}mm; }</style>
 </head>
 <body>
-<main class="markdown-body">
+<main class="${options.bodyClass ?? 'markdown-body'}">
 ${options.body}
 </main>
 </body>
@@ -166,8 +173,12 @@ function footerTemplate(theme: PageTheme): string {
   return `<div style="font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 8px; width: 100%; text-align: center; color: ${color};"><span class="pageNumber"></span> / <span class="totalPages"></span></div>`;
 }
 
-export async function printPdf(browser: Browser, options: PrintOptions): Promise<{ pdf: Uint8Array; warnings: string[] }> {
+export async function printPdf(
+  browser: Browser,
+  options: PrintOptions,
+): Promise<{ pdf: Uint8Array; warnings: string[]; remoteFailures: number }> {
   const warnings: string[] = [];
+  const stats = { remoteFailures: 0 };
   const page = await browser.newPage();
   try {
     await page.setJavaScriptEnabled(false);
@@ -185,6 +196,7 @@ export async function printPdf(browser: Browser, options: PrintOptions): Promise
         docDir,
         warnings,
         log: options.log,
+        stats,
       }),
     );
     // Lay the page out at the printable width, so the measurements below match the PDF.
@@ -211,7 +223,7 @@ export async function printPdf(browser: Browser, options: PrintOptions): Promise
       preferCSSPageSize: false,
       timeout: 60_000,
     });
-    return { pdf, warnings };
+    return { pdf, warnings, remoteFailures: stats.remoteFailures };
   } finally {
     await page.close().catch(() => undefined);
   }

@@ -16,8 +16,11 @@ export interface ConverterOptions {
 }
 
 export interface RenderRequest {
+  /** How to read `markdown`: as Markdown (the default) or as plain text. */
+  kind?: 'markdown' | 'text';
+  /** The source text (Markdown, or plain text when `kind` is 'text'). */
   markdown: string;
-  /** URI path of the Markdown file, e.g. `/c:/Users/me/notes/doc.md`. Relative URLs resolve against it. */
+  /** URI path of the source file, e.g. `/c:/Users/me/notes/doc.md`. Relative URLs resolve against it. */
   docPath: string;
   /** URI path of the workspace folder that contains the file; `/img.png` resolves against it. */
   workspaceRootPath?: string;
@@ -38,6 +41,8 @@ export interface RenderResult {
   title: string;
   browser: string;
   timings: Record<string, number>;
+  /** Remote images that could not be downloaded; such a PDF should not be cached. */
+  remoteFailures: number;
 }
 
 export interface ResolvedBrowser {

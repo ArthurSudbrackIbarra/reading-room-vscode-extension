@@ -1,5 +1,15 @@
 # Markdown PDF Viewer with Highlights — Implementation Plan
 
+> **Update, 2026-11-09 (v0.2.0):** the extension became **Document Viewer & Highlighter**. It adds:
+> - PDF files in a read-only custom editor (`markdownPdfViewer.pdf`)
+> - `.txt` conversion
+> - notes on highlights
+> - a reading marker
+> - undo/redo
+> - a disk cache of converted PDFs in global storage
+>
+> The extension ID, settings and storage format are unchanged; `CHANGELOG.md` and `README.md` describe 0.2.0. The rest of this file is the 0.1.0 plan as implemented.
+>
 > **Status:** Phase 1 (research and plan) was **approved on 2026-11-06**. **Phase 2 (M1–M4) was implemented on 2026-11-06** as v0.1.0; see `README.md` for usage and the build/install commands.
 >
 > Changes and additions during implementation:

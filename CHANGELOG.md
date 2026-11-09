@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0 — 2026-11-09
+
+Now a general document viewer: **Document Viewer & Highlighter**. The extension ID, setting names and stored data are unchanged, so updating keeps everything.
+
+- **PDF files** open directly in the viewer (a custom editor), exactly as they are, with the same highlighting, notes, reading marker, zoom and download. They reload when the file changes on disk. Password-protected PDFs ask for the password.
+- **Plain text (`.txt`) files** get the same PDF preview as Markdown: the text exactly as written in a monospace font, with web addresses linked.
+- **Notes on highlights**: add a note from the highlight popover, or highlight and write a note in one step from the selection bar. Notes show on hover and as a badge in the margin, are listed under their highlight, and become the comment of the PDF annotation when you download.
+- **Reading marker**: mark the line where you stopped reading (toolbar, selection bar or Command Palette). Opening the document again jumps there. It follows the text through edits of Markdown and text files.
+- **Undo/redo** (`Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z`) for highlights, colors, notes, the reading marker and *Delete All Highlights*, with an "Undo" button after deletions. In the note box, `Ctrl+Z` undoes typing.
+- **PDF cache**: converted Markdown and text files are cached in the extension's storage (`markdownPdfViewer.cacheDays`, default 7 days; 512 MB at most), so reopening an unchanged file is instant. The cache entry is ignored when an image the document uses changes. New command: *Clear Cached PDFs*.
+- Dark pages for PDF files: the page is inverted, keeping its hues, and pictures keep their real colors.
+- New icon and name. Commands moved to the **Document Viewer:** category.
+
 ## 0.1.0 — 2026-11-06
 
 First release.

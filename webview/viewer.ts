@@ -22,7 +22,12 @@ export interface PageViewLike {
   viewport: { width: number; height: number; scale: number };
   pdfPage?: { view: number[] };
   textLayer?: { div: HTMLDivElement } | null;
+  /** Images drawn on the page: 6 numbers each (three corners, as fractions of the page). */
+  imageCoordinates?: ArrayLike<number> | null;
 }
+
+/** Asks the reader for the password of an encrypted PDF; undefined cancels. */
+export type PasswordPrompt = (incorrect: boolean) => Promise<string | undefined>;
 
 const ZOOM_STEP = 1.1;
 
@@ -42,17 +47,21 @@ export class Viewer {
   private resizeTimer?: ReturnType<typeof setTimeout>;
   private lastWidth = 0;
   private lastHeight = 0;
+  /** Password of the current (encrypted) PDF, reused when the file is reloaded. */
+  password?: string;
 
   /** Called whenever the scale changes (toolbar update, persistence). */
   onScaleChange?: (zoom: ZoomValue, scale: number) => void;
   onPageChange?: (pageNumber: number, pagesCount: number) => void;
   onScroll?: () => void;
+  onPassword?: PasswordPrompt;
 
   constructor(
     readonly container: HTMLDivElement,
     viewerElement: HTMLDivElement,
     private readonly assets: ViewerAssets,
     private readonly originElement: HTMLElement,
+    options: { recordImages?: boolean } = {},
   ) {
     this.linkService = new PDFLinkService({
       eventBus: this.eventBus,
@@ -69,6 +78,9 @@ export class Viewer {
       annotationEditorMode: pdfjsLib.AnnotationEditorType.DISABLE,
       enableDetailCanvas: true,
       enableAutoLinking: false,
+      // Records where images are drawn (pageView.imageCoordinates), so dark pages can keep photos
+      // in their real colors. The huge minimum size keeps PDF.js from adding its own image overlays.
+      ...(options.recordImages ? { imagesRightClickMinSize: 1_000_000 } : {}),
     });
     this.linkService.setViewer(this.pdfViewer);
 
@@ -109,7 +121,33 @@ export class Viewer {
       wasmUrl: this.assets.wasm,
       enableXfa: false,
     });
-    const doc = await task.promise;
+    let asked = false;
+    task.onPassword = (update: (password: string) => void, reason: number) => {
+      const incorrect = reason === pdfjsLib.PasswordResponses.INCORRECT_PASSWORD;
+      // Reuse the password typed for the previous version of this file once.
+      if (!asked && !incorrect && this.password !== undefined) {
+        asked = true;
+        update(this.password);
+        return;
+      }
+      asked = true;
+      const prompt = this.onPassword ?? (async () => undefined);
+      void prompt(incorrect || this.password !== undefined).then((password) => {
+        if (password === undefined) {
+          void task.destroy();
+          return;
+        }
+        this.password = password;
+        update(password);
+      });
+    };
+    let doc: PDFDocumentProxy;
+    try {
+      doc = await task.promise;
+    } catch (err) {
+      if (seq !== this.loadSeq) return undefined;
+      throw err;
+    }
     if (seq !== this.loadSeq) {
       void task.destroy();
       return undefined;
@@ -248,6 +286,25 @@ export class Viewer {
 
   previousPage(): void {
     this.pdfViewer.previousPage();
+  }
+
+  /**
+   * Scrolls so that a vertical position on a page (fraction of the page height from the top) sits
+   * `ratio` of the way down the visible area.
+   */
+  scrollToFraction(pageIndex: number, y: number, ratio = 0.25): boolean {
+    const view = this.pageView(pageIndex);
+    if (!this.doc || !view?.div) return false;
+    const target = view.div.offsetTop + y * view.div.offsetHeight - this.container.clientHeight * ratio;
+    this.container.scrollTop = Math.max(0, target);
+    return true;
+  }
+
+  /** The page under a point (client coordinates), if any. */
+  pageIndexAt(clientX: number, clientY: number): number | undefined {
+    const page = document.elementsFromPoint(clientX, clientY).find((el) => el.classList.contains('page')) as HTMLElement | undefined;
+    const n = Number(page?.dataset.pageNumber);
+    return Number.isInteger(n) && n > 0 ? n - 1 : undefined;
   }
 
   /** Scrolls so that the point (PDF units, origin bottom-left) is near the top of the viewport. */

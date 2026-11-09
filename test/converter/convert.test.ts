@@ -160,3 +160,21 @@ describe('rendering options', () => {
     expect(links).toEqual(['https://example.com/']);
   });
 });
+
+describe('plain text files', () => {
+  it('renders the text as written, wraps long lines, links web addresses and spans pages', async () => {
+    const longLine = 'word '.repeat(60).trim();
+    const body = Array.from({ length: 140 }, (_, i) => `Line ${i + 1}: ${i === 3 ? longLine : 'short line'}`).join('\n');
+    const text = `# Not a heading\n**not bold** <b>not html</b>\nhttps://example.com/docs and readme.md\n\n${body}\n`;
+    const r = await render(text, { kind: 'text', fileName: 'notes.txt' });
+    const info = await inspect(r.pdf);
+    expect(r.title).toBe('notes.txt');
+    expect(r.warnings).toEqual([]);
+    expect(info.doc.numPages).toBeGreaterThanOrEqual(2);
+    expect(info.text).toContain('# Not a heading');
+    expect(info.text).toContain('**not bold**');
+    expect(info.text).toContain('<b>not html</b>');
+    expect(info.text).toContain('Line 140: short line');
+    expect(info.links).toEqual(['https://example.com/docs']);
+  });
+});

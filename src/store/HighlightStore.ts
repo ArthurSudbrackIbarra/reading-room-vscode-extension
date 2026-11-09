@@ -5,9 +5,12 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { posix, win32 } from 'node:path';
 import {
+  MAX_NOTE_LENGTH,
   isHighlightColor,
+  isReadingMarker,
   isZoomValue,
   type Highlight,
+  type ReadingMarker,
   type StoredRecord,
   type ViewState,
 } from '../shared/types';
@@ -43,6 +46,8 @@ interface Entry {
   /** mtime of the file as last read or written by us; used to merge changes from other windows. */
   diskMtimeMs?: number;
   deletedIds: Set<string>;
+  /** The reading marker was set or removed here since the last read, so ours wins over other windows. */
+  markerChanged: boolean;
   dirty: boolean;
 }
 
@@ -88,6 +93,49 @@ function isValidHighlight(value: unknown): value is Highlight {
   );
 }
 
+/** Cleans a highlight in place (defaults, note length). Returns undefined if it is not a highlight. */
+export function sanitizeHighlight(value: unknown): Highlight | undefined {
+  if (!isValidHighlight(value)) return undefined;
+  const h = value;
+  h.status = h.status === 'orphaned' ? 'orphaned' : 'anchored';
+  const pos = h.target.selector[1];
+  if (!pos || pos.type !== 'TextPositionSelector') {
+    h.target.selector[1] = { type: 'TextPositionSelector', start: -1, end: -1 };
+  }
+  h.target.hints ??= { pages: [] };
+  h.target.hints.pages ??= [];
+  h.createdAt ??= new Date(0).toISOString();
+  h.updatedAt ??= h.createdAt;
+  h.target.selector[0].prefix ??= '';
+  h.target.selector[0].suffix ??= '';
+  if (typeof h.note === 'string' && h.note.trim()) h.note = h.note.slice(0, MAX_NOTE_LENGTH);
+  else delete h.note;
+  return h;
+}
+
+/** Validates a reading marker and returns a clean copy, or undefined if it is not usable. */
+export function sanitizeMarker(value: unknown): ReadingMarker | undefined {
+  if (!isReadingMarker(value)) return undefined;
+  const marker: ReadingMarker = {
+    pageIndex: value.pageIndex,
+    y: Math.min(1, Math.max(0, value.y)),
+    createdAt: typeof value.createdAt === 'string' ? value.createdAt : new Date(0).toISOString(),
+  };
+  if (value.selector) {
+    const [quote, position] = value.selector;
+    marker.selector = [
+      { type: 'TextQuoteSelector', exact: quote.exact, prefix: quote.prefix ?? '', suffix: quote.suffix ?? '' },
+      { type: 'TextPositionSelector', start: Number(position.start) || 0, end: Number(position.end) || 0 },
+    ];
+  }
+  return marker;
+}
+
+/** True when a record holds anything worth keeping a file for. */
+export function hasData(record: StoredRecord): boolean {
+  return record.highlights.length > 0 || record.view.zoom !== undefined || record.marker !== undefined;
+}
+
 /** Validates a parsed JSON record and fills in defaults. Throws if it is not a record at all. */
 export function sanitizeRecord(raw: unknown, ref: DocumentRef): StoredRecord {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('not a record object');
@@ -97,26 +145,17 @@ export function sanitizeRecord(raw: unknown, ref: DocumentRef): StoredRecord {
   }
   const view: ViewState = {};
   if (r.view && isZoomValue(r.view.zoom)) view.zoom = r.view.zoom;
-  const highlights = Array.isArray(r.highlights) ? r.highlights.filter(isValidHighlight) : [];
-  for (const h of highlights) {
-    h.status = h.status === 'orphaned' ? 'orphaned' : 'anchored';
-    const pos = h.target.selector[1];
-    if (!pos || pos.type !== 'TextPositionSelector') {
-      h.target.selector[1] = { type: 'TextPositionSelector', start: -1, end: -1 };
-    }
-    h.target.hints ??= { pages: [] };
-    h.target.hints.pages ??= [];
-    h.createdAt ??= new Date(0).toISOString();
-    h.updatedAt ??= h.createdAt;
-    h.target.selector[0].prefix ??= '';
-    h.target.selector[0].suffix ??= '';
-  }
+  const highlights = Array.isArray(r.highlights)
+    ? r.highlights.map(sanitizeHighlight).filter((h): h is Highlight => h !== undefined)
+    : [];
+  const marker = sanitizeMarker(r.marker);
   return {
     schemaVersion: SCHEMA_VERSION,
     uri: typeof r.uri === 'string' ? r.uri : ref.uri,
     fsPath: typeof r.fsPath === 'string' ? r.fsPath : ref.fsPath,
     view,
     highlights,
+    ...(marker ? { marker } : {}),
     updatedAt: typeof r.updatedAt === 'string' ? r.updatedAt : new Date().toISOString(),
   };
 }
@@ -175,7 +214,14 @@ export class HighlightStore {
     let entry = this.entries.get(key);
     if (!entry) {
       const loaded = await this.readFromDisk(key, ref);
-      entry = this.entries.get(key) ?? { ref, record: loaded.record, diskMtimeMs: loaded.mtimeMs, deletedIds: new Set(), dirty: false };
+      entry = this.entries.get(key) ?? {
+        ref,
+        record: loaded.record,
+        diskMtimeMs: loaded.mtimeMs,
+        deletedIds: new Set(),
+        markerChanged: false,
+        dirty: false,
+      };
       this.entries.set(key, entry);
     }
     return entry;
@@ -208,9 +254,13 @@ export class HighlightStore {
   async update(ref: DocumentRef, mutate: (record: StoredRecord) => void): Promise<StoredRecord> {
     const entry = await this.entry(ref);
     const before = new Set(entry.record.highlights.map((h) => h.id));
+    const markerBefore = JSON.stringify(entry.record.marker ?? null);
     mutate(entry.record);
     const after = new Set(entry.record.highlights.map((h) => h.id));
     for (const id of before) if (!after.has(id)) entry.deletedIds.add(id);
+    // A highlight brought back (undo of a delete) must survive the next merge with other windows.
+    for (const id of after) if (!before.has(id)) entry.deletedIds.delete(id);
+    if (JSON.stringify(entry.record.marker ?? null) !== markerBefore) entry.markerChanged = true;
     entry.record.updatedAt = new Date().toISOString();
     entry.record.uri = ref.uri;
     entry.record.fsPath = ref.fsPath;
@@ -259,11 +309,15 @@ export class HighlightStore {
         try {
           const theirs = sanitizeRecord(JSON.parse(await fs.readFile(file, 'utf8')), entry.ref);
           entry.record.highlights = mergeHighlights(entry.record.highlights, theirs.highlights, entry.deletedIds);
+          if (!entry.markerChanged) {
+            if (theirs.marker) entry.record.marker = theirs.marker;
+            else delete entry.record.marker;
+          }
         } catch {
           // Unreadable on disk: ours wins.
         }
       }
-      if (entry.record.highlights.length === 0 && entry.record.view.zoom === undefined) {
+      if (!hasData(entry.record)) {
         await removeFile(file);
         entry.diskMtimeMs = undefined;
         return;
@@ -297,25 +351,25 @@ export class HighlightStore {
     if (fromKey === toKey) {
       // Same key (e.g. a case-only rename on Windows): just update the stored path.
       const entry = await this.entry(from);
-      if (entry.record.highlights.length === 0 && entry.record.view.zoom === undefined) return false;
+      if (!hasData(entry.record)) return false;
       await this.update(to, () => undefined);
       await this.flushKey(toKey);
       return true;
     }
     await this.flushKey(fromKey);
     const source = await this.entry(from);
-    const hasData = source.record.highlights.length > 0 || source.record.view.zoom !== undefined;
-    if (!hasData) {
+    if (!hasData(source.record)) {
       this.entries.delete(fromKey);
       return false;
     }
     const target = await this.entry(to);
-    const targetHadData = target.record.highlights.length > 0 || target.record.view.zoom !== undefined;
+    const targetHadData = hasData(target.record);
     const moved = source.record;
     await this.update(to, (record) => {
       const existing = new Set(record.highlights.map((h) => h.id));
       record.highlights = [...record.highlights, ...moved.highlights.filter((h) => !existing.has(h.id))];
       record.view = targetHadData ? { ...moved.view, ...record.view } : { ...moved.view };
+      if (moved.marker && !record.marker) record.marker = structuredClone(moved.marker);
     });
     await this.flushKey(toKey);
     await this.enqueue(fromKey, async () => {

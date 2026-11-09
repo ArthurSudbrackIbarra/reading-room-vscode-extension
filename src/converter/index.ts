@@ -6,6 +6,7 @@ import { prepareHighlighter } from './highlight';
 import { parseMarkdown, renderParsed } from './markdown';
 import { MermaidRenderer, injectMermaid } from './mermaid';
 import { buildDocumentHtml, printPdf } from './pdf';
+import { plainTextToHtml } from './text';
 import type { ConverterOptions, RenderRequest, RenderResult, ResolvedBrowser } from './types';
 import { documentUrl } from './urls';
 
@@ -34,23 +35,38 @@ export class Converter {
     };
 
     const warnings: string[] = [];
-    const urlContext = { docPath: request.docPath, workspaceRootPath: request.workspaceRootPath };
-    const parsed = parseMarkdown(request.markdown, urlContext);
-    const highlighter = await prepareHighlighter(parsed.languages, (w) => warnings.push(w));
-    let body = renderParsed(parsed, highlighter);
-    lap('markdown');
+    const isText = request.kind === 'text';
+    let body: string;
+    let title = request.fileName;
+    let diagrams: string[] = [];
+    if (isText) {
+      body = plainTextToHtml(request.markdown);
+      lap('text');
+    } else {
+      const urlContext = { docPath: request.docPath, workspaceRootPath: request.workspaceRootPath };
+      const parsed = parseMarkdown(request.markdown, urlContext);
+      const highlighter = await prepareHighlighter(parsed.languages, (w) => warnings.push(w));
+      body = renderParsed(parsed, highlighter);
+      title = parsed.title ?? request.fileName;
+      diagrams = parsed.env.mermaid;
+      lap('markdown');
+    }
 
     const lease = await this.browsers.acquire(request.chromiumPath);
     lap('browser');
     try {
-      const diagrams = parsed.env.mermaid;
       if (diagrams.length > 0) {
         const results = await this.mermaid.render(lease.browser, diagrams, request.theme);
         body = injectMermaid(body, results, warnings);
         lap('mermaid');
       }
-      const title = parsed.title ?? request.fileName;
-      const html = buildDocumentHtml({ body, title, theme: request.theme, pageSize: request.pageSize });
+      const html = buildDocumentHtml({
+        body,
+        title,
+        theme: request.theme,
+        pageSize: request.pageSize,
+        bodyClass: isText ? 'text-body' : 'markdown-body',
+      });
       const printed = await printPdf(lease.browser, {
         html,
         documentUrl: documentUrl(request.docPath),
@@ -76,6 +92,7 @@ export class Converter {
         title,
         browser: this.browsers.current?.executablePath ?? 'unknown',
         timings,
+        remoteFailures: printed.remoteFailures,
       };
     } finally {
       lease.release();
@@ -96,6 +113,6 @@ export class Converter {
   }
 }
 
-export async function annotatePdf(pdf: Uint8Array, highlights: AnnotationInput[]): Promise<Uint8Array> {
-  return addHighlightAnnotations(pdf, highlights);
+export async function annotatePdf(pdf: Uint8Array, highlights: AnnotationInput[], password?: string): Promise<Uint8Array> {
+  return addHighlightAnnotations(pdf, highlights, password);
 }
