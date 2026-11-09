@@ -1,0 +1,398 @@
+{
+  "name": "markdown-pdf-viewer",
+  "displayName": "Markdown PDF Viewer with Highlights",
+  "description": "Render Markdown as a real PDF inside VS Code, highlight it in five colors, zoom freely, and download it with highlights as PDF annotations.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "private": true,
+  "engines": {
+    "vscode": "^1.110.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "markdown",
+    "pdf",
+    "preview",
+    "highlight",
+    "annotation"
+  ],
+  "main": "./dist/extension.js",
+  "extensionKind": [
+    "ui",
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  },
+  "activationEvents": [
+    "onStartupFinished",
+    "onWebviewPanel:markdownPdfViewer.preview"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "markdownPdfViewer.openPreviewToSide",
+        "title": "Open PDF Preview to the Side",
+        "category": "Markdown PDF",
+        "icon": "$(file-pdf)"
+      },
+      {
+        "command": "markdownPdfViewer.openPreview",
+        "title": "Open PDF Preview",
+        "category": "Markdown PDF",
+        "icon": "$(file-pdf)"
+      },
+      {
+        "command": "markdownPdfViewer.showSource",
+        "title": "Open Markdown Source",
+        "category": "Markdown PDF",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "markdownPdfViewer.toggleFullView",
+        "title": "Toggle PDF Full View",
+        "category": "Markdown PDF",
+        "icon": "$(screen-full)"
+      },
+      {
+        "command": "markdownPdfViewer.refresh",
+        "title": "Refresh PDF",
+        "category": "Markdown PDF",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "markdownPdfViewer.download",
+        "title": "Download PDF",
+        "category": "Markdown PDF",
+        "icon": "$(desktop-download)"
+      },
+      {
+        "command": "markdownPdfViewer.downloadWithoutHighlights",
+        "title": "Download PDF without Highlights",
+        "category": "Markdown PDF"
+      },
+      {
+        "command": "markdownPdfViewer.zoomIn",
+        "title": "Zoom In (PDF)",
+        "category": "Markdown PDF"
+      },
+      {
+        "command": "markdownPdfViewer.zoomOut",
+        "title": "Zoom Out (PDF)",
+        "category": "Markdown PDF"
+      },
+      {
+        "command": "markdownPdfViewer.zoomReset",
+        "title": "Reset Zoom (PDF)",
+        "category": "Markdown PDF"
+      },
+      {
+        "command": "markdownPdfViewer.toggleHighlightTool",
+        "title": "Toggle Highlight Tool",
+        "category": "Markdown PDF"
+      },
+      {
+        "command": "markdownPdfViewer.toggleHighlightsList",
+        "title": "Toggle Highlights List",
+        "category": "Markdown PDF"
+      },
+      {
+        "command": "markdownPdfViewer.toggleDarkMode",
+        "title": "Toggle Light/Dark Pages",
+        "category": "Markdown PDF",
+        "icon": "$(color-mode)"
+      },
+      {
+        "command": "markdownPdfViewer.reattachHighlights",
+        "title": "Reattach Highlights from Another File…",
+        "category": "Markdown PDF"
+      },
+      {
+        "command": "markdownPdfViewer.deleteAllHighlights",
+        "title": "Delete All Highlights for This File",
+        "category": "Markdown PDF"
+      },
+      {
+        "command": "markdownPdfViewer.revealDataFolder",
+        "title": "Reveal Highlight Data Folder",
+        "category": "Markdown PDF"
+      },
+      {
+        "command": "markdownPdfViewer.showLog",
+        "title": "Show Log",
+        "category": "Markdown PDF"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "markdownPdfViewer.openPreviewToSide",
+          "alt": "markdownPdfViewer.openPreview",
+          "group": "navigation",
+          "when": "resourceLangId == markdown && config.markdownPdfViewer.defaultOpenMode != 'full'"
+        },
+        {
+          "command": "markdownPdfViewer.openPreview",
+          "alt": "markdownPdfViewer.openPreviewToSide",
+          "group": "navigation",
+          "when": "resourceLangId == markdown && config.markdownPdfViewer.defaultOpenMode == 'full'"
+        },
+        {
+          "command": "markdownPdfViewer.showSource",
+          "group": "navigation",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "markdownPdfViewer.openPreviewToSide",
+          "group": "navigation@90",
+          "when": "resourceLangId == markdown"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "markdownPdfViewer.openPreviewToSide",
+          "when": "editorLangId == markdown || resourceLangId == markdown"
+        },
+        {
+          "command": "markdownPdfViewer.openPreview",
+          "when": "editorLangId == markdown || resourceLangId == markdown"
+        },
+        {
+          "command": "markdownPdfViewer.showSource",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+        },
+        {
+          "command": "markdownPdfViewer.toggleFullView",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+        },
+        {
+          "command": "markdownPdfViewer.refresh",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+        },
+        {
+          "command": "markdownPdfViewer.download",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+        },
+        {
+          "command": "markdownPdfViewer.downloadWithoutHighlights",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+        },
+        {
+          "command": "markdownPdfViewer.zoomIn",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+        },
+        {
+          "command": "markdownPdfViewer.zoomOut",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+        },
+        {
+          "command": "markdownPdfViewer.zoomReset",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+        },
+        {
+          "command": "markdownPdfViewer.toggleHighlightTool",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+        },
+        {
+          "command": "markdownPdfViewer.toggleHighlightsList",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+        },
+        {
+          "command": "markdownPdfViewer.toggleDarkMode",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+        },
+        {
+          "command": "markdownPdfViewer.reattachHighlights",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+        },
+        {
+          "command": "markdownPdfViewer.deleteAllHighlights",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "markdownPdfViewer.openPreviewToSide",
+        "key": "ctrl+k shift+p",
+        "mac": "cmd+k shift+p",
+        "when": "editorLangId == markdown"
+      },
+      {
+        "command": "markdownPdfViewer.openPreview",
+        "key": "ctrl+shift+alt+p",
+        "mac": "cmd+shift+alt+p",
+        "when": "editorLangId == markdown"
+      },
+      {
+        "command": "markdownPdfViewer.zoomIn",
+        "key": "ctrl+=",
+        "mac": "cmd+=",
+        "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' && markdownPdfViewer.viewerFocused"
+      },
+      {
+        "command": "markdownPdfViewer.zoomIn",
+        "key": "ctrl+shift+=",
+        "mac": "cmd+shift+=",
+        "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' && markdownPdfViewer.viewerFocused"
+      },
+      {
+        "command": "markdownPdfViewer.zoomIn",
+        "key": "ctrl+numpad_add",
+        "mac": "cmd+numpad_add",
+        "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' && markdownPdfViewer.viewerFocused"
+      },
+      {
+        "command": "markdownPdfViewer.zoomOut",
+        "key": "ctrl+-",
+        "mac": "cmd+-",
+        "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' && markdownPdfViewer.viewerFocused"
+      },
+      {
+        "command": "markdownPdfViewer.zoomOut",
+        "key": "ctrl+shift+-",
+        "mac": "cmd+shift+-",
+        "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' && markdownPdfViewer.viewerFocused"
+      },
+      {
+        "command": "markdownPdfViewer.zoomOut",
+        "key": "ctrl+numpad_subtract",
+        "mac": "cmd+numpad_subtract",
+        "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' && markdownPdfViewer.viewerFocused"
+      },
+      {
+        "command": "markdownPdfViewer.zoomReset",
+        "key": "ctrl+0",
+        "mac": "cmd+0",
+        "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' && markdownPdfViewer.viewerFocused"
+      },
+      {
+        "command": "markdownPdfViewer.zoomReset",
+        "key": "ctrl+numpad0",
+        "mac": "cmd+numpad0",
+        "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' && markdownPdfViewer.viewerFocused"
+      }
+    ],
+    "configuration": {
+      "title": "Markdown PDF Viewer",
+      "properties": {
+        "markdownPdfViewer.defaultOpenMode": {
+          "type": "string",
+          "enum": [
+            "side",
+            "full"
+          ],
+          "enumDescriptions": [
+            "The title-bar button opens the PDF next to the Markdown editor. Alt+click opens it in the current editor group.",
+            "The title-bar button opens the PDF in the current editor group. Alt+click opens it to the side."
+          ],
+          "default": "side",
+          "scope": "application",
+          "description": "What the PDF button in the editor title bar does on a plain click."
+        },
+        "markdownPdfViewer.pageSize": {
+          "type": "string",
+          "enum": [
+            "A4",
+            "Letter"
+          ],
+          "default": "A4",
+          "scope": "application",
+          "description": "Paper size of the generated PDF."
+        },
+        "markdownPdfViewer.pageNumbers": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Print page numbers (\"n / N\") at the bottom of every page."
+        },
+        "markdownPdfViewer.renderOnSave": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Re-render the PDF automatically when the Markdown file is saved."
+        },
+        "markdownPdfViewer.allowRemoteImages": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Download http(s) images referenced by the Markdown and embed them in the PDF."
+        },
+        "markdownPdfViewer.chromiumPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Path to a Chrome, Edge or Chromium executable. Leave empty to detect an installed browser automatically."
+        },
+        "markdownPdfViewer.chromiumDownload": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "never"
+          ],
+          "enumDescriptions": [
+            "If no browser is found, offer to download Chromium (chrome-headless-shell, about 126 MB) into VS Code's global storage.",
+            "Never download Chromium. Show an error instead."
+          ],
+          "default": "ask",
+          "scope": "application",
+          "description": "What to do when no Chrome, Edge or Chromium installation is found."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "build:dev": "node esbuild.mjs --dev",
+    "watch": "node esbuild.mjs --dev --watch",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "vitest run",
+    "test:converter": "node esbuild.mjs && vitest run --config vitest.converter.config.mts",
+    "package": "vsce package --allow-missing-repository",
+    "vscode:prepublish": "node esbuild.mjs"
+  },
+  "devDependencies": {
+    "@cantoo/pdf-lib": "2.11.1",
+    "@mdit/plugin-alert": "2.1.0",
+    "@mdit/plugin-tasklist": "1.2.0",
+    "@puppeteer/browsers": "3.2.6",
+    "@types/markdown-it": "14.2.0",
+    "@types/markdown-it-emoji": "3.0.1",
+    "@types/markdown-it-footnote": "3.0.4",
+    "@types/node": "22.20.5",
+    "@types/vscode": "1.110.0",
+    "@vscode/codicons": "0.0.46-24",
+    "@vscode/markdown-it-katex": "1.1.2",
+    "@vscode/vsce": "4.1.0",
+    "approx-string-match": "2.0.1",
+    "esbuild": "0.28.2",
+    "github-slugger": "2.0.0",
+    "katex": "0.19.1",
+    "markdown-it": "15.0.3",
+    "markdown-it-anchor": "10.1.0",
+    "markdown-it-emoji": "3.1.0",
+    "markdown-it-footnote": "4.0.0",
+    "markdown-it-front-matter": "0.2.4",
+    "mermaid": "12.3.0",
+    "pdfjs-dist": "6.5.438",
+    "puppeteer-core": "25.16.0",
+    "shiki": "4.6.0",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  },
+  "overrides": {
+    "@vscode/markdown-it-katex": {
+      "katex": "$katex"
+    }
+  }
+}

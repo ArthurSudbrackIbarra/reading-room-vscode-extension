@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f81f7"/>
+      <stop offset="1" stop-color="#1a5bc4"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="26" fill="url(#bg)"/>
+  <path d="M36 16h42l22 22v70a6 6 0 0 1-6 6H36a6 6 0 0 1-6-6V22a6 6 0 0 1 6-6z" fill="#ffffff"/>
+  <path d="M78 16v16a6 6 0 0 0 6 6h16z" fill="#c8d8f3"/>
+  <text x="40" y="45" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-weight="700" font-size="17" fill="#1a5bc4">M↓</text>
+  <rect x="38" y="55" width="54" height="12" rx="2.5" fill="#FFE45C"/>
+  <rect x="41" y="59" width="46" height="4" rx="2" fill="#3d444d"/>
+  <rect x="41" y="74" width="50" height="4" rx="2" fill="#8c959f"/>
+  <rect x="41" y="84" width="40" height="4" rx="2" fill="#8c959f"/>
+  <rect x="38" y="91" width="34" height="11" rx="2.5" fill="#FF8AC6"/>
+  <rect x="41" y="94.5" width="28" height="4" rx="2" fill="#3d444d"/>
+</svg>

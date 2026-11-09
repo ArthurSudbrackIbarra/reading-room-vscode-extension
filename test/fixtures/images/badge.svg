@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="196" height="28" viewBox="0 0 196 28" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13">
+  <rect width="110" height="28" rx="5" fill="#57606a"/>
+  <rect x="104" width="92" height="28" rx="5" fill="#8250df"/>
+  <rect x="104" width="10" height="28" fill="#8250df"/>
+  <text x="55" y="19" fill="#ffffff" text-anchor="middle">workspace root</text>
+  <text x="150" y="19" fill="#ffffff" text-anchor="middle">/test/…/badge</text>
+</svg>

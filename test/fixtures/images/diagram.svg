@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="140" viewBox="0 0 420 140" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+  <rect x="1" y="1" width="418" height="138" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>
+  <g font-size="15" text-anchor="middle">
+    <rect x="20" y="45" width="100" height="50" rx="8" fill="#ddf4ff" stroke="#0969da"/>
+    <text x="70" y="75" fill="#0969da">Markdown</text>
+    <rect x="160" y="45" width="100" height="50" rx="8" fill="#fff8c5" stroke="#9a6700"/>
+    <text x="210" y="75" fill="#9a6700">HTML</text>
+    <rect x="300" y="45" width="100" height="50" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
+    <text x="350" y="75" fill="#1a7f37">PDF</text>
+  </g>
+  <line x1="122" y1="70" x2="156" y2="70" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="262" y1="70" x2="296" y2="70" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="210" y="125" font-size="12" text-anchor="middle" fill="#57606a">SVG image loaded from a relative path</text>
+</svg>

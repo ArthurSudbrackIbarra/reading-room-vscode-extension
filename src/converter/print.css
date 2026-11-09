@@ -1,0 +1,539 @@
+/* Print stylesheet for Markdown PDF Viewer.
+ * The light and dark page themes use the same geometry; only colors change, so text
+ * positions (and therefore highlight rectangles) are identical in both renders. */
+
+:root {
+  --fg: #1f2328;
+  --fg-muted: #59636e;
+  --bg: #ffffff;
+  --bg-subtle: #f6f8fa;
+  --border: #d0d7de;
+  --border-muted: #d8dee4;
+  --link: #0969da;
+  --code-bg: #f6f8fa;
+  --inline-code-bg: rgba(129, 139, 152, 0.15);
+  --table-stripe: #f6f8fa;
+  --mark-bg: #fff8c5;
+  --kbd-bg: #f6f8fa;
+  --kbd-border: #d1d9e0;
+  --error-fg: #d1242f;
+  --error-bg: #ffebe9;
+  --error-border: #ff818266;
+  --note: #0969da;
+  --tip: #1a7f37;
+  --important: #8250df;
+  --warning: #9a6700;
+  --caution: #d1242f;
+  --checkbox-border: #8c959f;
+  --checkbox-checked: #0969da;
+  /* Set per render by the converter (page height minus margins). */
+  --content-height: 259mm;
+}
+
+html.theme-dark {
+  --fg: #e6edf3;
+  --fg-muted: #9198a1;
+  --bg: #0d1117;
+  --bg-subtle: #151b23;
+  --border: #3d444d;
+  --border-muted: #3d444db3;
+  --link: #4493f8;
+  --code-bg: #151b23;
+  --inline-code-bg: rgba(101, 108, 118, 0.2);
+  --table-stripe: #151b23;
+  --mark-bg: #bb800926;
+  --kbd-bg: #151b23;
+  --kbd-border: #3d444db3;
+  --error-fg: #ff7b72;
+  --error-bg: #25171c;
+  --error-border: #f8514966;
+  --note: #4493f8;
+  --tip: #3fb950;
+  --important: #ab7df8;
+  --warning: #d29922;
+  --caution: #f85149;
+  --checkbox-border: #656c76;
+  --checkbox-checked: #4493f8;
+  /* No `color-scheme: dark` here: Chromium would paint the page margins #121212. */
+}
+
+html {
+  background: var(--bg);
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+body {
+  margin: 0;
+  color: var(--fg);
+  background: var(--bg);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif,
+    'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji';
+  font-size: 11pt;
+  line-height: 1.55;
+  overflow-wrap: break-word;
+  text-rendering: geometricPrecision;
+  font-kerning: normal;
+}
+
+.markdown-body > :first-child {
+  margin-top: 0 !important;
+}
+
+.markdown-body > :last-child {
+  margin-bottom: 0 !important;
+}
+
+/* ---------- Headings and page breaks ---------- */
+
+h1, h2, h3, h4, h5, h6 {
+  margin-top: 1.4em;
+  margin-bottom: 0.6em;
+  font-weight: 600;
+  line-height: 1.25;
+  break-after: avoid;
+  break-inside: avoid;
+}
+
+:is(h1, h2, h3, h4, h5, h6) + * {
+  break-before: avoid;
+}
+
+h1 {
+  font-size: 2em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border-muted);
+}
+
+h2 {
+  font-size: 1.5em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border-muted);
+}
+
+h3 { font-size: 1.25em; }
+h4 { font-size: 1em; }
+h5 { font-size: 0.875em; }
+h6 { font-size: 0.85em; color: var(--fg-muted); }
+
+p, blockquote, ul, ol, dl, table, pre, details, .code-block, .markdown-alert, .katex-block, .mermaid-figure {
+  margin-top: 0;
+  margin-bottom: 1em;
+}
+
+p {
+  orphans: 3;
+  widows: 3;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+strong, b { font-weight: 600; }
+
+hr {
+  height: 0.25em;
+  padding: 0;
+  margin: 1.5em 0;
+  background-color: var(--border);
+  border: 0;
+  break-after: avoid;
+}
+
+mark {
+  background-color: var(--mark-bg);
+  color: inherit;
+}
+
+kbd {
+  display: inline-block;
+  padding: 0.15em 0.35em;
+  font: 0.85em ui-monospace, 'Cascadia Mono', 'Cascadia Code', Consolas, 'SF Mono', Menlo, monospace;
+  line-height: 1;
+  color: var(--fg);
+  background-color: var(--kbd-bg);
+  border: 1px solid var(--kbd-border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
+
+sup, sub {
+  line-height: 0;
+}
+
+/* ---------- Lists ---------- */
+
+ul, ol {
+  padding-left: 2em;
+}
+
+li + li {
+  margin-top: 0.25em;
+}
+
+li > p {
+  margin-top: 0.5em;
+  margin-bottom: 0;
+}
+
+li > ul, li > ol {
+  margin-top: 0.25em;
+  margin-bottom: 0;
+}
+
+ul ul { list-style-type: circle; }
+ul ul ul { list-style-type: square; }
+ol ol { list-style-type: lower-alpha; }
+ol ol ol { list-style-type: lower-roman; }
+
+.task-list-container,
+ul:has(> .task-list-item) {
+  padding-left: 1.6em;
+}
+
+.task-list-item {
+  list-style-type: none;
+  position: relative;
+}
+
+.task-list-item-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  position: absolute;
+  left: -1.45em;
+  top: 0.3em;
+  width: 0.95em;
+  height: 0.95em;
+  margin: 0;
+  border: 1.5px solid var(--checkbox-border);
+  border-radius: 3px;
+  background: var(--bg);
+}
+
+.task-list-item-checkbox:checked {
+  border-color: var(--checkbox-checked);
+  background: var(--checkbox-checked)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' d='M3.5 8.5l3 3 6-7'/%3E%3C/svg%3E")
+    center / 100% no-repeat;
+}
+
+/* ---------- Blockquotes and alerts ---------- */
+
+blockquote {
+  margin-left: 0;
+  margin-right: 0;
+  padding: 0 1em;
+  color: var(--fg-muted);
+  border-left: 0.25em solid var(--border);
+}
+
+blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-alert {
+  padding: 0.5em 1em;
+  border-left: 0.25em solid var(--alert-color, var(--border));
+  break-inside: avoid;
+}
+
+.markdown-alert > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-alert-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  font-weight: 600;
+  color: var(--alert-color);
+  margin-bottom: 0.4em;
+  line-height: 1.2;
+}
+
+.markdown-alert-title::before {
+  content: '';
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  background-color: var(--alert-color);
+  -webkit-mask: var(--alert-icon) center / contain no-repeat;
+  mask: var(--alert-icon) center / contain no-repeat;
+}
+
+.markdown-alert-note {
+  --alert-color: var(--note);
+  --alert-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z'/%3E%3C/svg%3E");
+}
+
+.markdown-alert-tip {
+  --alert-color: var(--tip);
+  --alert-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319-.207.245-.383.453-.541.681-.208.3-.33.565-.37.847a.751.751 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z'/%3E%3C/svg%3E");
+}
+
+.markdown-alert-important {
+  --alert-color: var(--important);
+  --alert-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z'/%3E%3C/svg%3E");
+}
+
+.markdown-alert-warning {
+  --alert-color: var(--warning);
+  --alert-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z'/%3E%3C/svg%3E");
+}
+
+.markdown-alert-caution {
+  --alert-color: var(--caution);
+  --alert-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.47.22A.749.749 0 0 1 5 0h6c.199 0 .389.079.53.22l4.25 4.25c.141.14.22.331.22.53v6a.749.749 0 0 1-.22.53l-4.25 4.25A.749.749 0 0 1 11 16H5a.749.749 0 0 1-.53-.22L.22 11.53A.749.749 0 0 1 0 11V5c0-.199.079-.389.22-.53Zm.84 1.28L1.5 5.31v5.38l3.81 3.81h5.38l3.81-3.81V5.31L10.69 1.5ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z'/%3E%3C/svg%3E");
+}
+
+/* ---------- Code ---------- */
+
+code, pre, tt, samp {
+  font-family: ui-monospace, 'Cascadia Mono', 'Cascadia Code', Consolas, 'SF Mono', Menlo, 'DejaVu Sans Mono', monospace;
+}
+
+:not(pre) > code {
+  padding: 0.15em 0.35em;
+  font-size: 0.86em;
+  background-color: var(--inline-code-bg);
+  border-radius: 5px;
+  overflow-wrap: anywhere;
+}
+
+.code-block {
+  break-inside: auto;
+}
+
+.code-block.keep,
+.code-block:has(pre.keep) {
+  break-inside: avoid;
+}
+
+pre {
+  padding: 0.8em 1em;
+  font-size: 0.82em;
+  line-height: 1.45;
+  background-color: var(--code-bg);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: visible;
+  tab-size: 4;
+}
+
+pre code {
+  padding: 0;
+  font-size: 1em;
+  background: transparent;
+  border-radius: 0;
+  white-space: inherit;
+}
+
+pre.shiki {
+  background-color: var(--code-bg) !important;
+  color: var(--shiki-light);
+}
+
+pre.shiki span {
+  color: var(--shiki-light);
+  font-style: var(--shiki-light-font-style);
+  font-weight: var(--shiki-light-font-weight);
+  text-decoration: var(--shiki-light-text-decoration);
+}
+
+html.theme-dark pre.shiki,
+html.theme-dark pre.shiki span {
+  color: var(--shiki-dark);
+}
+
+pre.shiki.plain,
+pre.shiki.plain span {
+  color: var(--fg);
+}
+
+/* ---------- Tables ---------- */
+
+table {
+  border-collapse: collapse;
+  border-spacing: 0;
+  max-width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+table.wide-scaled {
+  max-width: none;
+}
+
+table.wide-wrap td,
+table.wide-wrap th {
+  overflow-wrap: anywhere;
+}
+
+thead {
+  display: table-header-group;
+}
+
+tr {
+  break-inside: avoid;
+}
+
+th, td {
+  padding: 0.38em 0.8em;
+  border: 1px solid var(--border);
+  vertical-align: top;
+}
+
+th {
+  font-weight: 600;
+  background-color: var(--bg-subtle);
+}
+
+tbody tr:nth-child(2n) {
+  background-color: var(--table-stripe);
+}
+
+table img {
+  background-color: transparent;
+}
+
+/* ---------- Images, figures, diagrams, math ---------- */
+
+img, svg, video, figure, .mermaid-figure, .katex-display, .katex-block {
+  break-inside: avoid;
+}
+
+img {
+  max-width: 100%;
+  /* Leave room for a lead-in line on the same page. */
+  max-height: calc(var(--content-height) * 0.9);
+  object-fit: contain;
+  box-sizing: content-box;
+}
+
+/* Set by the converter on short blocks and on lead-in paragraphs ("…as shown below:"). */
+.keep {
+  break-inside: avoid;
+}
+
+.keep-with-next {
+  break-after: avoid;
+}
+
+figure {
+  margin: 0 0 1em;
+}
+
+figcaption {
+  color: var(--fg-muted);
+  font-size: 0.9em;
+  text-align: center;
+}
+
+.missing-image {
+  display: inline-block;
+  padding: 0.3em 0.6em;
+  border: 1px dashed var(--error-border);
+  border-radius: 4px;
+  color: var(--error-fg);
+  background: var(--error-bg);
+  font-size: 0.85em;
+}
+
+.mermaid-figure {
+  text-align: center;
+}
+
+.mermaid-figure svg {
+  max-width: 100%;
+  max-height: calc(var(--content-height) * 0.9);
+  height: auto;
+}
+
+.mermaid-error {
+  padding: 0.6em 1em;
+  border: 1px solid var(--error-border);
+  border-radius: 6px;
+  color: var(--error-fg);
+  background: var(--error-bg);
+  text-align: left;
+  break-inside: avoid;
+}
+
+.mermaid-error pre {
+  margin: 0.4em 0 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+.katex-block,
+.katex-display {
+  overflow: visible;
+  text-align: center;
+}
+
+.katex {
+  font-size: 1.1em;
+}
+
+.katex-error {
+  color: var(--error-fg) !important;
+}
+
+/* ---------- Footnotes ---------- */
+
+.footnotes-sep {
+  height: 1px;
+  margin-top: 2em;
+  background-color: var(--border);
+}
+
+.footnotes {
+  font-size: 0.85em;
+  color: var(--fg-muted);
+}
+
+.footnotes ol {
+  padding-left: 1.6em;
+}
+
+.footnote-ref a,
+a.footnote-backref {
+  text-decoration: none;
+}
+
+/* ---------- Details, definition lists, misc HTML ---------- */
+
+details {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5em 1em;
+}
+
+details > summary {
+  font-weight: 600;
+  margin-bottom: 0.5em;
+}
+
+dl dt {
+  font-weight: 600;
+  margin-top: 0.8em;
+}
+
+dl dd {
+  margin-left: 1.5em;
+}
+
+abbr[title] {
+  text-decoration: underline dotted;
+}
+
+center {
+  text-align: center;
+}

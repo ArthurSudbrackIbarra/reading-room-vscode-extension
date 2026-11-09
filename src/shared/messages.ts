@@ -1,0 +1,85 @@
+// Message protocol between the extension host (PreviewPanel) and the viewer webview.
+import type { Highlight, HighlightColor, HighlightStatus, PageRects, PageTheme, ZoomValue } from './types';
+
+export interface ViewerInit {
+  fileName: string;
+  /** The Markdown document's URI (kept in the webview state so the panel can be restored). */
+  uri: string;
+  highlights: Highlight[];
+  zoom: ZoomValue;
+  color: HighlightColor;
+  theme: PageTheme;
+  toolActive: boolean;
+  listOpen: boolean;
+  fullView: boolean;
+  /** Top and bottom page margins in PDF points; text inside them is header/footer and is not highlightable. */
+  marginsPt: { top: number; bottom: number };
+}
+
+export interface RenderWarning {
+  message: string;
+}
+
+export type HostToViewer =
+  | { type: 'init'; init: ViewerInit }
+  | { type: 'rendering' }
+  | { type: 'pdf'; data: Uint8Array; renderId: number; theme: PageTheme; warnings: RenderWarning[] }
+  | { type: 'renderError'; message: string; firstRender: boolean }
+  | { type: 'zoom'; action: 'in' | 'out' | 'reset' }
+  | { type: 'highlights'; highlights: Highlight[] }
+  | { type: 'toggleList' }
+  | { type: 'toggleTool' }
+  | { type: 'fullView'; full: boolean }
+  | { type: 'theme'; theme: PageTheme }
+  | { type: 'document'; fileName: string; uri: string }
+  | { type: 'requestExport'; requestId: number };
+
+export interface AnchorResult {
+  id: string;
+  status: HighlightStatus;
+  start?: number;
+  end?: number;
+  pages?: PageRects[];
+  textModelHash?: string;
+}
+
+export interface ExportHighlight {
+  id: string;
+  color: HighlightColor;
+  text: string;
+  createdAt: string;
+  pages: PageRects[];
+}
+
+export type ViewerCommand =
+  | 'refresh'
+  | 'toggleFullView'
+  | 'download'
+  | 'downloadWithoutHighlights'
+  | 'toggleTheme'
+  | 'showLog'
+  | 'showSource';
+
+export type ViewerToHost =
+  | { type: 'ready' }
+  | { type: 'focus'; focused: boolean }
+  | { type: 'createHighlight'; highlight: Highlight }
+  | { type: 'updateHighlight'; id: string; color: HighlightColor }
+  | { type: 'deleteHighlight'; id: string }
+  | { type: 'anchorsResolved'; renderId: number; results: AnchorResult[] }
+  | { type: 'viewChanged'; zoom: ZoomValue }
+  | { type: 'colorChanged'; color: HighlightColor }
+  | { type: 'toolChanged'; active: boolean }
+  | { type: 'listChanged'; open: boolean }
+  | { type: 'openLink'; href: string }
+  | { type: 'command'; command: ViewerCommand }
+  | { type: 'exportData'; requestId: number; highlights: ExportHighlight[]; orphaned: number; error?: string }
+  | { type: 'copyText'; text: string }
+  | { type: 'log'; level: 'info' | 'warn' | 'error'; message: string };
+
+/** State kept by the webview through `vscode.setState`, used to restore panels after a restart. */
+export interface WebviewPersistedState {
+  uri: string;
+  pageNumber?: number;
+  fraction?: number;
+}

@@ -1,0 +1,11 @@
+# Allow-list: everything is bundled into dist/, so ship only that plus metadata.
+**
+!dist/**
+dist/**/*.map
+!media/icon.png
+!media/preview-light.svg
+!media/preview-dark.svg
+!package.json
+!README.md
+!CHANGELOG.md
+!LICENSE
