@@ -1,7 +1,9 @@
 // The viewer toolbar:
-// [☰] [↑] [n / N] [↓] | [−] [zoom ▾] [+] [↺] | [✎] [● ● ● ● ●] | [🔖 ▾] | [◐] [⟳] [⤢] [⤓ ▾]
+// [☰] [↑] [n / N] [↓] | [−] [zoom ▾] [+] [↺] | [✎] [● ● ● ● ●] | [🔖 ▾] | [🎧] [◐] [⟳] [⤢] [⤓ ▾]
+import { soundLabel, type SoundState } from '../src/shared/sounds';
 import { HIGHLIGHT_COLORS, HIGHLIGHT_HEX, MAX_ZOOM, MIN_ZOOM, type DocumentKind, type HighlightColor, type PageTheme, type ZoomValue } from '../src/shared/types';
 import { h, icon, iconButton, placeFloating } from './dom';
+import { headphonesIcon } from './sounds';
 
 export interface ToolbarActions {
   toggleList(): void;
@@ -17,6 +19,8 @@ export interface ToolbarActions {
   placeMarker(): void;
   goToMarker(): void;
   removeMarker(): void;
+  /** Opens or closes the reading sounds panel below `anchor`. */
+  toggleSounds(anchor: HTMLElement): void;
   toggleTheme(): void;
   refresh(): void;
   toggleFullView(): void;
@@ -94,6 +98,11 @@ export class Toolbar {
   private readonly swatches = new Map<HighlightColor, HTMLButtonElement>();
   private readonly markerButton = iconButton('bookmark', 'Mark where you stopped reading: click this, then click a line');
   private readonly markerMenu: DropDown;
+  private readonly soundsButton = h(
+    'button',
+    { class: 'mpv-btn mpv-sounds-button', type: 'button', title: 'Reading sounds', 'aria-label': 'Reading sounds', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', hidden: true },
+    headphonesIcon(),
+  );
   private readonly themeButton = iconButton('color-mode', 'Dark pages');
   private readonly refreshButton = iconButton('refresh', 'Refresh the PDF');
   private readonly fullButton = iconButton('screen-full', 'Full view');
@@ -145,7 +154,15 @@ export class Toolbar {
       h('div', { class: 'mpv-group' }, this.toolButton, colors),
       h('div', { class: 'mpv-group' }, h('div', { class: 'mpv-split' }, this.markerButton, this.markerMenu.toggle)),
       h('div', { class: 'mpv-spacer' }),
-      h('div', { class: 'mpv-group' }, this.themeButton, this.refreshButton, this.fullButton, h('div', { class: 'mpv-split' }, download, this.downloadMenu.toggle)),
+      h(
+        'div',
+        { class: 'mpv-group' },
+        this.soundsButton,
+        this.themeButton,
+        this.refreshButton,
+        this.fullButton,
+        h('div', { class: 'mpv-split' }, download, this.downloadMenu.toggle),
+      ),
     );
 
     this.listButton.addEventListener('click', () => actions.toggleList());
@@ -156,6 +173,7 @@ export class Toolbar {
     zoomReset.addEventListener('click', () => actions.resetZoom());
     this.toolButton.addEventListener('click', () => actions.toggleTool());
     this.markerButton.addEventListener('click', () => actions.placeMarker());
+    this.soundsButton.addEventListener('click', () => actions.toggleSounds(this.soundsButton));
     this.themeButton.addEventListener('click', () => actions.toggleTheme());
     this.refreshButton.addEventListener('click', () => actions.refresh());
     this.fullButton.addEventListener('click', () => actions.toggleFullView());
@@ -229,6 +247,22 @@ export class Toolbar {
     this.markerButton.setAttribute('aria-label', this.markerButton.title);
     this.markerMenu.setEnabled('goto', exists);
     this.markerMenu.setEnabled('remove', exists);
+  }
+
+  /** The button only shows when this build has reading sounds. */
+  setSoundsAvailable(available: boolean): void {
+    this.soundsButton.hidden = !available;
+  }
+
+  setSoundState(state: SoundState): void {
+    this.soundsButton.classList.toggle('mpv-playing', state.playing);
+    this.soundsButton.title = state.playing ? `Reading sounds: ${soundLabel(state.sound).toLowerCase()} is playing` : 'Reading sounds';
+    this.soundsButton.setAttribute('aria-label', this.soundsButton.title);
+  }
+
+  setSoundsOpen(open: boolean): void {
+    this.soundsButton.classList.toggle('mpv-active', open);
+    this.soundsButton.setAttribute('aria-expanded', String(open));
   }
 
   setTheme(theme: PageTheme): void {

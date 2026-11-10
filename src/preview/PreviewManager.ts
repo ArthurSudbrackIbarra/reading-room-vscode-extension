@@ -9,10 +9,13 @@ import type { DocumentRef, HighlightStore } from '../store/HighlightStore';
 import { RENDER_SETTINGS, SECTION, readSettings } from '../util/settings';
 import { MAX_CACHE_BYTES, PreviewPanel, kindOf, panelTitle, type PanelHost, type UiState } from './PreviewPanel';
 import type { RenderService } from './RenderService';
-import { PDF_VIEW_TYPE, VIEW_TYPE, webviewOptions } from './webviewHtml';
+import { SoundCoordinator } from './SoundCoordinator';
+import { PDF_VIEW_TYPE, VIEW_TYPE, availableSounds, webviewOptions } from './webviewHtml';
 
 const UI_STATE_KEY = 'markdownPdfViewer.ui';
+const SOUND_STATE_KEY = 'markdownPdfViewer.sound';
 const FOCUS_CONTEXT = 'markdownPdfViewer.viewerFocused';
+const SOUND_CONTEXT = 'markdownPdfViewer.soundPlaying';
 const CACHE_PRUNE_DELAY_MS = 20_000;
 
 /** PDF files open in the viewer as a (read-only) custom editor. */
@@ -35,6 +38,8 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
   private focusedPanel?: PreviewPanel;
   private ui: UiState;
   private pruneTimer?: ReturnType<typeof setTimeout>;
+  /** Reading sounds: shared by all viewers, played by one of them. */
+  readonly sounds: SoundCoordinator<PreviewPanel>;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -51,6 +56,15 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
       listOpen: saved.listOpen === true,
     };
     void vscode.commands.executeCommand('setContext', FOCUS_CONTEXT, false);
+    this.sounds = new SoundCoordinator<PreviewPanel>(
+      {
+        get: () => context.globalState.get(SOUND_STATE_KEY),
+        set: (value) => void context.globalState.update(SOUND_STATE_KEY, value),
+      },
+      () => this.panels.values(),
+      (playing) => void vscode.commands.executeCommand('setContext', SOUND_CONTEXT, playing),
+    );
+    void vscode.commands.executeCommand('setContext', SOUND_CONTEXT, false);
 
     this.disposables.push(
       vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
@@ -135,6 +149,8 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
     if (this.activePanel === panel) this.activePanel = undefined;
     if (this.focusedPanel === panel) this.focusChanged(panel, false);
     if (!this.panels.has(panel.uri.toString())) this.store.evict(this.refFor(panel.uri));
+    // A sound playing in this viewer keeps going in another open viewer.
+    this.sounds.viewerClosed(panel, this.current() ?? this.panels.values().next().value);
   }
 
   /** The viewer a command applies to: the active one, else the only one. */
@@ -366,6 +382,26 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
     }
   }
 
+  // ---------- Reading sounds ----------
+
+  /** Command: pause the reading sound, or play it in the current viewer. */
+  toggleSounds(): void {
+    if (this.sounds.isPlaying) {
+      this.sounds.pause();
+      return;
+    }
+    if (availableSounds(this.context.extensionUri).length === 0) {
+      void vscode.window.showInformationMessage(
+        'This build of Document Viewer has no reading sounds. They are created by "npm run sounds" before packaging (see the README).',
+      );
+      return;
+    }
+    const panel = this.current() ?? this.sounds.currentOwner ?? this.panels.values().next().value;
+    if (!panel || !this.sounds.toggle(panel)) {
+      void vscode.window.showInformationMessage('Open a document in the viewer first (a Markdown, text or PDF file), then play a reading sound.');
+    }
+  }
+
   async clearCache(): Promise<void> {
     const removed = await this.pdfCache.clear();
     void vscode.window.showInformationMessage(
@@ -375,6 +411,7 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
 
   dispose(): void {
     clearTimeout(this.pruneTimer);
+    this.sounds.dispose();
     for (const panel of [...this.panels.values()]) panel.dispose();
     this.panels.clear();
     while (this.disposables.length) this.disposables.pop()?.dispose();

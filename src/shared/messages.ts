@@ -1,4 +1,5 @@
 // Message protocol between the extension host (PreviewPanel) and the viewer webview.
+import type { SoundRequest, SoundState } from './sounds';
 import type {
   DocumentKind,
   Highlight,
@@ -25,6 +26,7 @@ export interface ViewerInit {
   fullView: boolean;
   /** Top and bottom page margins in PDF points; text inside them is header/footer and is not highlightable. */
   marginsPt: { top: number; bottom: number };
+  sound: SoundState;
 }
 
 export interface RenderWarning {
@@ -48,7 +50,9 @@ export type HostToViewer =
   | { type: 'redo' }
   /** Delete every highlight (as one undoable step). */
   | { type: 'deleteAll' }
-  | { type: 'marker'; action: 'place' | 'goto' | 'remove' };
+  | { type: 'marker'; action: 'place' | 'goto' | 'remove' }
+  /** Reading sounds changed (here or in another viewer). */
+  | { type: 'sound'; state: SoundState };
 
 export interface AnchorResult {
   id: string;
@@ -102,6 +106,7 @@ export type ViewerToHost =
       error?: string;
     }
   | { type: 'copyText'; text: string }
+  | ({ type: 'sound' } & SoundRequest)
   | { type: 'log'; level: 'info' | 'warn' | 'error'; message: string };
 
 /** State kept by the webview through `vscode.setState`, used to restore panels after a restart. */

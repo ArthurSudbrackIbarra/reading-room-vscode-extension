@@ -1,5 +1,7 @@
 import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import * as vscode from 'vscode';
+import { SOUNDS, type SoundInfo } from '../shared/sounds';
 import type { DocumentKind } from '../shared/types';
 
 /** Preview panels for Markdown and text files. */
@@ -20,6 +22,17 @@ function escapeAttr(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
+let soundsCache: { root: string; sounds: SoundInfo[] } | undefined;
+
+/** Reading sounds whose audio file is in this build (scripts/fetch-sounds.mjs makes them). */
+export function availableSounds(extensionUri: vscode.Uri): SoundInfo[] {
+  const root = vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'sounds');
+  if (soundsCache?.root !== root.toString()) {
+    soundsCache = { root: root.toString(), sounds: SOUNDS.filter((s) => existsSync(vscode.Uri.joinPath(root, s.file).fsPath)) };
+  }
+  return soundsCache.sounds;
+}
+
 /** The viewer page: a strict CSP (nonce scripts, no inline styles), every resource via asWebviewUri. */
 export function buildWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri, kind: DocumentKind): string {
   const nonce = randomBytes(18).toString('base64');
@@ -32,6 +45,8 @@ export function buildWebviewHtml(webview: vscode.Webview, extensionUri: vscode.U
     `script-src 'nonce-${nonce}' 'wasm-unsafe-eval'`,
     'worker-src blob:',
     `connect-src ${webview.cspSource}`,
+    // Reading sounds are fetched (connect-src) and played from blob: URLs.
+    `media-src blob: ${webview.cspSource}`,
   ].join('; ');
   // PDF.js wants folder URLs with a trailing slash; Uri.joinPath drops it.
   const folder = (path: string) => `${asset(path).replace(/\/+$/, '')}/`;
@@ -41,6 +56,7 @@ export function buildWebviewHtml(webview: vscode.Webview, extensionUri: vscode.U
     cmaps: folder('pdfjs/cmaps'),
     standardFonts: folder('pdfjs/standard_fonts'),
     wasm: folder('pdfjs/wasm'),
+    sounds: availableSounds(extensionUri).map((s) => ({ id: s.id, label: s.label, url: asset(`sounds/${s.file}`) })),
   };
   return `<!DOCTYPE html>
 <html lang="en">

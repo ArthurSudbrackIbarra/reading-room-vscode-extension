@@ -1105,3 +1105,222 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
   position: absolute;
   backdrop-filter: hue-rotate(180deg) invert(1) contrast(1.25);
 }
+
+/* ---------- Reading sounds ---------- */
+
+.mpv-svg-icon {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.mpv-sounds-button {
+  position: relative;
+}
+
+/* A small dot tells that a sound is playing while the panel is closed. */
+.mpv-sounds-button.mpv-playing::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--vscode-activityBarBadge-background, #0078d4);
+  box-shadow: 0 0 0 1.5px var(--mpv-surface);
+}
+
+.mpv-sounds {
+  width: 268px;
+  padding: 10px 12px 12px;
+}
+
+.mpv-sounds:focus {
+  outline: none;
+}
+
+.mpv-sounds-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.mpv-sounds-title {
+  font-weight: 600;
+}
+
+.mpv-sounds-status {
+  font-size: 11px;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+.mpv-sound-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mpv-sound-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 76px;
+  padding: 6px;
+  border: 1px solid var(--mpv-border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.mpv-sound-tile:hover {
+  background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
+}
+
+.mpv-sound-tile[aria-checked='true'] {
+  border-color: var(--vscode-focusBorder, #0078d4);
+  background: color-mix(in srgb, var(--vscode-focusBorder, #0078d4) 16%, transparent);
+}
+
+.mpv-sound-tile:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.mpv-sound-tile svg {
+  opacity: 0.9;
+}
+
+.mpv-sound-name {
+  font-size: 12px;
+}
+
+/* Equalizer bars on the tile that is playing. */
+.mpv-eq {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  display: none;
+  align-items: flex-end;
+  gap: 2px;
+  height: 10px;
+}
+
+.mpv-sound-playing .mpv-eq {
+  display: inline-flex;
+}
+
+.mpv-eq i {
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--vscode-focusBorder, #0078d4);
+  transform-origin: bottom;
+  animation: mpv-eq 1.1s ease-in-out infinite;
+}
+
+.mpv-eq i:nth-child(2) {
+  animation-delay: -0.4s;
+}
+
+.mpv-eq i:nth-child(3) {
+  animation-delay: -0.75s;
+}
+
+@keyframes mpv-eq {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mpv-eq i {
+    animation: none;
+    transform: scaleY(0.7);
+  }
+}
+
+.mpv-sounds-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mpv-sound-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--vscode-button-background, #0078d4);
+  color: var(--vscode-button-foreground, #fff);
+  cursor: pointer;
+}
+
+.mpv-sound-play:hover {
+  background: var(--vscode-button-hoverBackground, var(--vscode-button-background));
+}
+
+.mpv-sound-play:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.mpv-sounds-volume-icon {
+  display: inline-flex;
+  opacity: 0.8;
+}
+
+.mpv-sounds-slider {
+  --mpv-fill: 70%;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 4px;
+  margin: 0;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--vscode-button-background, #0078d4) var(--mpv-fill),
+    var(--vscode-scrollbarSlider-background, rgba(128, 128, 128, 0.4)) var(--mpv-fill)
+  );
+  appearance: none;
+  cursor: pointer;
+}
+
+.mpv-sounds-slider::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--vscode-button-background, #0078d4);
+  border-radius: 50%;
+  background: var(--vscode-editorWidget-background, #fff);
+  appearance: none;
+}
+
+.mpv-sounds-slider:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 4px;
+}
+
+.mpv-sounds-percent {
+  width: 34px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  opacity: 0.85;
+}

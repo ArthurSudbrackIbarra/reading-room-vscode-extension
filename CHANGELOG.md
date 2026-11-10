@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 — 2026-11-10
+
+- **Reading sounds**: a 🎧 button in the viewer toolbar opens a small floating panel with **Rain** and **Fireplace**, play/pause and a volume slider. The panel closes as soon as it loses focus.
+  - The sounds loop forever without a gap: each is a four-minute loop whose end blends into its start, played by two alternating players that crossfade at the end of each pass. Fades and volume run on the audio clock, so they stay smooth in background tabs.
+  - One sound plays at a time across all open viewers; every viewer shows and controls it, and closing the viewer that plays it hands it to another one. The sound and volume are remembered.
+  - New command: *Play/Pause Reading Sounds*.
+  - The audio comes from two YouTube videos (credited in the README) and is not in the repository: `npm run sounds` (yt-dlp + ffmpeg) builds the loops into `media/sounds/`, and `npm run package` includes them. Without them the button is hidden.
+- README rewritten for everything the extension does now, with screenshots.
+- `package.json` now names the GitHub repository, so the README pictures on the extension's page load from GitHub (`npm run package` uses `--githubBranch main`).
+
 ## 0.2.0 — 2026-11-09
 
 Now a general document viewer: **Document Viewer & Highlighter**. The extension ID, setting names and stored data are unchanged, so updating keeps everything.

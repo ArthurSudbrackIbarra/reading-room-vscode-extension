@@ -8,7 +8,7 @@
 > - undo/redo
 > - a disk cache of converted PDFs in global storage
 >
-> The extension ID, settings and storage format are unchanged; `CHANGELOG.md` and `README.md` describe 0.2.0. The rest of this file is the 0.1.0 plan as implemented.
+> The extension ID, settings and storage format are unchanged; `CHANGELOG.md` and `README.md` describe the current version (0.3.0 added reading sounds). The rest of this file is the 0.1.0 plan as implemented.
 >
 > **Status:** Phase 1 (research and plan) was **approved on 2026-11-06**. **Phase 2 (M1–M4) was implemented on 2026-11-06** as v0.1.0; see `README.md` for usage and the build/install commands.
 >

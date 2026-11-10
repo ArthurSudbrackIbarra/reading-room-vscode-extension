@@ -1,10 +1,14 @@
 {
   "name": "markdown-pdf-viewer",
   "displayName": "Document Viewer & Highlighter",
-  "description": "View Markdown, text and PDF files as PDFs inside VS Code. Highlight in five colors, add notes, mark where you stopped reading, undo with Ctrl+Z, and download with highlights as PDF annotations.",
-  "version": "0.2.0",
+  "description": "Read Markdown, text and PDF files as PDFs inside VS Code. Highlight in five colors, add notes, mark where you stopped reading, play relaxing rain or fireplace sounds, undo with Ctrl+Z, and download with highlights as PDF annotations.",
+  "version": "0.3.0",
   "publisher": "local",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ArthurSudbrackIbarra/markdown-pdf-viewer.git"
+  },
   "icon": "media/icon.png",
   "private": true,
   "engines": {
@@ -23,7 +27,9 @@
     "highlight",
     "annotation",
     "notes",
-    "bookmark"
+    "bookmark",
+    "reading",
+    "ambient sounds"
   ],
   "main": "./dist/extension.js",
   "extensionKind": [
@@ -140,6 +146,12 @@
         "command": "markdownPdfViewer.removeReadingPosition",
         "title": "Remove the Reading Marker",
         "category": "Document Viewer"
+      },
+      {
+        "command": "markdownPdfViewer.toggleSounds",
+        "title": "Play/Pause Reading Sounds",
+        "category": "Document Viewer",
+        "icon": "$(unmute)"
       },
       {
         "command": "markdownPdfViewer.reattachHighlights",
@@ -266,6 +278,10 @@
         {
           "command": "markdownPdfViewer.removeReadingPosition",
           "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+        },
+        {
+          "command": "markdownPdfViewer.toggleSounds",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf' || markdownPdfViewer.soundPlaying"
         },
         {
           "command": "markdownPdfViewer.reattachHighlights",
@@ -434,8 +450,9 @@
     "typecheck": "tsc -p . --noEmit",
     "test": "vitest run",
     "test:converter": "node esbuild.mjs && vitest run --config vitest.converter.config.mts",
-    "package": "vsce package --allow-missing-repository",
-    "vscode:prepublish": "node esbuild.mjs"
+    "package": "vsce package --githubBranch main",
+    "vscode:prepublish": "node esbuild.mjs",
+    "sounds": "node scripts/fetch-sounds.mjs"
   },
   "devDependencies": {
     "@cantoo/pdf-lib": "2.11.1",

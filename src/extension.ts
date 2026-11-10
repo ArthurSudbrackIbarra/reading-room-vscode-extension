@@ -58,6 +58,7 @@ export function activate(context: vscode.ExtensionContext): void {
     'markdownPdfViewer.markReadingPosition': withPanel((p) => p.marker('place')),
     'markdownPdfViewer.goToReadingPosition': withPanel((p) => p.marker('goto')),
     'markdownPdfViewer.removeReadingPosition': withPanel((p) => p.marker('remove')),
+    'markdownPdfViewer.toggleSounds': () => m.toggleSounds(),
     'markdownPdfViewer.reattachHighlights': () => m.reattach(),
     'markdownPdfViewer.deleteAllHighlights': () => m.deleteAll(),
     'markdownPdfViewer.revealDataFolder': () => m.revealDataFolder(),

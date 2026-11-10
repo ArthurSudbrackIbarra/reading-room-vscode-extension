@@ -3,3 +3,6 @@ dist/
 *.vsix
 .vscode-test/
 coverage/
+
+# Reading sounds made by `npm run sounds` from YouTube recordings (not ours to redistribute)
+media/sounds/*.ogg

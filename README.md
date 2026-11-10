@@ -1,24 +1,40 @@
 # Document Viewer & Highlighter
 
-Read **Markdown**, **plain text** and **PDF** files as real PDFs inside VS Code. You can:
+**A quiet reading room inside VS Code.** Open Markdown, plain text and PDF files as real PDFs, highlight what matters, write notes next to it, mark where you stopped, and read to the sound of rain or a crackling fireplace.
 
-- **highlight** text in five colors
-- write **notes** on your highlights
-- **mark where you stopped reading** (the document opens there next time)
-- **undo/redo** all of it with `Ctrl+Z` / `Ctrl+Y`
-- zoom freely and switch the pages to a **dark theme**
-- **download** the PDF with your highlights and notes as standard PDF annotations
+![A Markdown file next to its PDF in the viewer: highlights in four colors, two notes, the red reading marker and the list of highlights](docs/demo.png)
 
-- **PDF files** open directly in the viewer (it is their editor), exactly as they are.
-- **Markdown and `.txt` files** are converted with Chromium's print-to-PDF. Links stay clickable, headings become an outline, and the layout matches what you would print. Converted PDFs are cached for a few days, so reopening an unchanged file is instant.
-- Highlights, notes and the reading position are stored per file **outside your workspace**. They survive restarts, edits to Markdown and text files, and file renames.
-- **The extension never writes to your documents and never creates files in your workspace.** The only file it writes outside its own storage folder is the PDF you download, at the location you choose.
+## Features
+
+**Read anything as a PDF**
+- **PDF files** open directly in the viewer, exactly as they are, including password-protected ones.
+- **Markdown and `.txt` files** become real, print-quality PDFs (Chromium print-to-PDF): clickable links, an outline, syntax-highlighted code, math and diagrams. Converted PDFs are cached, so reopening an unchanged file is instant.
+- Zoom freely (toolbar, `Ctrl`+wheel, pinch) and switch the pages to a **dark theme**.
+
+**Highlight and annotate**
+- Highlight text in **five colors** and write a **note** on any highlight.
+- Highlights hold on to the text itself, so they follow your edits to Markdown and text files.
+- A side list shows every highlight and note; click one to jump to it.
+- **Undo and redo** all of it with `Ctrl+Z` / `Ctrl+Y`.
+
+**Keep your place**
+- Mark **where you stopped reading**. The document opens right there next time.
+
+**Stay focused**
+- **Reading sounds**: rain or a fireplace that loop seamlessly for as long as you read, with play/pause and volume in a small panel that disappears when you click away.
+
+**Take it with you**
+- **Download** the PDF with your highlights and notes as standard PDF annotations, which Acrobat, Edge, Chrome, Firefox and Preview all show.
+
+**Leaves your files alone**
+- Highlights, notes and reading positions are stored per file **outside your workspace**, and survive restarts, edits and renames.
+- **The extension never writes to your documents and never creates files in your workspace.** The only file it writes outside its own storage folder is a PDF you download, where you choose.
 
 ## Contents
 
 - [Install](#install)
 - [Requirements](#requirements)
-- [Using it](#using-it)
+- [Using it](#using-it): opening documents, highlights, notes, the reading marker, [reading sounds](#reading-sounds), undo, download
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Settings](#settings)
 - [Where your data is stored (backup and reset)](#where-your-data-is-stored-backup-and-reset)
@@ -26,30 +42,37 @@ Read **Markdown**, **plain text** and **PDF** files as real PDFs inside VS Code.
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [Known limitations](#known-limitations)
+- [Credits](#credits)
 
 ## Install
 
-The extension is installed locally from a `.vsix` file; it is not on the Marketplace.
+The extension is installed from a `.vsix` file that you build yourself; it is not on the Marketplace. You need Node.js 22 or newer. From the project folder:
 
-From the project folder (PowerShell, Command Prompt or a POSIX shell; Node.js 22 or newer):
+1. Install the dependencies:
 
-```bash
-npm install
-```
+   ```bash
+   npm install
+   ```
 
-```bash
-npm run build
-```
+2. *(Optional)* Make the reading sounds. This step needs [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [ffmpeg](https://ffmpeg.org/) on your `PATH`; [Reading sounds](#reading-sounds) explains why the audio is not in the repository. Skip it and everything else works the same, without the 🎧 button.
 
-```bash
-npx @vscode/vsce package --allow-missing-repository
-```
+   ```bash
+   npm run sounds
+   ```
 
-```bash
-code --install-extension markdown-pdf-viewer-0.2.0.vsix --force
-```
+3. Build the package:
 
-`npm run package` runs the same `vsce package` command. Then reload VS Code (**Developer: Reload Window**) or open a new window. Installing a newer `.vsix` replaces the previous version and keeps your highlights. The extension ID stays `local.markdown-pdf-viewer` from the time it only handled Markdown.
+   ```bash
+   npm run package
+   ```
+
+4. Install it:
+
+   ```bash
+   code --install-extension markdown-pdf-viewer-0.3.0.vsix --force
+   ```
+
+Then reload VS Code (**Developer: Reload Window**) or open a new window. Installing a newer `.vsix` replaces the previous version and keeps your highlights. The extension ID is still `local.markdown-pdf-viewer`, from the days it only handled Markdown.
 
 To uninstall, run `code --uninstall-extension local.markdown-pdf-viewer`. Uninstalling keeps your stored highlights (see [Where your data is stored](#where-your-data-is-stored-backup-and-reset)).
 
@@ -96,6 +119,7 @@ For Markdown and text files:
 | ✎ | **Highlight tool**: while it is on, every text selection becomes a highlight |
 | ● ● ● ● ● | Highlight color: yellow (default), pink, green, blue, orange. The last color you used is remembered |
 | 🔖 ▾ | **Reading marker**: click, then click the line where you stopped reading. The menu also has *Go to* and *Remove* |
+| 🎧 | **Reading sounds**: opens a small panel to play rain or fireplace sounds, pause them and set the volume. A dot on the button means a sound is playing |
 | ◐ | **Light/dark pages** (remembered for all files). Downloads always use normal light pages |
 | ⟳ | Convert again (Markdown/text) or reload from disk (PDF) |
 | ⤢ | **Full view** (Markdown/text): move the PDF between "next to the source" and "in the source's editor group". Works with **View: Toggle Maximized Editor Group** and **Zen Mode** |
@@ -128,6 +152,23 @@ The reading marker is a red line with a bookmark tab, at the line where you stop
 - **Next time you open the document**, the viewer scrolls straight to the marker and briefly says where you were.
 - **Move or remove it**: click its tab, use the 🔖 ▾ menu, or use the ☰ list.
 - In Markdown and text files the marker follows the text of the marked line through your edits, like highlights do.
+
+### Reading sounds
+
+<img src="docs/reading-sounds.png" alt="The reading sounds panel below the toolbar: Rain is playing, Fireplace is the other choice, with a pause button and a volume slider at 70 %" width="302">
+
+Click 🎧 in the toolbar to open the panel:
+- **Pick a sound**, Rain or Fireplace. It starts right away with a short fade-in; picking the other one crossfades to it.
+- **Pause or play** with the round button and set the **volume** with the slider (the arrow keys work too).
+- The panel closes as soon as it loses focus: click anywhere else, press **Esc**, or go back to your editor. The sound keeps playing, and the 🎧 button shows a small dot.
+
+The sound never ends and never clicks. Each recording is a four-minute loop whose end blends into its start, and the player takes turns between two copies of it, crossfading for a few seconds at the end of each pass.
+
+- **One sound at a time.** Every viewer's panel shows and controls the same sound, however many documents are open. If you close the document that is playing it, another open viewer takes over; closing the last viewer stops it.
+- It keeps playing when you switch to another tab or file.
+- The chosen sound and volume are remembered. The command **Document Viewer: Play/Pause Reading Sounds** works from anywhere, and you can give it a shortcut.
+
+The two recordings come from YouTube videos (see [Credits](#credits)). They belong to their creators, so they are **not part of this repository**: `npm run sounds` downloads a few minutes of each video, turns them into seamless loops (`media/sounds/*.ogg`, about 3 MB each, ignored by git), and the build puts them into the `.vsix` you make for yourself. A build without them simply has no 🎧 button.
 
 ### Undo and redo
 
@@ -176,6 +217,7 @@ When focus is anywhere else, `Ctrl+=`, `Ctrl+-` and `Ctrl+Numpad0` zoom the whol
 
 All commands are in the Command Palette under **Document Viewer:**. Besides the ones above, there are:
 - *Mark Where I Stopped Reading*, *Go to Where I Stopped Reading*, *Remove the Reading Marker*
+- *Play/Pause Reading Sounds*
 - *Undo/Redo Highlight, Note or Marker Change*
 - *Toggle Light/Dark Pages*, *Toggle Highlight Tool*, *Toggle Highlights List*
 - *Reattach Highlights from Another File…*, *Delete All Highlights for This File*
@@ -207,6 +249,8 @@ Everything lives in VS Code's **global storage** for this extension, never in yo
 | Linux | `~/.config/Code/User/globalStorage/local.markdown-pdf-viewer/` |
 
 With a non-default VS Code profile the folder is under `User/profiles/<profile id>/globalStorage/…`; **Document Viewer: Reveal Highlight Data Folder** opens the right one. Insiders builds use `Code - Insiders` instead of `Code`.
+
+Small preferences (the last highlight color, light or dark pages, the chosen reading sound and its volume) are kept in VS Code's own state for the extension rather than in these folders.
 
 ### `highlights/`: highlights, notes, reading position, zoom
 
@@ -283,6 +327,8 @@ The text appears exactly as written, in a monospace font, with long lines wrappe
 - **Downloading Chromium fails behind a proxy**: check VS Code's `http.proxy` settings, then retry.
 - **An image is missing**: the yellow banner in the viewer and **Document Viewer: Show Log** list every image or resource that could not be loaded.
 - **A converted PDF looks outdated**: press ⟳ (it skips the cache), or run **Document Viewer: Clear Cached PDFs**.
+- **There is no 🎧 button**: the package was built without the sound files. Run `npm run sounds`, then `npm run package`, and install the new `.vsix`.
+- **"The rain sound could not be played"**: **Document Viewer: Show Log** has the reason. Check that sound works in other apps, then press play again.
 - Anything else: run **Document Viewer: Show Log**. You can raise the log level with **Developer: Set Log Level…**.
 
 ## Development
@@ -298,10 +344,11 @@ npm run build
 | Script | Purpose |
 |---|---|
 | `npm run build` / `npm run watch` | Bundles `dist/extension.js` (CommonJS), `dist/converter/` (lazy-loaded ESM) and `dist/webview/`, and copies assets |
-| `npm test` | Unit tests: highlight store, notes and marker, PDF cache, undo stack, text conversion, anchoring, text model, write guard |
+| `npm test` | Unit tests: highlight store, notes and marker, PDF cache, undo stack, reading sounds, text conversion, anchoring, text model, write guard |
 | `npm run test:converter` | Renders the feature test and a text file with the installed browser and checks the PDFs with pdf.js |
 | `npm run typecheck` | TypeScript type check |
-| `npm run package` | Builds the `.vsix` |
+| `npm run sounds` | Downloads the sections of the two sound videos and builds the seamless loops in `media/sounds/`. Needs yt-dlp, and ffmpeg with libvorbis. Downloads are cached in the temp folder; `npm run sounds -- --force` rebuilds |
+| `npm run package` | Builds the `.vsix`, with the reading sounds if `npm run sounds` ran. The README pictures in it point to the GitHub repository, because VS Code's extension page only loads `https:` images |
 
 `node test/converter/render-fixture.mjs [file.md] [--theme dark] [--size Letter]` writes a PDF and one PNG per page to the OS temp folder for visual review.
 
@@ -315,7 +362,11 @@ Source layout:
 | `src/cache/` | The disk cache of converted PDFs |
 | `src/anchoring/` | Text model and quote matching, shared with the viewer |
 | `src/export/` | PDF annotations, the Downloads folder |
-| `webview/` | The PDF.js-based viewer: highlights, notes, reading marker, undo stack, dark pages |
+| `webview/` | The PDF.js-based viewer: highlights, notes, reading marker, undo stack, dark pages, reading sounds |
+| `scripts/` | `fetch-sounds.mjs`, which makes the reading sound loops |
+| `docs/` | The pictures in this README |
+
+The loops are Ogg Vorbis because VS Code's built-in Chromium cannot play Opus or AAC.
 
 `PLAN.md` has the original design (version 0.1.0).
 
@@ -327,5 +378,16 @@ Source layout:
 - Dark pages for PDF files are a color inversion. Diagrams that the PDF stores as pictures keep their light background.
 - Renames done outside VS Code are not detected automatically (use *Reattach Highlights*).
 - Highlights, notes and markers are per VS Code profile, and the undo history lasts while the viewer is open.
+- Reading sounds play only while at least one viewer is open, since a viewer produces the audio. Each VS Code window plays its own.
 - Emoji depend on the system's emoji font (built in on Windows and macOS; install Noto Color Emoji on Linux).
 - `file:///` links in a downloaded PDF point to absolute paths on your machine, so they only work there.
+
+## Credits
+
+The reading sounds are short loops cut from these YouTube videos:
+- **Rain**: [*Rain Sound On Window with Thunder SoundsㅣHeavy Rain for Sleep, Study and Relaxation, Meditation*](https://www.youtube.com/watch?v=mPZkdNFkNps) by **Relaxing Ambience ASMR** (four minutes from 1:34).
+- **Fireplace**: [*12 HOURS of Relaxing Fireplace Sounds - Burning Fireplace & Crackling Fire Sounds (NO MUSIC)*](https://www.youtube.com/watch?v=UgHKb_7884o) by **Cat Trumpet** (four minutes from 9:15:08).
+
+The recordings belong to their creators. They are not distributed with this repository and end up only in packages you build yourself.
+
+The viewer is built on [PDF.js](https://mozilla.github.io/pdf.js/). Conversion uses [markdown-it](https://github.com/markdown-it/markdown-it), [Shiki](https://shiki.style/), [KaTeX](https://katex.org/) and [Mermaid](https://mermaid.js.org/), and downloads are annotated with [pdf-lib](https://github.com/cantoo-scribe/pdf-lib). Icons are VS Code's [Codicons](https://github.com/microsoft/vscode-codicons).

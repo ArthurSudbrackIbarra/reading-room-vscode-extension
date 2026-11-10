@@ -9,9 +9,11 @@ import { FileLinkLayer } from './fileLinks';
 import { Toolbar } from './toolbar';
 import { Banner, HighlightPopover, MOD_KEY, MarkerPopover, NoteTooltip, SelectionBar, Sidebar, StatusOverlay, Toast } from './panels';
 import { UndoStack, type EditOp, type HighlightChanges } from './undo';
+import { ReadingSounds, canPlaySounds, type SoundSource } from './sounds';
 import { h } from './dom';
 import { getState, log, post, setState } from './vscodeApi';
 import type { HostToViewer, ViewerCommand } from '../src/shared/messages';
+import { DEFAULT_SOUND, DEFAULT_VOLUME } from '../src/shared/sounds';
 import { DEFAULT_COLOR, DEFAULT_ZOOM, type DocumentKind, type HighlightColor, type PageTheme, type ReadingMarker, type ZoomValue } from '../src/shared/types';
 
 interface Config {
@@ -20,6 +22,8 @@ interface Config {
   cmaps: string;
   standardFonts: string;
   wasm: string;
+  /** Reading sounds included in this build. */
+  sounds?: SoundSource[];
 }
 
 const LOADING_MESSAGE: Record<DocumentKind, string> = {
@@ -59,6 +63,7 @@ class App {
   private readonly noteTooltip = new NoteTooltip();
   private readonly selectionBar: SelectionBar;
   private readonly undoStack = new UndoStack();
+  private readonly sounds?: ReadingSounds;
 
   private uri = '';
   private fileName = '';
@@ -95,12 +100,30 @@ class App {
       placeMarker: () => this.toggleMarkerPlacement(),
       goToMarker: () => this.goToMarker(),
       removeMarker: () => this.removeMarker(),
+      toggleSounds: (anchor) => this.sounds?.toggle(anchor),
       toggleTheme: () => this.command('toggleTheme'),
       refresh: () => this.command('refresh'),
       toggleFullView: () => this.command('toggleFullView'),
       download: (withHighlights) => this.command(withHighlights ? 'download' : 'downloadWithoutHighlights'),
     });
     this.toolbar.setKind(this.kind);
+    const soundSources = config.sounds ?? [];
+    if (soundSources.length > 0 && !canPlaySounds()) {
+      log('warn', 'Reading sounds are hidden: this webview cannot play Ogg Vorbis audio.');
+    } else if (soundSources.length > 0) {
+      this.sounds = new ReadingSounds(
+        soundSources,
+        { sound: DEFAULT_SOUND, volume: DEFAULT_VOLUME, playing: false, owner: false },
+        {
+          request: (request) => post({ type: 'sound', ...request }),
+          stateChanged: (state) => this.toolbar.setSoundState(state),
+          openChanged: (open) => this.toolbar.setSoundsOpen(open),
+          notify: (message) => this.toast.show(message, { action: { label: 'Show Log', run: () => this.command('showLog') } }),
+          log: (level, message) => log(level, message),
+        },
+      );
+    }
+    this.toolbar.setSoundsAvailable(this.sounds !== undefined);
     this.sidebar = new Sidebar({
       reveal: (id) => {
         // When the list floats over the pages (narrow panel), get it out of the way.
@@ -232,6 +255,7 @@ class App {
         this.toolbar.setColor(init.color);
         this.toolbar.setFullView(init.fullView);
         this.setTool(init.toolActive, false);
+        if (init.sound) this.sounds?.apply(init.sound);
         // In a narrow panel the list would cover the pages; open it only on request there.
         this.setListOpen(init.listOpen && !narrowPanel(), false);
         document.title = init.fileName;
@@ -317,6 +341,9 @@ class App {
         if (msg.action === 'place') this.toggleMarkerPlacement();
         else if (msg.action === 'goto') this.goToMarker();
         else this.removeMarker();
+        break;
+      case 'sound':
+        this.sounds?.apply(msg.state);
         break;
     }
   }
@@ -609,6 +636,8 @@ class App {
   /** Hides popovers and tooltips. On scroll/zoom (`passive`) a note being edited stays open. */
   private hideFloating(passive = false): void {
     if (!passive || !this.popover.editing) this.popover.hide();
+    // The sounds panel hangs from the toolbar, so scrolling and zooming leave it open.
+    if (!passive) this.sounds?.hide();
     this.selectionBar.hide();
     this.markerPopover.hide();
     this.noteTooltip.hide();

@@ -21,8 +21,10 @@ import {
   type PageTheme,
 } from '../shared/types';
 import { normalizeKeyPath, sanitizeHighlight, sanitizeMarker, type DocumentRef, type HighlightStore } from '../store/HighlightStore';
+import type { SoundState } from '../shared/sounds';
 import { readSettings } from '../util/settings';
 import { RenderError, type RenderService } from './RenderService';
+import type { SoundCoordinator } from './SoundCoordinator';
 import { buildWebviewHtml, webviewOptions } from './webviewHtml';
 
 export interface UiState {
@@ -39,6 +41,7 @@ export interface PanelHost {
   readonly store: HighlightStore;
   readonly renderer: RenderService;
   readonly pdfCache: PdfCache;
+  readonly sounds: SoundCoordinator<PreviewPanel>;
   uiState(): UiState;
   updateUiState(patch: Partial<UiState>): void;
   toggleTheme(): void;
@@ -162,6 +165,11 @@ export class PreviewPanel implements vscode.Disposable {
 
   // ---------- Messaging ----------
 
+  /** Reading sounds state for this viewer (from the SoundCoordinator). */
+  postSound(state: SoundState): void {
+    this.post({ type: 'sound', state });
+  }
+
   private post(message: HostToViewer): void {
     if (this.disposed) return;
     if (!this.ready) {
@@ -253,6 +261,10 @@ export class PreviewPanel implements vscode.Disposable {
       case 'copyText':
         await vscode.env.clipboard.writeText(msg.text);
         break;
+      case 'sound':
+        if (msg.action === 'failed') this.host.log.warn(`Reading sound: ${msg.message}`);
+        this.host.sounds.handle(this, msg);
+        break;
       case 'log':
         this.host.log[msg.level](`[viewer] ${msg.message}`);
         break;
@@ -281,6 +293,7 @@ export class PreviewPanel implements vscode.Disposable {
         listOpen: ui.listOpen,
         fullView: this.kind !== 'pdf' && this.isFullView(),
         marginsPt: margins,
+        sound: this.host.sounds.stateFor(this),
       },
     } satisfies HostToViewer);
     const queued = this.outbox.splice(0);
