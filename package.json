@@ -2,7 +2,7 @@
   "name": "markdown-pdf-viewer",
   "displayName": "Document Viewer & Highlighter",
   "description": "Read Markdown, text and PDF files as PDFs inside VS Code. Highlight in five colors, add notes, mark where you stopped reading, play relaxing rain or fireplace sounds, undo with Ctrl+Z, and download with highlights as PDF annotations.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "local",
   "license": "MIT",
   "repository": {

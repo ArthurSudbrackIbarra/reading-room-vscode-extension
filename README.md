@@ -160,11 +160,12 @@ The reading marker is a red line with a bookmark tab, at the line where you stop
 Click 🎧 in the toolbar to open the panel:
 - **Pick a sound**, Rain or Fireplace. It starts right away with a short fade-in; picking the other one crossfades to it.
 - **Pause or play** with the round button and set the **volume** with the slider (the arrow keys work too).
-- The panel closes as soon as it loses focus: click anywhere else, press **Esc**, or go back to your editor. The sound keeps playing, and the 🎧 button shows a small dot.
+- The panel closes as soon as it loses focus: click anywhere else, press **Esc**, or go back to your editor. The sound keeps playing until you pause it, and the 🎧 button shows a small dot.
 
-The sound never ends and never clicks. Each recording is a four-minute loop whose end blends into its start, and the player takes turns between two copies of it, crossfading for a few seconds at the end of each pass.
+The sound never ends and never clicks. Each recording is a four-minute loop whose end blends into its start, and the player takes turns between two copies of it, crossfading for a few seconds at the end of each pass. Both loops have the same loudness, so switching sounds keeps the volume; at 100 % they are about as loud as a podcast.
 
 - **One sound at a time.** Every viewer's panel shows and controls the same sound, however many documents are open. If you close the document that is playing it, another open viewer takes over; closing the last viewer stops it.
+- VS Code lets a viewer start sound only after you have clicked or typed in it. So the sound goes to a viewer you have used, and a viewer you have not touched yet starts it at your first click there (it tells you so).
 - It keeps playing when you switch to another tab or file.
 - The chosen sound and volume are remembered. The command **Document Viewer: Play/Pause Reading Sounds** works from anywhere, and you can give it a shortcut.
 
@@ -329,6 +330,7 @@ The text appears exactly as written, in a monospace font, with long lines wrappe
 - **A converted PDF looks outdated**: press ⟳ (it skips the cache), or run **Document Viewer: Clear Cached PDFs**.
 - **There is no 🎧 button**: the package was built without the sound files. Run `npm run sounds`, then `npm run package`, and install the new `.vsix`.
 - **"The rain sound could not be played"**: **Document Viewer: Show Log** has the reason. Check that sound works in other apps, then press play again.
+- **"Click anywhere in this viewer to start the rain sound"**: VS Code lets a viewer play sound only after you have clicked or typed in it. You see this when a viewer you have not used yet takes over the sound, for example after you closed the one that was playing. One click and it plays.
 - Anything else: run **Document Viewer: Show Log**. You can raise the log level with **Developer: Set Log Level…**.
 
 ## Development
@@ -347,7 +349,7 @@ npm run build
 | `npm test` | Unit tests: highlight store, notes and marker, PDF cache, undo stack, reading sounds, text conversion, anchoring, text model, write guard |
 | `npm run test:converter` | Renders the feature test and a text file with the installed browser and checks the PDFs with pdf.js |
 | `npm run typecheck` | TypeScript type check |
-| `npm run sounds` | Downloads the sections of the two sound videos and builds the seamless loops in `media/sounds/`. Needs yt-dlp, and ffmpeg with libvorbis. Downloads are cached in the temp folder; `npm run sounds -- --force` rebuilds |
+| `npm run sounds` | Downloads the sections of the two sound videos and builds the seamless loops in `media/sounds/`, both at −16 LUFS. Needs yt-dlp, and ffmpeg with libvorbis. Downloads are cached in the temp folder; `npm run sounds -- --force` rebuilds |
 | `npm run package` | Builds the `.vsix`, with the reading sounds if `npm run sounds` ran. The README pictures in it point to the GitHub repository, because VS Code's extension page only loads `https:` images |
 
 `node test/converter/render-fixture.mjs [file.md] [--theme dark] [--size Letter]` writes a PDF and one PNG per page to the OS temp folder for visual review.

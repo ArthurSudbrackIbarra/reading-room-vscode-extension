@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1 — 2026-11-10
+
+- **Reading sounds no longer stop by themselves.** VS Code lets a viewer start audio only while handling a click in it, and the second player that takes over at the end of each four-minute pass never had one, so the sound stopped at the first loop point. Now the viewer unlocks all its players at your first click or key press in it, and they take turns for as long as you like.
+  - If the next pass still cannot start, the current one simply loops on its own instead of stopping.
+  - A viewer that takes over the sound before you have clicked in it (for example after you closed the one that was playing) waits for your first click there and says so, instead of stopping the sound everywhere.
+  - Pausing from outside the viewer (media keys, the system's media controls) now pauses it everywhere, so the panels never show a silent sound as playing.
+  - While nothing plays, the viewer's audio output sleeps.
+- **Louder**: both loops now have the same loudness (−16 LUFS), so 100 % is about as loud as a podcast. That is 6 dB more for the rain and 15 dB more for the fireplace, whose crackles are limited faster so the fire stays steady between them.
+- The sounds panel no longer shows "Playing on a loop".
+
 ## 0.3.0 — 2026-11-10
 
 - **Reading sounds**: a 🎧 button in the viewer toolbar opens a small floating panel with **Rain** and **Fireplace**, play/pause and a volume slider. The panel closes as soon as it loses focus.

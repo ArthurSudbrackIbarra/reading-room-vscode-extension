@@ -53,5 +53,10 @@ export type SoundRequest =
   | { action: 'play'; sound: SoundId }
   | { action: 'pause' }
   | { action: 'volume'; volume: number }
-  /** The viewer that was asked to play could not (missing file, audio blocked…). */
+  /**
+   * The reader clicked or typed in this viewer, so it may now start sound on its own. VS Code lets a
+   * webview make sound only after a click in it; until then a viewer asked to play waits for one.
+   */
+  | { action: 'ready' }
+  /** The viewer that was asked to play could not (missing or broken file…). */
   | { action: 'failed'; message: string };

@@ -150,7 +150,7 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
     if (this.focusedPanel === panel) this.focusChanged(panel, false);
     if (!this.panels.has(panel.uri.toString())) this.store.evict(this.refFor(panel.uri));
     // A sound playing in this viewer keeps going in another open viewer.
-    this.sounds.viewerClosed(panel, this.current() ?? this.panels.values().next().value);
+    this.sounds.viewerClosed(panel, this.current());
   }
 
   /** The viewer a command applies to: the active one, else the only one. */
@@ -384,7 +384,7 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
 
   // ---------- Reading sounds ----------
 
-  /** Command: pause the reading sound, or play it in the current viewer. */
+  /** Command: pause the reading sound, or play it (in the current viewer when it can start sound). */
   toggleSounds(): void {
     if (this.sounds.isPlaying) {
       this.sounds.pause();
@@ -396,8 +396,7 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
       );
       return;
     }
-    const panel = this.current() ?? this.sounds.currentOwner ?? this.panels.values().next().value;
-    if (!panel || !this.sounds.toggle(panel)) {
+    if (!this.sounds.toggle(this.current())) {
       void vscode.window.showInformationMessage('Open a document in the viewer first (a Markdown, text or PDF file), then play a reading sound.');
     }
   }

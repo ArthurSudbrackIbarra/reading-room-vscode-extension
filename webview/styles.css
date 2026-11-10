@@ -1140,21 +1140,11 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
 }
 
 .mpv-sounds-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
   margin-bottom: 10px;
 }
 
 .mpv-sounds-title {
   font-weight: 600;
-}
-
-.mpv-sounds-status {
-  font-size: 11px;
-  opacity: 0.75;
-  white-space: nowrap;
 }
 
 .mpv-sound-tiles {

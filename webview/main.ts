@@ -119,6 +119,7 @@ class App {
           stateChanged: (state) => this.toolbar.setSoundState(state),
           openChanged: (open) => this.toolbar.setSoundsOpen(open),
           notify: (message) => this.toast.show(message, { action: { label: 'Show Log', run: () => this.command('showLog') } }),
+          hint: (message) => this.toast.show(message, { durationMs: 8000 }),
           log: (level, message) => log(level, message),
         },
       );

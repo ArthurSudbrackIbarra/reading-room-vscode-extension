@@ -7,6 +7,14 @@
 // run in Web Audio on the audio clock, so they stay smooth while the viewer tab is in the
 // background. Only the viewer the extension names as the owner plays; the others just show the
 // state, so two open documents never play two rains at once.
+//
+// VS Code's webviews may only start sound while handling a click or key press in them
+// ("user-gesture-required"), and that is checked for each <audio> element separately. What is
+// allowed once stays allowed, though: an element that played, or was load()ed during a click, and
+// an AudioContext created during a click. So at the reader's first click or key press anywhere in
+// the viewer, the player creates its audio output and all its decks and unlocks them; from then on
+// the decks can take turns at the loop point, and the extension can hand the sound to this viewer,
+// without another click. A viewer asked to play before it has had one waits for it.
 import { soundLabel, volumeToGain, type SoundId, type SoundRequest, type SoundState } from '../src/shared/sounds';
 import { h, icon, placeFloating } from './dom';
 
@@ -125,52 +133,124 @@ function isAbort(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError';
 }
 
+/** The browser refused to start sound: this viewer has not had a click yet. */
+export function isBlocked(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'NotAllowedError';
+}
+
+function blocked(): DOMException {
+  return new DOMException('sound can only start after a click in the viewer', 'NotAllowedError');
+}
+
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** True while handling a click or key press (or when the browser cannot tell). */
+function hasUserActivation(): boolean {
+  const activation = (navigator as { userActivation?: { isActive: boolean } }).userActivation;
+  return activation ? activation.isActive : true;
+}
+
 class Deck {
   readonly el = new Audio();
   readonly gain: GainNode;
+  /** load()ed during a click, or played: it may start without one. */
+  unlocked = false;
+  /** This code paused it; the 'pause' event that follows is not a pause from outside. */
+  private ownPause = false;
 
-  constructor(ctx: AudioContext, url: string, out: AudioNode) {
+  constructor(ctx: AudioContext, out: AudioNode) {
     this.el.preload = 'auto';
-    this.el.src = url;
     this.gain = ctx.createGain();
     ctx.createMediaElementSource(this.el).connect(this.gain).connect(out);
   }
+
+  pause(): void {
+    if (this.el.paused) return;
+    this.ownPause = true;
+    this.el.pause();
+  }
+
+  /** For the 'pause' event: whether this code asked for it (and forget that it did). */
+  takeOwnPause(): boolean {
+    const own = this.ownPause;
+    this.ownPause = false;
+    return own;
+  }
+}
+
+interface TrackHooks {
+  /** The playing deck failed: this sound cannot go on. */
+  fatal(err: unknown): void;
+  warn(message: string): void;
+  /** Something outside the viewer paused the playing deck (media keys, the system's media controls). */
+  interrupted(): void;
+  stopped(): void;
 }
 
 /** One sound: two decks taking turns over the same loop file, behind a fader. */
 class Track {
   readonly fader: GainNode;
   private readonly decks: [Deck, Deck];
+  private url?: string;
   private active = 0;
   private running = false;
   private swapping = false;
+  /** A swap failed, so the active deck loops on its own; the next swap is tried on its next pass. */
+  private holding = false;
   private watch?: ReturnType<typeof setInterval>;
   private stopTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     private readonly ctx: AudioContext,
-    url: string,
     out: AudioNode,
-    private readonly onError: (err: unknown) => void,
+    private readonly hooks: TrackHooks,
   ) {
     this.fader = ctx.createGain();
     this.fader.gain.value = 0;
     this.fader.connect(out);
-    this.decks = [new Deck(ctx, url, this.fader), new Deck(ctx, url, this.fader)];
+    this.decks = [new Deck(ctx, this.fader), new Deck(ctx, this.fader)];
     this.decks[1].gain.gain.value = 0;
     this.decks.forEach((deck, i) => {
       deck.el.addEventListener('timeupdate', () => {
         if (i === this.active) this.checkLoop();
       });
       deck.el.addEventListener('ended', () => this.ended(i));
-      deck.el.addEventListener('error', () => {
-        if (this.running) this.onError(new Error(deck.el.error?.message || `media error ${deck.el.error?.code ?? ''}`.trim()));
-      });
+      deck.el.addEventListener('pause', () => this.paused(i));
+      deck.el.addEventListener('error', () => this.failed(i));
     });
   }
 
   get isRunning(): boolean {
     return this.running;
+  }
+
+  /** Call during a click: lets both decks start later without one. */
+  unlock(): void {
+    for (const deck of this.decks) {
+      if (deck.unlocked) continue;
+      // A deck that has moved has played, so it is allowed already; load() would rewind it.
+      if (deck.el.paused && deck.el.currentTime === 0) deck.el.load();
+      deck.unlocked = true;
+    }
+  }
+
+  /** The file both decks play (a blob: URL); set before the first play. */
+  setSource(url: string): void {
+    if (this.url === url) return;
+    this.url = url;
+    for (const deck of this.decks) deck.el.src = url;
+  }
+
+  /** Lets go of the file (after an error), so the next play loads it again. */
+  clearSource(): void {
+    this.stop();
+    this.url = undefined;
+    for (const deck of this.decks) {
+      deck.el.removeAttribute('src');
+      deck.el.load();
+    }
   }
 
   /** Starts or resumes playback and fades in. */
@@ -180,18 +260,22 @@ class Track {
     fadeParam(this.fader.gain, this.ctx, 1, seconds);
     if (this.running) return;
     this.running = true;
+    this.holding = false;
     this.watch = setInterval(() => this.checkLoop(), 1000);
     // Resume on the active deck only; a crossfade cut short by a pause is not continued.
     const deck = this.decks[this.active];
     const other = this.decks[1 - this.active];
-    other.el.pause();
+    other.pause();
     if (other.el.currentTime !== 0) other.el.currentTime = 0;
+    for (const d of this.decks) d.el.loop = false;
     fadeParam(other.gain.gain, this.ctx, 0, 0);
     fadeParam(deck.gain.gain, this.ctx, 1, 0);
     this.swapping = false;
     try {
       await deck.el.play();
+      deck.unlocked = true;
     } catch (err) {
+      if (isBlocked(err)) deck.unlocked = false;
       if (!isAbort(err)) this.stop();
       throw err;
     }
@@ -209,16 +293,27 @@ class Track {
     this.stopTimer = undefined;
     clearInterval(this.watch);
     this.watch = undefined;
+    const wasRunning = this.running;
     this.running = false;
-    for (const deck of this.decks) deck.el.pause();
+    this.holding = false;
+    for (const deck of this.decks) deck.pause();
+    if (wasRunning) this.hooks.stopped();
   }
 
   /** Diagnostics for tests: what each deck is doing. */
-  describe(): { active: number; decks: { time: number; duration: number; paused: boolean; gain: number }[]; fader: number } {
+  describe(): Record<string, unknown> {
     return {
       active: this.active,
+      holding: this.holding,
       fader: this.fader.gain.value,
-      decks: this.decks.map((d) => ({ time: d.el.currentTime, duration: d.el.duration, paused: d.el.paused, gain: d.gain.gain.value })),
+      decks: this.decks.map((d) => ({
+        time: d.el.currentTime,
+        duration: d.el.duration,
+        paused: d.el.paused,
+        loop: d.el.loop,
+        unlocked: d.unlocked,
+        gain: d.gain.gain.value,
+      })),
     };
   }
 
@@ -226,27 +321,62 @@ class Track {
     if (!this.running || this.swapping) return;
     const el = this.decks[this.active].el;
     const remaining = el.duration - el.currentTime;
-    if (!Number.isFinite(remaining) || remaining > LOOP_LEAD_S) return;
+    if (!Number.isFinite(remaining)) return;
+    if (this.holding) {
+      // Looping on its own since a swap failed: try again once it has wrapped around.
+      if (remaining > LOOP_LEAD_S) this.holding = false;
+      return;
+    }
+    if (remaining > LOOP_LEAD_S) return;
     this.swap(Math.max(0.3, Math.min(LOOP_FADE_S, remaining - 0.5)));
   }
 
   private swap(seconds: number): void {
     const from = this.decks[this.active];
-    this.active = 1 - this.active;
-    const to = this.decks[this.active];
+    const next = 1 - this.active;
+    const to = this.decks[next];
+    this.active = next;
     this.swapping = true;
+    to.el.loop = false;
     if (to.el.currentTime !== 0) to.el.currentTime = 0;
     fadeParam(to.gain.gain, this.ctx, 1, seconds);
     fadeParam(from.gain.gain, this.ctx, 0, seconds);
     to.el.play().then(
       () => {
         this.swapping = false;
+        to.unlocked = true;
+        // The outgoing deck plays out its last seconds (fading) and stops at the end.
+        from.el.loop = false;
       },
       (err: unknown) => {
         this.swapping = false;
-        if (this.running && !isAbort(err)) this.onError(err);
+        if (this.running && !isAbort(err)) this.hold(next, err);
       },
     );
+  }
+
+  /**
+   * The next deck could not start. Rather than stop, keep the one that was playing going, looping
+   * on its own (with a split-second seam at its loop point), and try the swap again next pass.
+   */
+  private hold(failed: number, err: unknown): void {
+    const bad = this.decks[failed];
+    const keep = this.decks[1 - failed];
+    this.active = 1 - failed;
+    this.holding = true;
+    if (isBlocked(err)) bad.unlocked = false;
+    bad.pause();
+    fadeParam(bad.gain.gain, this.ctx, 0, 0);
+    fadeParam(keep.gain.gain, this.ctx, 1, 0.05);
+    keep.el.loop = true;
+    if (keep.el.paused) {
+      // It already ran out (a stalled tab): start it over.
+      keep.el.currentTime = 0;
+      keep.el.play().catch((e: unknown) => {
+        if (this.running && !isAbort(e)) this.hooks.fatal(e);
+      });
+    }
+    this.hooks.warn(`the next pass could not start (${messageOf(err)}), so the current one loops on its own for now`);
   }
 
   private ended(i: number): void {
@@ -255,6 +385,28 @@ class Track {
     // The active deck ran out before its crossfade started (a stalled tab): carry on at once.
     if (i === this.active && this.running && !this.swapping) this.swap(0.3);
   }
+
+  private paused(i: number): void {
+    const deck = this.decks[i];
+    if (deck.takeOwnPause() || deck.el.ended || !this.running || this.swapping || i !== this.active) return;
+    this.hooks.interrupted();
+  }
+
+  private failed(i: number): void {
+    if (!this.running) return;
+    const error = this.decks[i].el.error;
+    const err = new Error(error?.message || `media error ${error?.code ?? ''}`.trim());
+    if (i === this.active && !this.swapping) this.hooks.fatal(err);
+    else this.hooks.warn(`a player failed (${err.message})`);
+  }
+}
+
+export interface PlayerHooks {
+  /** The sound broke (missing or damaged file…); it stopped. */
+  error(id: SoundId, err: unknown): void;
+  warn(id: SoundId, message: string): void;
+  /** Paused from outside the viewer (media keys, the system's media controls). */
+  interrupted(id: SoundId): void;
 }
 
 export class AmbientPlayer {
@@ -264,10 +416,13 @@ export class AmbientPlayer {
   private readonly blobs = new Map<SoundId, Promise<string>>();
   private current?: SoundId;
   private volume = 0;
+  private unlocked = false;
+  /** A suspend() of the output may still be pending; play() must resume it. */
+  private suspending = false;
 
   constructor(
     private readonly sources: readonly SoundSource[],
-    private readonly onError: (id: SoundId, err: unknown) => void,
+    private readonly hooks: PlayerHooks,
   ) {}
 
   /** The sound that should be audible (undefined while paused). */
@@ -275,10 +430,27 @@ export class AmbientPlayer {
     return this.current;
   }
 
-  /** Creates or resumes the audio output. Call it from a click, so the browser allows sound. */
-  unlock(): void {
+  /** Sound may start without a click: the reader has clicked or typed in this viewer. */
+  get ready(): boolean {
+    return this.unlocked;
+  }
+
+  /**
+   * Call while handling a click or key press. Creates the audio output and every deck, and unlocks
+   * them, so sound can start and go on later without another click. Returns false when the event
+   * did not count as one (Esc, for example).
+   */
+  unlock(): boolean {
+    if (!hasUserActivation()) return false;
     const ctx = this.context();
-    if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
+    // Resuming during a click also unlocks the output for later; a quiet output stays asleep.
+    if (ctx.state !== 'running' && (this.current || !this.unlocked)) void ctx.resume().catch(() => undefined);
+    for (const track of this.tracks.values()) track.unlock();
+    if (!this.unlocked) {
+      this.unlocked = true;
+      this.idle();
+    }
+    return true;
   }
 
   setVolume(volume: number): void {
@@ -286,22 +458,32 @@ export class AmbientPlayer {
     if (this.ctx && this.master) this.master.gain.setTargetAtTime(volumeToGain(volume), this.ctx.currentTime, 0.04);
   }
 
+  /** Plays `id`. Rejects with a NotAllowedError (see isBlocked) while the viewer has had no click. */
   async play(id: SoundId): Promise<void> {
     const previous = this.current;
     this.current = id;
+    if (!this.unlocked) throw blocked();
     const ctx = this.context();
     const running = () => ctx.state === 'running';
-    if (!running()) {
-      await Promise.race([ctx.resume(), new Promise((resolve) => setTimeout(resolve, RESUME_TIMEOUT_MS))]);
-      if (!running()) throw new Error('audio output is blocked until you click play in the viewer');
+    if (!running() || this.suspending) {
+      this.suspending = false;
+      await Promise.race([ctx.resume().catch(() => undefined), new Promise((resolve) => setTimeout(resolve, RESUME_TIMEOUT_MS))]);
+      if (this.current !== id) return;
+      if (!running()) {
+        this.unlocked = false;
+        throw blocked();
+      }
     }
-    const track = await this.track(id);
+    const track = this.tracks.get(id);
+    if (!track) throw new Error(`${soundLabel(id)} is not part of this build`);
+    track.setSource(await this.blobUrl(id));
     if (this.current !== id) return; // something else was chosen meanwhile
     if (previous && previous !== id) this.tracks.get(previous)?.fadeOut(SWITCH_S);
     try {
       await track.fadeIn(previous && previous !== id ? SWITCH_S : FADE_IN_S);
     } catch (err) {
-      if (!isAbort(err)) this.drop(id);
+      if (isBlocked(err)) this.unlocked = false;
+      else if (!isAbort(err)) this.forget(id);
       throw err;
     }
   }
@@ -316,41 +498,67 @@ export class AmbientPlayer {
   describe(): Record<string, unknown> {
     return {
       context: this.ctx?.state ?? 'none',
+      ready: this.unlocked,
       current: this.current,
       master: this.master?.gain.value,
       tracks: Object.fromEntries([...this.tracks].map(([id, t]) => [id, { running: t.isRunning, ...t.describe() }])),
     };
   }
 
+  /** The audio output, with a track (two decks) per sound; made at the first click. */
   private context(): AudioContext {
     if (!this.ctx) {
-      this.ctx = new AudioContext({ latencyHint: 'playback' });
-      this.master = this.ctx.createGain();
-      this.master.gain.value = volumeToGain(this.volume);
-      this.master.connect(this.ctx.destination);
+      const ctx = new AudioContext({ latencyHint: 'playback' });
+      const master = ctx.createGain();
+      master.gain.value = volumeToGain(this.volume);
+      master.connect(ctx.destination);
+      this.ctx = ctx;
+      this.master = master;
+      for (const source of this.sources) {
+        const id = source.id;
+        this.tracks.set(
+          id,
+          new Track(ctx, master, {
+            fatal: (err) => {
+              this.forget(id);
+              this.hooks.error(id, err);
+            },
+            warn: (message) => this.hooks.warn(id, message),
+            interrupted: () => this.hooks.interrupted(id),
+            stopped: () => this.idle(),
+          }),
+        );
+      }
+      // The output stopped on its own while a sound should play (the system took the device…).
+      ctx.addEventListener('statechange', () => {
+        if (this.current && !this.suspending && ctx.state !== 'running' && ctx.state !== 'closed') void ctx.resume().catch(() => undefined);
+      });
     }
     return this.ctx;
   }
 
-  private async track(id: SoundId): Promise<Track> {
-    const existing = this.tracks.get(id);
-    if (existing) return existing;
-    const url = await this.blobUrl(id);
-    const created = this.tracks.get(id); // made by a concurrent call meanwhile
-    if (created) return created;
-    const ctx = this.context();
-    const track = new Track(ctx, url, this.master ?? ctx.destination, (err) => {
-      this.drop(id);
-      this.onError(id, err);
-    });
-    this.tracks.set(id, track);
-    return track;
+  /** Nothing plays: let the audio output sleep (it wakes up without a click, once unlocked). */
+  private idle(): void {
+    const ctx = this.ctx;
+    if (!ctx || this.current || ctx.state !== 'running') return;
+    if ([...this.tracks.values()].some((t) => t.isRunning)) return;
+    this.suspending = true;
+    ctx.suspend().then(
+      () => {
+        this.suspending = false;
+      },
+      () => {
+        this.suspending = false;
+      },
+    );
   }
 
-  /** Forgets a track that failed, so playing it again starts from scratch. */
-  private drop(id: SoundId): void {
-    this.tracks.get(id)?.stop();
-    this.tracks.delete(id);
+  /** Forgets a sound that failed, so playing it again loads the file from scratch. */
+  private forget(id: SoundId): void {
+    this.tracks.get(id)?.clearSource();
+    const blob = this.blobs.get(id);
+    this.blobs.delete(id);
+    blob?.then((url) => URL.revokeObjectURL(url)).catch(() => undefined);
   }
 
   /** The file as a blob: URL (a local copy the decks can seek in freely). */
@@ -383,7 +591,6 @@ interface PanelActions {
 class SoundsPanel {
   readonly element: HTMLElement;
   private readonly tiles = new Map<SoundId, HTMLButtonElement>();
-  private readonly status = h('span', { class: 'mpv-sounds-status' });
   private readonly playButton = h('button', { class: 'mpv-sound-play', type: 'button' });
   private readonly volumeIcon = h('span', { class: 'mpv-sounds-volume-icon' });
   private readonly slider = h('input', { class: 'mpv-sounds-slider', type: 'range', min: '0', max: '100', step: '1', 'aria-label': 'Volume' });
@@ -416,7 +623,7 @@ class SoundsPanel {
     this.element = h(
       'div',
       { class: 'mpv-popover mpv-sounds', role: 'dialog', 'aria-label': 'Reading sounds', tabindex: '-1', hidden: true },
-      h('div', { class: 'mpv-sounds-header' }, h('span', { class: 'mpv-sounds-title', text: 'Reading sounds' }), this.status),
+      h('div', { class: 'mpv-sounds-header' }, h('span', { class: 'mpv-sounds-title', text: 'Reading sounds' })),
       tiles,
       h('div', { class: 'mpv-sounds-controls' }, this.playButton, this.volumeIcon, this.slider, this.percent),
     );
@@ -490,7 +697,6 @@ class SoundsPanel {
     this.playButton.replaceChildren(icon(state.playing ? 'debug-pause' : 'play'));
     this.playButton.title = state.playing ? 'Pause' : `Play ${label} sounds`;
     this.playButton.setAttribute('aria-label', this.playButton.title);
-    this.status.textContent = state.playing ? 'Playing on a loop' : 'Paused';
     const percent = Math.round(state.volume * 100);
     this.slider.value = String(percent);
     this.slider.style.setProperty('--mpv-fill', `${percent}%`);
@@ -518,7 +724,10 @@ export interface ReadingSoundsHooks {
   /** The toolbar button shows whether a sound is playing. */
   stateChanged(state: SoundState): void;
   openChanged(open: boolean): void;
+  /** Reports a problem (with a way to the log). */
   notify(message: string): void;
+  /** A short tip for the reader. */
+  hint(message: string): void;
   log(level: 'info' | 'warn' | 'error', message: string): void;
 }
 
@@ -529,6 +738,9 @@ export class ReadingSounds {
   /** A volume set here that the extension has not been told about yet. */
   private pendingVolume?: number;
   private volumeTimer?: ReturnType<typeof setTimeout>;
+  /** This viewer should play but has had no click yet; it starts at the next one. */
+  private waiting = false;
+  private toldReady = false;
 
   constructor(
     sources: readonly SoundSource[],
@@ -536,13 +748,22 @@ export class ReadingSounds {
     private readonly hooks: ReadingSoundsHooks,
   ) {
     this.state = initial;
-    this.player = new AmbientPlayer(sources, (id, err) => this.failed(id, err));
+    this.player = new AmbientPlayer(sources, {
+      error: (id, err) => this.failed(id, err),
+      warn: (id, message) => hooks.log('warn', `Reading sound "${id}": ${message}.`),
+      interrupted: (id) => this.interrupted(id),
+    });
     this.panel = new SoundsPanel(sources, {
       choose: (id) => this.choose(id),
       togglePlay: () => this.togglePlay(),
       setVolume: (volume, final) => this.changeVolume(volume, final),
       openChanged: (open) => hooks.openChanged(open),
     });
+    // The first click or key press anywhere in the viewer unlocks sound for good (see the top of
+    // this file). Capture phase, so nothing in the viewer can stop the event before it gets here.
+    const onGesture = (e: Event) => this.gesture(e);
+    window.addEventListener('pointerdown', onGesture, true);
+    window.addEventListener('keydown', onGesture, true);
     this.render();
   }
 
@@ -567,7 +788,19 @@ export class ReadingSounds {
 
   /** Diagnostics for tests. */
   describe(): Record<string, unknown> {
-    return { state: this.state, open: this.open, player: this.player.describe() };
+    return { state: this.state, open: this.open, waiting: this.waiting, player: this.player.describe() };
+  }
+
+  private gesture(e: Event): void {
+    if (!e.isTrusted || !this.player.unlock()) return;
+    if (!this.toldReady) {
+      this.toldReady = true;
+      this.hooks.request({ action: 'ready' });
+    }
+    if (this.waiting) {
+      this.waiting = false;
+      this.sync();
+    }
   }
 
   private render(): void {
@@ -579,13 +812,28 @@ export class ReadingSounds {
   private sync(): void {
     this.player.setVolume(this.state.volume);
     if (!(this.state.playing && this.state.owner)) {
+      this.waiting = false;
       this.player.pause();
       return;
     }
     const id = this.state.sound;
+    if (!this.player.ready) {
+      this.wait(id);
+      return;
+    }
     this.player.play(id).catch((err: unknown) => {
-      if (this.player.playing === id && !isAbort(err)) this.failed(id, err);
+      if (this.player.playing !== id || isAbort(err)) return;
+      if (isBlocked(err)) this.wait(id);
+      else this.failed(id, err);
     });
+  }
+
+  /** Asked to play before the reader clicked in this viewer: start at the first click. */
+  private wait(id: SoundId): void {
+    if (this.waiting) return;
+    this.waiting = true;
+    this.hooks.log('info', `Reading sound "${id}" starts at the next click in this viewer (VS Code lets a viewer play sound only after one).`);
+    this.hooks.hint(`Click anywhere in this viewer to start the ${soundLabel(id).toLowerCase()} sound.`);
   }
 
   private local(patch: Partial<SoundState>): void {
@@ -631,10 +879,19 @@ export class ReadingSounds {
     this.hooks.request({ action: 'volume', volume });
   }
 
+  /** Paused from outside the viewer (media keys, the system's media controls): pause everywhere. */
+  private interrupted(id: SoundId): void {
+    if (!(this.state.playing && this.state.owner && this.state.sound === id)) return;
+    this.hooks.log('info', `Reading sound "${id}" was paused from outside the viewer (media keys or the system's media controls).`);
+    this.local({ playing: false, owner: false });
+    this.hooks.request({ action: 'pause' });
+  }
+
   private failed(id: SoundId, err: unknown): void {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = messageOf(err);
     this.hooks.log('warn', `Reading sound "${id}" failed: ${message}`);
     this.player.pause();
+    this.waiting = false;
     this.state = { ...this.state, playing: false, owner: false };
     this.render();
     this.hooks.request({ action: 'failed', message: `${id}: ${message}` });

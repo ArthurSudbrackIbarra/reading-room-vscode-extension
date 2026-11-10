@@ -25,15 +25,21 @@ const FFMPEG = process.env.FFMPEG || 'ffmpeg';
 const force = process.argv.includes('--force');
 
 const RATE = 48_000;
-/** Peak ceiling after the gain (about -1.5 dBFS), so loud crackles do not clip. */
-const PEAK_LIMIT = 0.84;
+/**
+ * The limiter's ceiling (about -3 dBFS): it catches the peaks the gain pushes up (a fireplace's
+ * crackles stand some 38 dB above its average level) and leaves room for the Vorbis encoder, which
+ * adds a little to sharp peaks. The fast release (20 ms) keeps the quiet sound between crackles
+ * from dipping after each one.
+ */
+const LIMITER = 'alimiter=limit=0.7:attack=1:release=20:level=false:latency=true';
 
 /**
  * from:      where the downloaded section starts in the video (seconds)
  * offset:    seconds skipped at the start of the section (cut artifacts)
  * loop:      length of the finished loop (seconds)
  * crossfade: seconds of the section's end blended into its start
- * loudness:  target integrated loudness (LUFS); the fireplace is a quieter sound by nature
+ * loudness:  integrated loudness of the loop (LUFS), i.e. how loud it is at full volume. All the
+ *            loops share one level, so switching sounds keeps the loudness.
  * quality:   Vorbis VBR quality (3 is about 112 kbit/s)
  */
 const SOUNDS = [
@@ -45,7 +51,7 @@ const SOUNDS = [
     offset: 1,
     loop: 240,
     crossfade: 8,
-    loudness: -22,
+    loudness: -16,
     quality: 3,
   },
   {
@@ -56,7 +62,7 @@ const SOUNDS = [
     offset: 1,
     loop: 240,
     crossfade: 8,
-    loudness: -30,
+    loudness: -16,
     quality: 3,
   },
 ];
@@ -109,13 +115,14 @@ async function download(sound) {
   return file;
 }
 
-/** Integrated loudness (LUFS) of `seconds` of audio starting at `offset`. */
-async function loudness(file, offset, seconds, filter = 'anull') {
-  const { stderr } = await run(FFMPEG, ['-hide_banner', '-nostats', '-ss', String(offset), '-t', String(seconds), '-i', file, '-af', `${filter},ebur128`, '-f', 'null', '-']);
+/** Integrated loudness (LUFS) and true peak (dBTP) of `seconds` of audio starting at `offset`. */
+async function measure(file, offset, seconds, filter = 'anull') {
+  const { stderr } = await run(FFMPEG, ['-hide_banner', '-nostats', '-ss', String(offset), '-t', String(seconds), '-i', file, '-af', `${filter},ebur128=peak=true`, '-f', 'null', '-']);
   const summary = stderr.slice(stderr.lastIndexOf('Summary:'));
   const match = /I:\s+(-?[\d.]+) LUFS/.exec(summary);
   if (!match) throw new Error(`could not measure the loudness of ${file}`);
-  return Number(match[1]);
+  const peak = /Peak:\s+(-?[\d.]+) dBFS/.exec(summary);
+  return { loudness: Number(match[1]), truePeak: peak ? Number(peak[1]) : Number.NaN };
 }
 
 async function decode(file, offset, seconds, filter) {
@@ -163,13 +170,21 @@ async function build(sound) {
   console.log(`${sound.id}: ${sound.title}`);
   const source = await download(sound);
   const seconds = sound.loop + sound.crossfade;
-  const measured = await loudness(source, sound.offset, seconds);
-  const gainDb = sound.loudness - measured;
-  const filter = `volume=${gainDb.toFixed(2)}dB,alimiter=limit=${PEAK_LIMIT}:attack=1:release=80:level=false:latency=true`;
+  const measured = (await measure(source, sound.offset, seconds)).loudness;
+  // The limiter takes some loudness away (most from spiky sounds such as crackles), so adjust the
+  // gain until the limited audio reaches the target.
+  let gainDb = sound.loudness - measured;
+  for (let i = 0; i < 4; i++) {
+    const reached = (await measure(source, sound.offset, seconds, `volume=${gainDb.toFixed(2)}dB,${LIMITER}`)).loudness;
+    if (Math.abs(reached - sound.loudness) < 0.15) break;
+    gainDb += sound.loudness - reached;
+  }
+  const filter = `volume=${gainDb.toFixed(2)}dB,${LIMITER}`;
   const pcm = await decode(source, sound.offset, seconds, filter);
   const loop = makeLoop(pcm, sound.loop, sound.crossfade);
   const peak = peakOf(loop);
-  if (peak > 0.97) throw new Error(`${sound.id}: the loop peaks at ${peak.toFixed(3)}; lower its loudness target`);
+  // Two limited peaks meeting in the crossfade add up to at most 0.7 × √2 ≈ 0.99.
+  if (peak > 0.995) throw new Error(`${sound.id}: the loop peaks at ${peak.toFixed(3)}; lower its loudness target`);
   mkdirSync(OUT_DIR, { recursive: true });
   const pcmBytes = Buffer.from(loop.buffer, loop.byteOffset, loop.byteLength);
   await run(
@@ -183,11 +198,12 @@ async function build(sound) {
     ],
     { input: pcmBytes },
   );
-  const result = await loudness(target, 0, sound.loop + 1);
+  const result = await measure(target, 0, sound.loop + 1);
   const size = statSync(target).size;
   console.log(
-    `  ${target}: ${sound.loop} s loop, ${(size / 1048576).toFixed(2)} MB, ${result.toFixed(1)} LUFS (source ${measured.toFixed(1)} LUFS, gain ${gainDb >= 0 ? '+' : ''}${gainDb.toFixed(1)} dB, peak ${(20 * Math.log10(peak)).toFixed(1)} dBFS)`,
+    `  ${target}: ${sound.loop} s loop, ${(size / 1048576).toFixed(2)} MB, ${result.loudness.toFixed(1)} LUFS, true peak ${result.truePeak.toFixed(1)} dBTP (source ${measured.toFixed(1)} LUFS, gain ${gainDb >= 0 ? '+' : ''}${gainDb.toFixed(1)} dB)`,
   );
+  if (result.truePeak > -0.5) console.warn(`  warning: ${sound.id} peaks at ${result.truePeak.toFixed(1)} dBTP and may clip at full volume; lower its loudness`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

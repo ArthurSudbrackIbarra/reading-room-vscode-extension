@@ -273,6 +273,7 @@ export class PreviewPanel implements vscode.Disposable {
 
   private async onReady(): Promise<void> {
     this.ready = true;
+    this.host.sounds.pageLoaded(this);
     const record = await this.host.store.get(this.ref);
     const ui = this.host.uiState();
     const margins = isConvertedKind(this.kind)

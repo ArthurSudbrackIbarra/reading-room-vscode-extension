@@ -185,6 +185,50 @@ describe('SoundCoordinator', () => {
     expect(a.last).toMatchObject({ playing: true, owner: true });
   });
 
+  it('hands the sound over to a viewer that has had a click, if there is one', () => {
+    const { coordinator, add, remove } = setup();
+    const a = add('a');
+    const b = add('b');
+    const c = add('c');
+    coordinator.handle(c, { action: 'ready' });
+    coordinator.play(a, 'rain');
+    remove(a);
+    // b is the active viewer, but only c can start sound without another click.
+    coordinator.viewerClosed(a, b);
+    expect(coordinator.currentOwner).toBe(c);
+    expect(c.last).toMatchObject({ playing: true, owner: true });
+    expect(b.last).toMatchObject({ playing: true, owner: false });
+    // With no viewer ready, the preferred one takes it (it starts at the next click there).
+    const d = setup();
+    const x = d.add('x');
+    const y = d.add('y');
+    const z = d.add('z');
+    d.coordinator.play(x);
+    d.remove(x);
+    d.coordinator.viewerClosed(x, z);
+    expect(d.coordinator.currentOwner).toBe(z);
+    expect(y.last).toMatchObject({ owner: false });
+  });
+
+  it('lets the command play in the active viewer when it can, else in one that can', () => {
+    const { coordinator, add } = setup();
+    const a = add('a');
+    const b = add('b');
+    coordinator.handle(a, { action: 'ready' });
+    expect(coordinator.toggle(b)).toBe(true);
+    expect(coordinator.currentOwner).toBe(a);
+    coordinator.toggle(b);
+    expect(coordinator.isPlaying).toBe(false);
+    coordinator.handle(b, { action: 'ready' });
+    coordinator.toggle(b);
+    expect(coordinator.currentOwner).toBe(b);
+    coordinator.toggle();
+    // A reloaded page has had no click: it is not preferred until it gets one.
+    coordinator.pageLoaded(b);
+    coordinator.toggle(b);
+    expect(coordinator.currentOwner).toBe(a);
+  });
+
   it('ignores unknown sounds in requests', () => {
     const { coordinator, add } = setup();
     const a = add('a');
