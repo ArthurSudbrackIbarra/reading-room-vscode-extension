@@ -1,5 +1,5 @@
 // Message protocol between the extension host (PreviewPanel) and the viewer webview.
-import type { SoundRequest, SoundState } from './sounds';
+import type { CustomSound, SoundRequest, SoundState } from './sounds';
 import type {
   DocumentKind,
   Highlight,
@@ -27,6 +27,13 @@ export interface ViewerInit {
   /** Top and bottom page margins in PDF points; text inside them is header/footer and is not highlightable. */
   marginsPt: { top: number; bottom: number };
   sound: SoundState;
+  /** The reader's own reading sounds. */
+  customSounds: CustomSoundView[];
+}
+
+/** A custom sound as a viewer sees it: with a URL it can load the file from. */
+export interface CustomSoundView extends CustomSound {
+  url: string;
 }
 
 export interface RenderWarning {
@@ -52,7 +59,11 @@ export type HostToViewer =
   | { type: 'deleteAll' }
   | { type: 'marker'; action: 'place' | 'goto' | 'remove' }
   /** Reading sounds changed (here or in another viewer). */
-  | { type: 'sound'; state: SoundState };
+  | { type: 'sound'; state: SoundState }
+  /** The custom sounds changed (added, renamed, removed or measured, here or in another viewer). */
+  | { type: 'customSounds'; sounds: CustomSoundView[] }
+  /** Sounds this viewer asked to add: measure their loudness, and show them if `reveal`. */
+  | { type: 'soundsAdded'; ids: string[]; reveal: boolean };
 
 export interface AnchorResult {
   id: string;

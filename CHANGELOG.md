@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 — 2026-11-10
+
+- **Ten built-in reading sounds**, five rains and five fireplaces: public-domain (CC0) recordings from Freesound, credited in the README. The loops are now part of the repository and of every package.
+  - The panel has a tile per kind of sound (**Rain**, **Fireplace**, **Custom**) and lists the recordings of the chosen kind. Each kind remembers its recording: by default *Half-open window* for rain and *Home fireplace* for the fireplace.
+  - Hovering over a recording shows what it sounds like and who recorded it.
+- **Your own sounds** (**Custom**): add MP3, Ogg Vorbis, WAV or FLAC files with **Add sound files…** in the panel or the new command *Add Reading Sounds from Files…*. They loop like the built-in sounds and play just as loud: the viewer measures each file's loudness when it is added (as EBU R 128 does) and evens it out, with a limiter for the peaks. Rename or remove them in the panel. The extension keeps copies in its storage folder, shared by all windows.
+- The player now has a few interchangeable slots, all unlocked at your first click in the viewer, so any sound (including one added later) starts and loops without another click. Switching quickly between sounds crossfades cleanly.
+- What 0.3 remembered (rain or fireplace, and the volume) carries over.
+
 ## 0.3.1 — 2026-11-10
 
 - **Reading sounds no longer stop by themselves.** VS Code lets a viewer start audio only while handling a click in it, and the second player that takes over at the end of each four-minute pass never had one, so the sound stopped at the first loop point. Now the viewer unlocks all its players at your first click or key press in it, and they take turns for as long as you like.
@@ -16,7 +25,7 @@
   - The sounds loop forever without a gap: each is a four-minute loop whose end blends into its start, played by two alternating players that crossfade at the end of each pass. Fades and volume run on the audio clock, so they stay smooth in background tabs.
   - One sound plays at a time across all open viewers; every viewer shows and controls it, and closing the viewer that plays it hands it to another one. The sound and volume are remembered.
   - New command: *Play/Pause Reading Sounds*.
-  - The audio comes from two YouTube videos (credited in the README) and is not in the repository: `npm run sounds` (yt-dlp + ffmpeg) builds the loops into `media/sounds/`, and `npm run package` includes them. Without them the button is hidden.
+  - The loops were built locally by `npm run sounds` and were not part of the repository; without them the button is hidden.
 - README rewritten for everything the extension does now, with screenshots.
 - `package.json` now names the GitHub repository, so the README pictures on the extension's page load from GitHub (`npm run package` uses `--githubBranch main`).
 

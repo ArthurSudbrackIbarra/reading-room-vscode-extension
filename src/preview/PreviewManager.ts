@@ -4,8 +4,10 @@
 import * as vscode from 'vscode';
 import type { PdfCache } from '../cache/PdfCache';
 import type { WebviewPersistedState } from '../shared/messages';
+import { CUSTOM_SOUND_EXTENSIONS, type SoundRequest } from '../shared/sounds';
 import { DEFAULT_COLOR, isHighlightColor, type DocumentKind, type PageTheme } from '../shared/types';
 import type { DocumentRef, HighlightStore } from '../store/HighlightStore';
+import { SoundLibrary, type SoundFile } from '../store/SoundLibrary';
 import { RENDER_SETTINGS, SECTION, readSettings } from '../util/settings';
 import { MAX_CACHE_BYTES, PreviewPanel, kindOf, panelTitle, type PanelHost, type UiState } from './PreviewPanel';
 import type { RenderService } from './RenderService';
@@ -40,6 +42,9 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
   private pruneTimer?: ReturnType<typeof setTimeout>;
   /** Reading sounds: shared by all viewers, played by one of them. */
   readonly sounds: SoundCoordinator<PreviewPanel>;
+  /** The reader's own reading sounds (copies in the extension's storage). */
+  readonly soundLibrary: SoundLibrary;
+  readonly customSoundsUri: vscode.Uri;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -56,15 +61,24 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
       listOpen: saved.listOpen === true,
     };
     void vscode.commands.executeCommand('setContext', FOCUS_CONTEXT, false);
+    // A file: URI on purpose: globalStorageUri can have VS Code's own scheme (vscode-userdata:),
+    // and a webview only serves files whose URI has the same scheme as one of its resource roots.
+    this.customSoundsUri = vscode.Uri.file(vscode.Uri.joinPath(context.globalStorageUri, 'sounds').fsPath);
+    this.soundLibrary = new SoundLibrary(this.customSoundsUri.fsPath, log);
     this.sounds = new SoundCoordinator<PreviewPanel>(
       {
         get: () => context.globalState.get(SOUND_STATE_KEY),
         set: (value) => void context.globalState.update(SOUND_STATE_KEY, value),
       },
       () => this.panels.values(),
+      () => [
+        ...availableSounds(context.extensionUri).map((s) => ({ id: s.id, category: s.category })),
+        ...this.soundLibrary.sounds.map((s) => ({ id: s.id, category: 'custom' as const })),
+      ],
       (playing) => void vscode.commands.executeCommand('setContext', SOUND_CONTEXT, playing),
     );
     void vscode.commands.executeCommand('setContext', SOUND_CONTEXT, false);
+    void this.refreshCustomSounds(true);
 
     this.disposables.push(
       vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
@@ -210,7 +224,7 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
       VIEW_TYPE,
       panelTitle(source.uri),
       { viewColumn: column, preserveFocus: false },
-      webviewOptions(this.context.extensionUri),
+      webviewOptions(this.context.extensionUri, this.customSoundsUri),
     );
     this.track(new PreviewPanel(this, panel, source.uri, source.kind));
   }
@@ -390,15 +404,147 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
       this.sounds.pause();
       return;
     }
-    if (availableSounds(this.context.extensionUri).length === 0) {
-      void vscode.window.showInformationMessage(
-        'This build of Document Viewer has no reading sounds. They are created by "npm run sounds" before packaging (see the README).',
-      );
-      return;
-    }
     if (!this.sounds.toggle(this.current())) {
       void vscode.window.showInformationMessage('Open a document in the viewer first (a Markdown, text or PDF file), then play a reading sound.');
     }
+  }
+
+  /** A request from a viewer's reading sounds panel. */
+  soundRequest(panel: PreviewPanel, request: SoundRequest): void {
+    switch (request.action) {
+      case 'add':
+        void this.addSounds(panel);
+        break;
+      case 'rename':
+        this.soundLibrary.renameSound(request.sound, request.name).then(
+          (changed) => changed && this.customSoundsChanged(),
+          (err: unknown) => this.soundError('Renaming the sound failed', err),
+        );
+        break;
+      case 'remove':
+        void this.removeSound(request.sound);
+        break;
+      case 'measured':
+        this.soundLibrary.setGain(request.sound, request.gainDb).then(
+          (changed) => changed && this.broadcastCustomSounds(),
+          (err: unknown) => this.log.warn(`Saving the level of a reading sound failed: ${String(err)}`),
+        );
+        break;
+      case 'unplayable':
+        void this.dropUnplayable(request.sound, request.message);
+        break;
+      case 'refresh':
+        void this.refreshCustomSounds(false);
+        break;
+      case 'failed':
+        this.log.warn(`Reading sound "${request.sound}": ${request.message}`);
+        this.sounds.handle(panel, request);
+        break;
+      default:
+        this.sounds.handle(panel, request);
+    }
+  }
+
+  /** Command and the panel's button: pick audio files and add them as custom reading sounds. */
+  async addSounds(panel = this.current()): Promise<void> {
+    const picked = await vscode.window.showOpenDialog({
+      canSelectMany: true,
+      canSelectFiles: true,
+      canSelectFolders: false,
+      title: 'Add Reading Sounds',
+      openLabel: 'Add',
+      filters: { 'Audio files (MP3, Ogg Vorbis, WAV, FLAC)': [...CUSTOM_SOUND_EXTENSIONS] },
+    });
+    if (!picked?.length) return;
+    const files: SoundFile[] = [];
+    const unreadable: string[] = [];
+    for (const uri of picked) {
+      const name = uri.path.split('/').pop() || 'sound';
+      try {
+        const { size } = await vscode.workspace.fs.stat(uri);
+        // Files of a remote workspace are read through VS Code; local ones are copied directly.
+        files.push(uri.scheme === 'file' ? { name, size, path: uri.fsPath } : { name, size, read: () => Promise.resolve(vscode.workspace.fs.readFile(uri)) });
+      } catch (err) {
+        unreadable.push(`${name} could not be read (${err instanceof Error ? err.message : String(err)})`);
+      }
+    }
+    let result;
+    try {
+      result = await this.soundLibrary.add(files);
+    } catch (err) {
+      this.soundError('Adding the sounds failed', err);
+      return;
+    }
+    const problems = [...unreadable, ...result.skipped.map((s) => `${s.file} ${s.reason}`)];
+    if (problems.length > 0) {
+      const added = result.added.length;
+      void vscode.window.showWarningMessage(
+        added > 0 ? `Added ${added} sound${added === 1 ? '' : 's'}. Not added: ${problems.join('; ')}.` : `No sound was added: ${problems.join('; ')}.`,
+      );
+    }
+    if (result.added.length === 0) return;
+    this.log.info(`Added reading sound(s): ${result.added.map((r) => `"${r.name}" (${r.source.name})`).join(', ')}`);
+    this.customSoundsChanged();
+    this.sounds.choose(result.added[0].id);
+    // A viewer measures how loud they are (so they play as loud as the built-in sounds) and shows them.
+    const target = panel && !panel.isDisposed ? panel : this.current();
+    target?.soundsAdded(
+      result.added.map((r) => r.id),
+      true,
+    );
+  }
+
+  private async removeSound(id: string): Promise<void> {
+    try {
+      const removed = await this.soundLibrary.removeSound(id);
+      if (!removed) return;
+      this.log.info(`Removed reading sound "${removed.name}"`);
+      this.customSoundsChanged();
+    } catch (err) {
+      this.soundError('Removing the sound failed', err);
+    }
+  }
+
+  /** A sound just added turned out to be undecodable here (Opus, AAC…): take it out again and say why. */
+  private async dropUnplayable(id: string, message: string): Promise<void> {
+    try {
+      const removed = await this.soundLibrary.removeSound(id);
+      if (!removed) return;
+      this.customSoundsChanged();
+      this.log.warn(`Reading sound "${removed.name}" (${removed.source.name}) cannot be played: ${message}`);
+      void vscode.window.showWarningMessage(
+        `${removed.source.name} can't be played in VS Code (${message}), so it was not added. MP3, Ogg Vorbis, WAV and FLAC files work; Opus and AAC (.m4a) do not.`,
+      );
+    } catch (err) {
+      this.soundError('Removing the sound failed', err);
+    }
+  }
+
+  /** Reads the custom sounds again (another VS Code window may have changed them). */
+  private async refreshCustomSounds(initial: boolean): Promise<void> {
+    let changed = false;
+    try {
+      changed = await this.soundLibrary.reload();
+    } catch (err) {
+      this.log.warn(`Reading the custom reading sounds failed: ${String(err)}`);
+    }
+    if (changed) this.broadcastCustomSounds();
+    if (changed || initial) this.sounds.catalogChanged();
+  }
+
+  /** The custom sounds changed: every viewer gets the new list, and choices of removed sounds move on. */
+  private customSoundsChanged(): void {
+    this.broadcastCustomSounds();
+    this.sounds.catalogChanged();
+  }
+
+  private broadcastCustomSounds(): void {
+    for (const panel of new Set(this.panels.values())) if (!panel.isDisposed) panel.postCustomSounds();
+  }
+
+  private soundError(what: string, err: unknown): void {
+    this.log.error(`${what}: ${String(err)}`);
+    void vscode.window.showErrorMessage(`${what}: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   async clearCache(): Promise<void> {

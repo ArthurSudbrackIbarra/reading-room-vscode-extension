@@ -1,6 +1,6 @@
 // The viewer toolbar:
 // [☰] [↑] [n / N] [↓] | [−] [zoom ▾] [+] [↺] | [✎] [● ● ● ● ●] | [🔖 ▾] | [🎧] [◐] [⟳] [⤢] [⤓ ▾]
-import { soundLabel, type SoundState } from '../src/shared/sounds';
+import type { SoundState } from '../src/shared/sounds';
 import { HIGHLIGHT_COLORS, HIGHLIGHT_HEX, MAX_ZOOM, MIN_ZOOM, type DocumentKind, type HighlightColor, type PageTheme, type ZoomValue } from '../src/shared/types';
 import { h, icon, iconButton, placeFloating } from './dom';
 import { headphonesIcon } from './sounds';
@@ -254,9 +254,14 @@ export class Toolbar {
     this.soundsButton.hidden = !available;
   }
 
-  setSoundState(state: SoundState): void {
+  /** The reading sounds panel hangs from this button. */
+  get soundsAnchor(): HTMLElement | undefined {
+    return this.soundsButton.hidden ? undefined : this.soundsButton;
+  }
+
+  setSoundState(state: SoundState, name: string): void {
     this.soundsButton.classList.toggle('mpv-playing', state.playing);
-    this.soundsButton.title = state.playing ? `Reading sounds: ${soundLabel(state.sound).toLowerCase()} is playing` : 'Reading sounds';
+    this.soundsButton.title = state.playing ? `Reading sounds: "${name}" is playing` : 'Reading sounds';
     this.soundsButton.setAttribute('aria-label', this.soundsButton.title);
   }
 

@@ -1,6 +1,6 @@
 # Document Viewer & Highlighter
 
-**A quiet reading room inside VS Code.** Open Markdown, plain text and PDF files as real PDFs, highlight what matters, write notes next to it, mark where you stopped, and read to the sound of rain or a crackling fireplace.
+**A quiet reading room inside VS Code.** Open Markdown, plain text and PDF files as real PDFs, highlight what matters, write notes next to it, mark where you stopped, and read to the sound of rain, a crackling fireplace or your own recordings.
 
 ![A Markdown file next to its PDF in the viewer: highlights in four colors, two notes, the red reading marker and the list of highlights](docs/demo.png)
 
@@ -21,7 +21,7 @@
 - Mark **where you stopped reading**. The document opens right there next time.
 
 **Stay focused**
-- **Reading sounds**: rain or a fireplace that loop seamlessly for as long as you read, with play/pause and volume in a small panel that disappears when you click away.
+- **Reading sounds**: ten recordings of rain and fireplaces, or your own audio files, looping seamlessly for as long as you read, with play/pause and volume in a small panel that disappears when you click away.
 
 **Take it with you**
 - **Download** the PDF with your highlights and notes as standard PDF annotations, which Acrobat, Edge, Chrome, Firefox and Preview all show.
@@ -54,22 +54,16 @@ The extension is installed from a `.vsix` file that you build yourself; it is no
    npm install
    ```
 
-2. *(Optional)* Make the reading sounds. This step needs [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [ffmpeg](https://ffmpeg.org/) on your `PATH`; [Reading sounds](#reading-sounds) explains why the audio is not in the repository. Skip it and everything else works the same, without the 🎧 button.
-
-   ```bash
-   npm run sounds
-   ```
-
-3. Build the package:
+2. Build the package:
 
    ```bash
    npm run package
    ```
 
-4. Install it:
+3. Install it:
 
    ```bash
-   code --install-extension markdown-pdf-viewer-0.3.0.vsix --force
+   code --install-extension markdown-pdf-viewer-0.4.0.vsix --force
    ```
 
 Then reload VS Code (**Developer: Reload Window**) or open a new window. Installing a newer `.vsix` replaces the previous version and keeps your highlights. The extension ID is still `local.markdown-pdf-viewer`, from the days it only handled Markdown.
@@ -119,7 +113,7 @@ For Markdown and text files:
 | ✎ | **Highlight tool**: while it is on, every text selection becomes a highlight |
 | ● ● ● ● ● | Highlight color: yellow (default), pink, green, blue, orange. The last color you used is remembered |
 | 🔖 ▾ | **Reading marker**: click, then click the line where you stopped reading. The menu also has *Go to* and *Remove* |
-| 🎧 | **Reading sounds**: opens a small panel to play rain or fireplace sounds, pause them and set the volume. A dot on the button means a sound is playing |
+| 🎧 | **Reading sounds**: opens a small panel to play rain, a fireplace or your own sounds, pick the recording, pause and set the volume. A dot on the button means a sound is playing |
 | ◐ | **Light/dark pages** (remembered for all files). Downloads always use normal light pages |
 | ⟳ | Convert again (Markdown/text) or reload from disk (PDF) |
 | ⤢ | **Full view** (Markdown/text): move the PDF between "next to the source" and "in the source's editor group". Works with **View: Toggle Maximized Editor Group** and **Zen Mode** |
@@ -155,21 +149,33 @@ The reading marker is a red line with a bookmark tab, at the line where you stop
 
 ### Reading sounds
 
-<img src="docs/reading-sounds.png" alt="The reading sounds panel below the toolbar: Rain is playing, Fireplace is the other choice, with a pause button and a volume slider at 70 %" width="302">
+<img src="docs/reading-sounds.png" alt="The reading sounds panel below the toolbar: Rain is chosen and playing the Half-open window recording, with four other rain recordings listed below it, a pause button and a volume slider at 70 %" width="328">
 
 Click 🎧 in the toolbar to open the panel:
-- **Pick a sound**, Rain or Fireplace. It starts right away with a short fade-in; picking the other one crossfades to it.
+- **Pick a kind of sound**: **Rain**, **Fireplace** or **Custom** (your own). It starts right away with a short fade-in; picking another one crossfades to it.
+- **Pick the recording** in the list below. Each kind remembers its choice, so its tile always plays the recording you picked last. Hover over a recording to see what it sounds like and who recorded it.
 - **Pause or play** with the round button and set the **volume** with the slider (the arrow keys work too).
 - The panel closes as soon as it loses focus: click anywhere else, press **Esc**, or go back to your editor. The sound keeps playing until you pause it, and the 🎧 button shows a small dot.
 
-The sound never ends and never clicks. Each recording is a four-minute loop whose end blends into its start, and the player takes turns between two copies of it, crossfading for a few seconds at the end of each pass. Both loops have the same loudness, so switching sounds keeps the volume; at 100 % they are about as loud as a podcast.
+The built-in recordings (see [Credits](#credits)):
+- **Rain**: **Half-open window** (the default: rain on walls and windows, with drops falling through an open window), **Mountain downpour** (heavy, even rain outdoors, like soft white noise), **Hotel window at night** (rain heard from inside, drumming on the glass), **Roof window** (rain on a window in the roof of a house), **Heavy rain, countryside** (strong rain in open country, in mono).
+- **Fireplace**: **Home fireplace** (the default: a full, warm roar with crackles all through), **Close fireplace** (steady crackling and a few louder pops), **Living room fireplace** (more crackle, less roar), **Log cabin (binaural)** (a close fire that sounds best on headphones), **Small fire, wet log** (a small fire with the hiss of a wet log).
+
+The sound never ends and never clicks. Each built-in recording is a four-minute loop whose end blends into its start, and the player takes turns between two copies of it, crossfading for a few seconds at the end of each pass. All of them have the same loudness, so switching sounds keeps the volume; at 100 % they are about as loud as a podcast.
 
 - **One sound at a time.** Every viewer's panel shows and controls the same sound, however many documents are open. If you close the document that is playing it, another open viewer takes over; closing the last viewer stops it.
 - VS Code lets a viewer start sound only after you have clicked or typed in it. So the sound goes to a viewer you have used, and a viewer you have not touched yet starts it at your first click there (it tells you so).
 - It keeps playing when you switch to another tab or file.
-- The chosen sound and volume are remembered. The command **Document Viewer: Play/Pause Reading Sounds** works from anywhere, and you can give it a shortcut.
+- The chosen sounds and the volume are remembered. The command **Document Viewer: Play/Pause Reading Sounds** works from anywhere, and you can give it a shortcut.
 
-The two recordings come from YouTube videos (see [Credits](#credits)). They belong to their creators, so they are **not part of this repository**: `npm run sounds` downloads a few minutes of each video, turns them into seamless loops (`media/sounds/*.ogg`, about 3 MB each, ignored by git), and the build puts them into the `.vsix` you make for yourself. A build without them simply has no 🎧 button.
+#### Your own sounds
+
+Under **Custom**, **Add sound files…** (or the command **Document Viewer: Add Reading Sounds from Files…**) adds audio files of your own: MP3, Ogg Vorbis, WAV or FLAC, up to 150 MB each. VS Code cannot play Opus or AAC (`.m4a`), so convert those first.
+- They loop like the built-in sounds, crossfading at the end of each pass, so any recording works; a few minutes are plenty.
+- They play **as loud as the built-in sounds**: the viewer measures how loud each file is when you add it and evens it out (a limiter keeps the peaks of a quiet recording that gets raised, such as a fire's crackles, from clipping).
+- The extension plays a **copy** kept in its own storage folder ([`sounds/`](#sounds-your-own-reading-sounds)), so you can move or delete your original file.
+- Hover over one of your sounds to **rename** (✎) or **remove** (🗑) it; with the keyboard, F2 and Delete do the same. Removing deletes only the extension's copy.
+- Your sounds are shared by all VS Code windows (of the same profile).
 
 ### Undo and redo
 
@@ -218,7 +224,7 @@ When focus is anywhere else, `Ctrl+=`, `Ctrl+-` and `Ctrl+Numpad0` zoom the whol
 
 All commands are in the Command Palette under **Document Viewer:**. Besides the ones above, there are:
 - *Mark Where I Stopped Reading*, *Go to Where I Stopped Reading*, *Remove the Reading Marker*
-- *Play/Pause Reading Sounds*
+- *Play/Pause Reading Sounds*, *Add Reading Sounds from Files…*
 - *Undo/Redo Highlight, Note or Marker Change*
 - *Toggle Light/Dark Pages*, *Toggle Highlight Tool*, *Toggle Highlights List*
 - *Reattach Highlights from Another File…*, *Delete All Highlights for This File*
@@ -251,7 +257,7 @@ Everything lives in VS Code's **global storage** for this extension, never in yo
 
 With a non-default VS Code profile the folder is under `User/profiles/<profile id>/globalStorage/…`; **Document Viewer: Reveal Highlight Data Folder** opens the right one. Insiders builds use `Code - Insiders` instead of `Code`.
 
-Small preferences (the last highlight color, light or dark pages, the chosen reading sound and its volume) are kept in VS Code's own state for the extension rather than in these folders.
+Small preferences (the last highlight color, light or dark pages, the chosen reading sounds and their volume) are kept in VS Code's own state for the extension rather than in these folders.
 
 ### `highlights/`: highlights, notes, reading position, zoom
 
@@ -298,6 +304,12 @@ These are the PDFs made from Markdown and text files, one `.pdfcache` file per d
 - **Document Viewer: Clear Cached PDFs** deletes all of them.
 - These files are never written next to your documents, and deleting them is always safe.
 
+### `sounds/`: your own reading sounds
+
+A copy of every sound file you added (named after an id, such as `custom-3f9a1c0b7d2e.mp3`) and `sounds.json`, which lists their names and the gain that makes each as loud as the built-in sounds.
+- **Back up**: copy the folder. Deleting it removes all your sounds (your original files are not affected).
+- Remove sounds from the panel rather than by hand; a sound whose file is missing is left out of the list.
+
 ## What gets converted
 
 ### Markdown
@@ -328,9 +340,9 @@ The text appears exactly as written, in a monospace font, with long lines wrappe
 - **Downloading Chromium fails behind a proxy**: check VS Code's `http.proxy` settings, then retry.
 - **An image is missing**: the yellow banner in the viewer and **Document Viewer: Show Log** list every image or resource that could not be loaded.
 - **A converted PDF looks outdated**: press ⟳ (it skips the cache), or run **Document Viewer: Clear Cached PDFs**.
-- **There is no 🎧 button**: the package was built without the sound files. Run `npm run sounds`, then `npm run package`, and install the new `.vsix`.
-- **"The rain sound could not be played"**: **Document Viewer: Show Log** has the reason. Check that sound works in other apps, then press play again.
+- **"The rain sound (…) could not be played"**: **Document Viewer: Show Log** has the reason. Check that sound works in other apps, then press play again.
 - **"Click anywhere in this viewer to start the rain sound"**: VS Code lets a viewer play sound only after you have clicked or typed in it. You see this when a viewer you have not used yet takes over the sound, for example after you closed the one that was playing. One click and it plays.
+- **"… can't be played in VS Code, so it was not added"**: the file's audio is in a format VS Code's player lacks (usually Opus or AAC, even in a file named `.ogg`). Convert it to MP3, Ogg Vorbis, WAV or FLAC and add it again.
 - Anything else: run **Document Viewer: Show Log**. You can raise the log level with **Developer: Set Log Level…**.
 
 ## Development
@@ -346,11 +358,11 @@ npm run build
 | Script | Purpose |
 |---|---|
 | `npm run build` / `npm run watch` | Bundles `dist/extension.js` (CommonJS), `dist/converter/` (lazy-loaded ESM) and `dist/webview/`, and copies assets |
-| `npm test` | Unit tests: highlight store, notes and marker, PDF cache, undo stack, reading sounds, text conversion, anchoring, text model, write guard |
+| `npm test` | Unit tests: highlight store, notes and marker, PDF cache, undo stack, reading sounds (coordination, your own sounds, loudness), text conversion, anchoring, text model, write guard |
 | `npm run test:converter` | Renders the feature test and a text file with the installed browser and checks the PDFs with pdf.js |
 | `npm run typecheck` | TypeScript type check |
-| `npm run sounds` | Downloads the sections of the two sound videos and builds the seamless loops in `media/sounds/`, both at −16 LUFS. Needs yt-dlp, and ffmpeg with libvorbis. Downloads are cached in the temp folder; `npm run sounds -- --force` rebuilds |
-| `npm run package` | Builds the `.vsix`, with the reading sounds if `npm run sounds` ran. The README pictures in it point to the GitHub repository, because VS Code's extension page only loads `https:` images |
+| `npm run sounds` | Rebuilds the built-in reading sounds in `media/sounds/` from their Freesound recordings: cuts the loops, all at −16 LUFS. Only needed to change them, since the loops are in the repository. Needs ffmpeg with libvorbis; downloads are cached in the temp folder. `npm run sounds -- --force` rebuilds, and sound ids (`-- --force rain-roof-window`) limit it to those |
+| `npm run package` | Builds the `.vsix`. The README pictures in it point to the GitHub repository, because VS Code's extension page only loads `https:` images |
 
 `node test/converter/render-fixture.mjs [file.md] [--theme dark] [--size Letter]` writes a PDF and one PNG per page to the OS temp folder for visual review.
 
@@ -360,11 +372,12 @@ Source layout:
 |---|---|
 | `src/converter/` | Markdown/text → HTML → PDF; no `vscode` dependency |
 | `src/preview/` | Viewers (preview panels and the PDF custom editor), commands, rendering, downloads |
-| `src/store/` | Highlight, note and marker storage |
+| `src/store/` | Highlight, note and marker storage; your own reading sounds |
 | `src/cache/` | The disk cache of converted PDFs |
 | `src/anchoring/` | Text model and quote matching, shared with the viewer |
 | `src/export/` | PDF annotations, the Downloads folder |
 | `webview/` | The PDF.js-based viewer: highlights, notes, reading marker, undo stack, dark pages, reading sounds |
+| `media/sounds/` | The built-in reading sound loops |
 | `scripts/` | `fetch-sounds.mjs`, which makes the reading sound loops |
 | `docs/` | The pictures in this README |
 
@@ -386,10 +399,21 @@ The loops are Ogg Vorbis because VS Code's built-in Chromium cannot play Opus or
 
 ## Credits
 
-The reading sounds are short loops cut from these YouTube videos:
-- **Rain**: [*Rain Sound On Window with Thunder SoundsㅣHeavy Rain for Sleep, Study and Relaxation, Meditation*](https://www.youtube.com/watch?v=mPZkdNFkNps) by **Relaxing Ambience ASMR** (four minutes from 1:34).
-- **Fireplace**: [*12 HOURS of Relaxing Fireplace Sounds - Burning Fireplace & Crackling Fire Sounds (NO MUSIC)*](https://www.youtube.com/watch?v=UgHKb_7884o) by **Cat Trumpet** (four minutes from 9:15:08).
+The built-in reading sounds are four-minute loops cut from these recordings on [Freesound](https://freesound.org/). Their authors dedicated them to the public domain ([Creative Commons 0](https://creativecommons.org/publicdomain/zero/1.0/)). Thank you for recording and sharing them.
 
-The recordings belong to their creators. They are not distributed with this repository and end up only in packages you build yourself.
+| Sound | Recording | Recorded by |
+|---|---|---|
+| Rain: Half-open window | [Rain from Half Open Window 1.aif](https://freesound.org/people/RutgerMuller/sounds/158690/) | RutgerMuller |
+| Rain: Mountain downpour | [Rain_in_Albanian_Mountains_White_Noise](https://freesound.org/people/SignatureSoundsOrg/sounds/872734/) | SignatureSoundsOrg |
+| Rain: Hotel window at night | [Dharamshala Rain](https://freesound.org/people/AugustSandberg/sounds/508527/) | AugustSandberg |
+| Rain: Roof window | [Rain on the House Roof Window #001](https://freesound.org/people/bassimat/sounds/833924/) | bassimat |
+| Rain: Heavy rain, countryside | [Rain heavy 1 (rural)](https://freesound.org/people/jmbphilmes/sounds/200270/) | jmbphilmes |
+| Fireplace: Home fireplace | [Fireplace.wav](https://freesound.org/people/inchadney/sounds/132534/) | inchadney |
+| Fireplace: Close fireplace | [Fireplace for Six Minutes (Stereo)](https://freesound.org/people/petebuchwald/sounds/496130/) | petebuchwald |
+| Fireplace: Living room fireplace | [Aachen_Burning Fireplace Crackling Fire Sounds.wav](https://freesound.org/people/visionear/sounds/501417/) | visionear |
+| Fireplace: Log cabin (binaural) | [(binaural) fire crackling](https://freesound.org/people/yfjesse/sounds/734248/) | yfjesse |
+| Fireplace: Small fire, wet log | [fireplace-jim.aif](https://freesound.org/people/hovercraft/sounds/66412/) | hovercraft |
+
+The loops were made with `npm run sounds` (see [Development](#development)): a stretch of each recording, evened out to the same loudness, with its end blended into its start.
 
 The viewer is built on [PDF.js](https://mozilla.github.io/pdf.js/). Conversion uses [markdown-it](https://github.com/markdown-it/markdown-it), [Shiki](https://shiki.style/), [KaTeX](https://katex.org/) and [Mermaid](https://mermaid.js.org/), and downloads are annotated with [pdf-lib](https://github.com/cantoo-scribe/pdf-lib). Icons are VS Code's [Codicons](https://github.com/microsoft/vscode-codicons).

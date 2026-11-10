@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import * as vscode from 'vscode';
-import { SOUNDS, type SoundInfo } from '../shared/sounds';
+import { BUILT_IN_SOUNDS, type BuiltInSound } from '../shared/sounds';
 import type { DocumentKind } from '../shared/types';
 
 /** Preview panels for Markdown and text files. */
@@ -9,12 +9,13 @@ export const VIEW_TYPE = 'markdownPdfViewer.preview';
 /** Custom editor for PDF files. */
 export const PDF_VIEW_TYPE = 'markdownPdfViewer.pdf';
 
-export function webviewOptions(extensionUri: vscode.Uri): vscode.WebviewPanelOptions & vscode.WebviewOptions {
+/** `customSounds`: the folder of the reader's own reading sounds, which the viewer plays too. */
+export function webviewOptions(extensionUri: vscode.Uri, customSounds: vscode.Uri): vscode.WebviewPanelOptions & vscode.WebviewOptions {
   return {
     enableScripts: true,
     enableFindWidget: true,
     retainContextWhenHidden: true,
-    localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'dist', 'webview')],
+    localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'dist', 'webview'), customSounds],
   };
 }
 
@@ -22,13 +23,13 @@ function escapeAttr(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
-let soundsCache: { root: string; sounds: SoundInfo[] } | undefined;
+let soundsCache: { root: string; sounds: BuiltInSound[] } | undefined;
 
-/** Reading sounds whose audio file is in this build (scripts/fetch-sounds.mjs makes them). */
-export function availableSounds(extensionUri: vscode.Uri): SoundInfo[] {
+/** Built-in reading sounds whose audio file is in this build (scripts/fetch-sounds.mjs makes them). */
+export function availableSounds(extensionUri: vscode.Uri): BuiltInSound[] {
   const root = vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'sounds');
   if (soundsCache?.root !== root.toString()) {
-    soundsCache = { root: root.toString(), sounds: SOUNDS.filter((s) => existsSync(vscode.Uri.joinPath(root, s.file).fsPath)) };
+    soundsCache = { root: root.toString(), sounds: BUILT_IN_SOUNDS.filter((s) => existsSync(vscode.Uri.joinPath(root, s.file).fsPath)) };
   }
   return soundsCache.sounds;
 }
@@ -56,7 +57,14 @@ export function buildWebviewHtml(webview: vscode.Webview, extensionUri: vscode.U
     cmaps: folder('pdfjs/cmaps'),
     standardFonts: folder('pdfjs/standard_fonts'),
     wasm: folder('pdfjs/wasm'),
-    sounds: availableSounds(extensionUri).map((s) => ({ id: s.id, label: s.label, url: asset(`sounds/${s.file}`) })),
+    sounds: availableSounds(extensionUri).map((s) => ({
+      id: s.id,
+      category: s.category,
+      name: s.name,
+      description: s.description,
+      credit: s.credit,
+      url: asset(`sounds/${s.file}`),
+    })),
   };
   return `<!DOCTYPE html>
 <html lang="en">

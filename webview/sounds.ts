@@ -1,30 +1,57 @@
-// Reading sounds: the floating panel behind the toolbar's headphones button (pick a sound,
-// play/pause, volume) and the player behind it.
+// Reading sounds: the floating panel behind the toolbar's headphones button (pick a category and a
+// recording, add your own, play/pause, volume) and the player behind it.
 //
 // The player streams a loop file through two <audio> elements ("decks") that take turns: a few
 // seconds before the active deck reaches the end of the file, the other one starts from the
-// beginning and the two crossfade, so the sound never stops and never clicks. Fades and volume
-// run in Web Audio on the audio clock, so they stay smooth while the viewer tab is in the
-// background. Only the viewer the extension names as the owner plays; the others just show the
-// state, so two open documents never play two rains at once.
+// beginning and the two crossfade, so the sound never stops and never clicks. A pair of decks
+// behind a fader is a "slot"; the player has a few and can play any sound in any of them, so
+// switching sounds fades one slot out while another fades in. Fades and volume run in Web Audio on
+// the audio clock, so they stay smooth while the viewer tab is in the background. Only the viewer
+// the extension names as the owner plays; the others just show the state, so two open documents
+// never play two rains at once.
 //
 // VS Code's webviews may only start sound while handling a click or key press in them
 // ("user-gesture-required"), and that is checked for each <audio> element separately. What is
 // allowed once stays allowed, though: an element that played, or was load()ed during a click, and
 // an AudioContext created during a click. So at the reader's first click or key press anywhere in
-// the viewer, the player creates its audio output and all its decks and unlocks them; from then on
-// the decks can take turns at the loop point, and the extension can hand the sound to this viewer,
-// without another click. A viewer asked to play before it has had one waits for it.
-import { soundLabel, volumeToGain, type SoundId, type SoundRequest, type SoundState } from '../src/shared/sounds';
+// the viewer, the player creates its audio output and all its slots and unlocks every deck; from
+// then on the decks can take turns at the loop point, any sound (even one added later) can start,
+// and the extension can hand the sound to this viewer, without another click. A viewer asked to
+// play before it has had one waits for it.
+//
+// The reader's own sounds are evened out to the loudness of the built-in loops: the gain is
+// measured once (loudness.ts) and kept by the extension, and a limiter on the output holds down
+// the peaks a large gain pushes up.
+import {
+  CATEGORY_LABELS,
+  SOUND_CATEGORIES,
+  categoryOf,
+  volumeToGain,
+  type SoundCategory,
+  type SoundRequest,
+  type SoundState,
+} from '../src/shared/sounds';
+import type { CustomSoundView } from '../src/shared/messages';
 import { h, icon, placeFloating } from './dom';
+import { UndecodableError, dbToGain, measureFile } from './loudness';
 
 export interface SoundSource {
-  id: SoundId;
-  label: string;
+  id: string;
+  category: SoundCategory;
+  name: string;
   url: string;
+  /** Built-in sounds: what it sounds like, and the recording it comes from. */
+  description?: string;
+  credit?: { title: string; author: string; url: string };
+  /** Custom sounds: the gain (dB) that matches the built-in loudness, once measured. */
+  gainDb?: number;
 }
 
-/** The loops are Ogg Vorbis (VS Code's webviews cannot play Opus or AAC). */
+export function customSource(sound: CustomSoundView): SoundSource {
+  return { id: sound.id, category: 'custom', name: sound.name, url: sound.url, gainDb: sound.gainDb };
+}
+
+/** The built-in loops are Ogg Vorbis (VS Code's webviews cannot play Opus or AAC). */
 export function canPlaySounds(): boolean {
   try {
     return new Audio().canPlayType('audio/ogg; codecs="vorbis"') !== '' && typeof AudioContext === 'function';
@@ -33,7 +60,7 @@ export function canPlaySounds(): boolean {
   }
 }
 
-// ---------- Icons (drawn here; codicons has no headphones or rain) ----------
+// ---------- Icons (drawn here; codicons has no headphones, rain or flame) ----------
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 type SvgPart = [tag: string, attrs: Record<string, string>];
@@ -69,16 +96,22 @@ export function headphonesIcon(): SVGSVGElement {
   );
 }
 
-const SOUND_ICONS: Record<SoundId, () => SVGSVGElement> = {
+const CATEGORY_ICONS: Record<SoundCategory, () => SVGSVGElement> = {
   rain: () =>
-    svg('0 0 24 24', 28, [
+    svg('0 0 24 24', 24, [
       ['path', { ...LINE, d: 'M7.2 15.2h10a3.6 3.6 0 0 0 .5-7.15A5.6 5.6 0 0 0 6.9 7.5a3.85 3.85 0 0 0 .3 7.7Z' }],
       ['path', { ...LINE, d: 'M8.6 18.2l-.9 2.3M12.4 18.2l-.9 2.3M16.2 18.2l-.9 2.3' }],
     ]),
   fireplace: () =>
-    svg('0 0 24 24', 28, [
+    svg('0 0 24 24', 24, [
       ['path', { ...LINE, d: 'M12 2.8c.5 2.4 2 3.7 3.3 5.3 1.2 1.5 1.9 2.9 1.9 4.6a5.2 5.2 0 0 1-10.4 0c0-1.8.8-3.2 1.9-4.4.2 1.2.7 2.1 1.6 2.5-.2-3.2.7-5.6 1.7-8Z' }],
       ['path', { ...LINE, d: 'M5 21.2l14-2.6M5 18.6l14 2.6' }],
+    ]),
+  custom: () =>
+    svg('0 0 24 24', 24, [
+      ['path', { ...LINE, d: 'M9 17.5V5.6l10-2.1v11.9' }],
+      ['circle', { ...LINE, cx: '6.6', cy: '17.6', r: '2.4' }],
+      ['circle', { ...LINE, cx: '16.6', cy: '15.5', r: '2.4' }],
     ]),
 };
 
@@ -96,6 +129,14 @@ const LOOP_LEAD_S = 6;
 /** …and the two crossfade over (at most) this long. */
 const LOOP_FADE_S = 4;
 const RESUME_TIMEOUT_MS = 2000;
+/** Slots (pairs of decks): one fading in, one fading out, and one spare for quick switching. */
+const SLOT_COUNT = 3;
+/**
+ * The output limiter: it holds down the peaks of a custom sound whose level was raised (a quiet
+ * fire recording's crackles), and leaves the built-in loops (peaks under -2 dBFS) alone.
+ */
+const LIMITER: DynamicsCompressorOptions = { threshold: -2, knee: 1, ratio: 20, attack: 0.001, release: 0.05 };
+const LIMITER_CEILING = dbToGain(LIMITER.threshold ?? -2);
 
 /** Equal-power fade between two gains (sine/cosine shaped): two crossfading sounds keep their loudness. */
 export function fadeCurve(from: number, to: number, steps = 32): Float32Array {
@@ -152,6 +193,20 @@ function hasUserActivation(): boolean {
   return activation ? activation.isActive : true;
 }
 
+const AUDIO_TYPES: Record<string, string> = { ogg: 'audio/ogg', oga: 'audio/ogg', mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac' };
+
+/** The extension's gain at its makeup stage: a quiet signal through the limiter, measured offline. */
+async function limiterMakeup(): Promise<number> {
+  const rate = 8000;
+  const ctx = new OfflineAudioContext(1, rate / 2, rate);
+  const source = new ConstantSourceNode(ctx, { offset: 0.01 });
+  source.connect(new DynamicsCompressorNode(ctx, LIMITER)).connect(ctx.destination);
+  source.start();
+  const out = (await ctx.startRendering()).getChannelData(0);
+  const gain = out[out.length - 1] / 0.01;
+  return Number.isFinite(gain) && gain >= 1 && gain < 4 ? gain : 1;
+}
+
 class Deck {
   readonly el = new Audio();
   readonly gain: GainNode;
@@ -189,7 +244,7 @@ interface TrackHooks {
   stopped(): void;
 }
 
-/** One sound: two decks taking turns over the same loop file, behind a fader. */
+/** Two decks taking turns over the same loop file, behind a fader. */
 class Track {
   readonly fader: GainNode;
   private readonly decks: [Deck, Deck];
@@ -243,7 +298,7 @@ class Track {
     for (const deck of this.decks) deck.el.src = url;
   }
 
-  /** Lets go of the file (after an error), so the next play loads it again. */
+  /** Lets go of the file, so the next play loads it again. */
   clearSource(): void {
     this.stop();
     this.url = undefined;
@@ -300,6 +355,13 @@ class Track {
     if (wasRunning) this.hooks.stopped();
   }
 
+  /** Back to the start of the file (for a slot that takes a different sound). */
+  rewind(): void {
+    this.active = 0;
+    fadeParam(this.decks[0].gain.gain, this.ctx, 1, 0);
+    fadeParam(this.decks[1].gain.gain, this.ctx, 0, 0);
+  }
+
   /** Diagnostics for tests: what each deck is doing. */
   describe(): Record<string, unknown> {
     return {
@@ -322,12 +384,14 @@ class Track {
     const el = this.decks[this.active].el;
     const remaining = el.duration - el.currentTime;
     if (!Number.isFinite(remaining)) return;
+    // A short file: start the next pass and crossfade earlier (but not over half of it).
+    const lead = Math.min(LOOP_LEAD_S, el.duration / 3);
     if (this.holding) {
       // Looping on its own since a swap failed: try again once it has wrapped around.
-      if (remaining > LOOP_LEAD_S) this.holding = false;
+      if (remaining > lead) this.holding = false;
       return;
     }
-    if (remaining > LOOP_LEAD_S) return;
+    if (remaining > lead) return;
     this.swap(Math.max(0.3, Math.min(LOOP_FADE_S, remaining - 0.5)));
   }
 
@@ -401,32 +465,47 @@ class Track {
   }
 }
 
+/** A track with the level (gain) of the sound it plays. */
+interface Slot {
+  track: Track;
+  level: GainNode;
+  sound?: string;
+}
+
 export interface PlayerHooks {
   /** The sound broke (missing or damaged file…); it stopped. */
-  error(id: SoundId, err: unknown): void;
-  warn(id: SoundId, message: string): void;
+  error(id: string, err: unknown): void;
+  warn(id: string, message: string): void;
   /** Paused from outside the viewer (media keys, the system's media controls). */
-  interrupted(id: SoundId): void;
+  interrupted(id: string): void;
+  /** A custom sound's level was measured (the extension keeps it). */
+  measured(id: string, gainDb: number): void;
 }
 
 export class AmbientPlayer {
   private ctx?: AudioContext;
   private master?: GainNode;
-  private readonly tracks = new Map<SoundId, Track>();
-  private readonly blobs = new Map<SoundId, Promise<string>>();
-  private current?: SoundId;
+  private readonly slots: Slot[] = [];
+  private sources = new Map<string, SoundSource>();
+  /** Loaded files: a blob (to measure) and a blob: URL (the decks can seek in it freely). */
+  private readonly files = new Map<string, Promise<{ blob: Blob; url: string }>>();
+  /** Levels of custom sounds being measured or measured here. */
+  private readonly levels = new Map<string, Promise<number>>();
+  private current?: string;
   private volume = 0;
   private unlocked = false;
   /** A suspend() of the output may still be pending; play() must resume it. */
   private suspending = false;
 
   constructor(
-    private readonly sources: readonly SoundSource[],
+    sources: readonly SoundSource[],
     private readonly hooks: PlayerHooks,
-  ) {}
+  ) {
+    this.setSources(sources);
+  }
 
   /** The sound that should be audible (undefined while paused). */
-  get playing(): SoundId | undefined {
+  get playing(): string | undefined {
     return this.current;
   }
 
@@ -435,17 +514,32 @@ export class AmbientPlayer {
     return this.unlocked;
   }
 
+  /** The sounds on offer changed: forget the ones that are gone, apply levels measured elsewhere. */
+  setSources(sources: readonly SoundSource[]): void {
+    const next = new Map(sources.map((s) => [s.id, s]));
+    for (const [id, old] of this.sources) {
+      const now = next.get(id);
+      if (!now || now.url !== old.url) {
+        this.forget(id);
+      } else if (now.gainDb !== undefined && now.gainDb !== old.gainDb) {
+        this.levels.set(id, Promise.resolve(now.gainDb));
+        this.applyLevel(id, now.gainDb);
+      }
+    }
+    this.sources = next;
+  }
+
   /**
-   * Call while handling a click or key press. Creates the audio output and every deck, and unlocks
-   * them, so sound can start and go on later without another click. Returns false when the event
-   * did not count as one (Esc, for example).
+   * Call while handling a click or key press. Creates the audio output and every slot, and unlocks
+   * their decks, so sound can start and go on later without another click. Returns false when the
+   * event did not count as one (Esc, for example).
    */
   unlock(): boolean {
     if (!hasUserActivation()) return false;
     const ctx = this.context();
     // Resuming during a click also unlocks the output for later; a quiet output stays asleep.
     if (ctx.state !== 'running' && (this.current || !this.unlocked)) void ctx.resume().catch(() => undefined);
-    for (const track of this.tracks.values()) track.unlock();
+    for (const slot of this.slots) slot.track.unlock();
     if (!this.unlocked) {
       this.unlocked = true;
       this.idle();
@@ -459,7 +553,7 @@ export class AmbientPlayer {
   }
 
   /** Plays `id`. Rejects with a NotAllowedError (see isBlocked) while the viewer has had no click. */
-  async play(id: SoundId): Promise<void> {
+  async play(id: string): Promise<void> {
     const previous = this.current;
     this.current = id;
     if (!this.unlocked) throw blocked();
@@ -474,13 +568,32 @@ export class AmbientPlayer {
         throw blocked();
       }
     }
-    const track = this.tracks.get(id);
-    if (!track) throw new Error(`${soundLabel(id)} is not part of this build`);
-    track.setSource(await this.blobUrl(id));
+    const source = this.sources.get(id);
+    if (!source) throw new Error('this sound is not available any more');
+    const [file, gainDb] = await Promise.all([
+      this.file(source),
+      this.level(source).catch((err: unknown) => {
+        this.hooks.warn(id, `its loudness could not be measured (${messageOf(err)}), so it plays as it is`);
+        return 0;
+      }),
+    ]);
     if (this.current !== id) return; // something else was chosen meanwhile
-    if (previous && previous !== id) this.tracks.get(previous)?.fadeOut(SWITCH_S);
+    const slot = this.slotFor(id);
+    if (slot.sound !== id) {
+      // The slot played another sound (fading out, if still running): it starts over with this one.
+      slot.track.stop();
+      slot.track.rewind();
+      slot.sound = id;
+    }
+    slot.track.setSource(file.url);
+    slot.level.gain.cancelScheduledValues(ctx.currentTime);
+    slot.level.gain.setValueAtTime(dbToGain(gainDb), ctx.currentTime);
+    for (const other of this.slots) {
+      if (other !== slot && other.track.isRunning) other.track.fadeOut(SWITCH_S);
+    }
+    this.prune();
     try {
-      await track.fadeIn(previous && previous !== id ? SWITCH_S : FADE_IN_S);
+      await slot.track.fadeIn(previous && previous !== id ? SWITCH_S : FADE_IN_S);
     } catch (err) {
       if (isBlocked(err)) this.unlocked = false;
       else if (!isAbort(err)) this.forget(id);
@@ -491,7 +604,17 @@ export class AmbientPlayer {
   pause(): void {
     const id = this.current;
     this.current = undefined;
-    if (id) this.tracks.get(id)?.fadeOut(FADE_OUT_S);
+    if (!id) return;
+    for (const slot of this.slots) if (slot.sound === id) slot.track.fadeOut(FADE_OUT_S);
+  }
+
+  /**
+   * The gain (dB) that makes a custom sound as loud as the built-in ones: measured once, then
+   * remembered by the extension. Rejects with an UndecodableError if its audio cannot be decoded.
+   */
+  measure(id: string): Promise<number> {
+    const source = this.sources.get(id);
+    return source ? this.level(source, true) : Promise.reject(new Error('this sound is not available any more'));
   }
 
   /** Diagnostics for tests. */
@@ -501,33 +624,46 @@ export class AmbientPlayer {
       ready: this.unlocked,
       current: this.current,
       master: this.master?.gain.value,
-      tracks: Object.fromEntries([...this.tracks].map(([id, t]) => [id, { running: t.isRunning, ...t.describe() }])),
+      slots: this.slots.map((s) => ({ sound: s.sound, level: s.level.gain.value, running: s.track.isRunning, ...s.track.describe() })),
+      files: [...this.files.keys()],
     };
   }
 
-  /** The audio output, with a track (two decks) per sound; made at the first click. */
+  /** The audio output, with its slots; made at the first click. */
   private context(): AudioContext {
     if (!this.ctx) {
       const ctx = new AudioContext({ latencyHint: 'playback' });
       const master = ctx.createGain();
       master.gain.value = volumeToGain(this.volume);
-      master.connect(ctx.destination);
+      // The compressor adds a little gain of its own (its "makeup"); the last stage takes it back.
+      const makeup = ctx.createGain();
+      master.connect(new DynamicsCompressorNode(ctx, LIMITER)).connect(makeup).connect(ctx.destination);
+      limiterMakeup().then(
+        (gain) => (makeup.gain.value = 1 / gain),
+        () => undefined,
+      );
       this.ctx = ctx;
       this.master = master;
-      for (const source of this.sources) {
-        const id = source.id;
-        this.tracks.set(
-          id,
-          new Track(ctx, master, {
-            fatal: (err) => {
-              this.forget(id);
-              this.hooks.error(id, err);
-            },
-            warn: (message) => this.hooks.warn(id, message),
-            interrupted: () => this.hooks.interrupted(id),
-            stopped: () => this.idle(),
-          }),
-        );
+      for (let i = 0; i < SLOT_COUNT; i++) {
+        const level = ctx.createGain();
+        level.connect(master);
+        const slot: Slot = { level, track: undefined as unknown as Track };
+        slot.track = new Track(ctx, level, {
+          fatal: (err) => {
+            const id = slot.sound;
+            if (!id) return;
+            this.forget(id);
+            this.hooks.error(id, err);
+          },
+          warn: (message) => {
+            if (slot.sound) this.hooks.warn(slot.sound, message);
+          },
+          interrupted: () => {
+            if (slot.sound) this.hooks.interrupted(slot.sound);
+          },
+          stopped: () => this.idle(),
+        });
+        this.slots.push(slot);
       }
       // The output stopped on its own while a sound should play (the system took the device…).
       ctx.addEventListener('statechange', () => {
@@ -537,11 +673,25 @@ export class AmbientPlayer {
     return this.ctx;
   }
 
+  /** The slot to play `id` in: the one that has it already, else a free one, else the quietest. */
+  private slotFor(id: string): Slot {
+    return (
+      this.slots.find((s) => s.sound === id) ??
+      this.slots.find((s) => !s.track.isRunning) ??
+      [...this.slots].sort((a, b) => a.track.fader.gain.value - b.track.fader.gain.value)[0]
+    );
+  }
+
+  private applyLevel(id: string, gainDb: number): void {
+    if (!this.ctx) return;
+    for (const slot of this.slots) if (slot.sound === id) slot.level.gain.setTargetAtTime(dbToGain(gainDb), this.ctx.currentTime, 0.3);
+  }
+
   /** Nothing plays: let the audio output sleep (it wakes up without a click, once unlocked). */
   private idle(): void {
     const ctx = this.ctx;
     if (!ctx || this.current || ctx.state !== 'running') return;
-    if ([...this.tracks.values()].some((t) => t.isRunning)) return;
+    if (this.slots.some((s) => s.track.isRunning)) return;
     this.suspending = true;
     ctx.suspend().then(
       () => {
@@ -553,26 +703,67 @@ export class AmbientPlayer {
     );
   }
 
-  /** Forgets a sound that failed, so playing it again loads the file from scratch. */
-  private forget(id: SoundId): void {
-    this.tracks.get(id)?.clearSource();
-    const blob = this.blobs.get(id);
-    this.blobs.delete(id);
-    blob?.then((url) => URL.revokeObjectURL(url)).catch(() => undefined);
+  /** Forgets a sound (gone, or failed), so playing it again loads the file from scratch. */
+  private forget(id: string): void {
+    for (const slot of this.slots) {
+      if (slot.sound !== id) continue;
+      slot.track.clearSource();
+      slot.sound = undefined;
+    }
+    this.levels.delete(id);
+    const file = this.files.get(id);
+    this.files.delete(id);
+    file?.then((f) => URL.revokeObjectURL(f.url)).catch(() => undefined);
   }
 
-  /** The file as a blob: URL (a local copy the decks can seek in freely). */
-  private blobUrl(id: SoundId): Promise<string> {
-    let pending = this.blobs.get(id);
+  /** Lets go of files no slot plays (the reader's own sounds can be large). */
+  private prune(): void {
+    const keep = new Set(this.slots.map((s) => s.sound));
+    keep.add(this.current);
+    for (const [id, file] of this.files) {
+      if (keep.has(id)) continue;
+      this.files.delete(id);
+      file.then((f) => URL.revokeObjectURL(f.url)).catch(() => undefined);
+    }
+  }
+
+  /** The level (dB) of a sound: 0 for the built-in loops; custom sounds are measured once. */
+  private level(source: SoundSource, fresh = false): Promise<number> {
+    if (source.category !== 'custom') return Promise.resolve(0);
+    if (source.gainDb !== undefined && !fresh) return Promise.resolve(source.gainDb);
+    let pending = this.levels.get(source.id);
     if (!pending) {
-      const source = this.sources.find((s) => s.id === id);
-      if (!source) return Promise.reject(new Error(`${soundLabel(id)} is not part of this build`));
-      pending = fetch(source.url).then(async (response) => {
-        if (!response.ok) throw new Error(`loading ${source.url} failed (HTTP ${response.status})`);
-        return URL.createObjectURL(new Blob([await response.arrayBuffer()], { type: 'audio/ogg' }));
+      pending = this.file(source)
+        .then((file) => measureFile(file.blob, LIMITER_CEILING))
+        .then((result) => {
+          this.hooks.measured(source.id, result.gainDb);
+          return result.gainDb;
+        });
+      const mine = pending;
+      this.levels.set(source.id, mine);
+      mine.catch(() => {
+        if (this.levels.get(source.id) === mine) this.levels.delete(source.id);
       });
-      this.blobs.set(id, pending);
-      pending.catch(() => this.blobs.delete(id));
+    }
+    return pending;
+  }
+
+  private file(source: SoundSource): Promise<{ blob: Blob; url: string }> {
+    let pending = this.files.get(source.id);
+    if (!pending) {
+      pending = fetch(source.url).then(async (response) => {
+        if (!response.ok) throw new Error(`loading the file failed (HTTP ${response.status})`);
+        let blob = await response.blob();
+        const extension = /\.(\w+)(?:$|[?#])/.exec(source.url)?.[1]?.toLowerCase() ?? '';
+        const type = AUDIO_TYPES[extension];
+        if (type && blob.type !== type) blob = new Blob([blob], { type });
+        return { blob, url: URL.createObjectURL(blob) };
+      });
+      const mine = pending;
+      this.files.set(source.id, mine);
+      mine.catch(() => {
+        if (this.files.get(source.id) === mine) this.files.delete(source.id);
+      });
     }
     return pending;
   }
@@ -581,41 +772,67 @@ export class AmbientPlayer {
 // ---------- Floating panel ----------
 
 interface PanelActions {
-  choose(id: SoundId): void;
+  /** A category's tile: play its chosen recording (or just show the list if it has none). */
+  chooseCategory(category: SoundCategory): void;
+  chooseSound(id: string): void;
   togglePlay(): void;
   setVolume(volume: number, final: boolean): void;
+  addSounds(): void;
+  renameSound(id: string, name: string): void;
+  removeSound(id: string): void;
   openChanged(open: boolean): void;
+}
+
+function tooltip(source: SoundSource): string {
+  if (!source.credit) return source.name;
+  return `${source.description ?? source.name}\nRecording: "${source.credit.title}" by ${source.credit.author} on Freesound (public domain)`;
 }
 
 /** The floating "Reading sounds" panel. It closes as soon as it loses focus. */
 class SoundsPanel {
   readonly element: HTMLElement;
-  private readonly tiles = new Map<SoundId, HTMLButtonElement>();
+  private readonly tiles = new Map<SoundCategory, HTMLButtonElement>();
+  private readonly list = h('div', { class: 'mpv-sound-list', role: 'radiogroup' });
+  private readonly empty = h('p', {
+    class: 'mpv-sounds-empty',
+    text: 'Add audio files of your own: they loop like the sounds above, just as loud. MP3, Ogg Vorbis, WAV or FLAC.',
+  });
+  private readonly addButton = h(
+    'button',
+    { class: 'mpv-sounds-add', type: 'button', title: 'Add audio files as reading sounds (copies are kept by Document Viewer)' },
+    icon('add'),
+    h('span', { text: 'Add sound files…' }),
+  );
   private readonly playButton = h('button', { class: 'mpv-sound-play', type: 'button' });
   private readonly volumeIcon = h('span', { class: 'mpv-sounds-volume-icon' });
   private readonly slider = h('input', { class: 'mpv-sounds-slider', type: 'range', min: '0', max: '100', step: '1', 'aria-label': 'Volume' });
   private readonly percent = h('span', { class: 'mpv-sounds-percent' });
   private anchor?: HTMLElement;
   private state?: SoundState;
+  private sources: SoundSource[] = [];
+  /** The category whose recordings the list shows. */
+  private shown: SoundCategory = 'rain';
+  /** A custom sound being renamed, or asking to confirm its removal. */
+  private editing?: { id: string; mode: 'rename' | 'remove' };
+  /** Ids of the rows in the list, to rebuild it only when they change. */
+  private rowIds = '';
 
-  constructor(
-    private readonly sources: readonly SoundSource[],
-    private readonly actions: PanelActions,
-  ) {
-    const tiles = h('div', { class: 'mpv-sound-tiles', role: 'radiogroup', 'aria-label': 'Sound' });
-    for (const source of sources) {
+  constructor(private readonly actions: PanelActions) {
+    const tiles = h('div', { class: 'mpv-sound-tiles', role: 'radiogroup', 'aria-label': 'Kind of sound' });
+    for (const category of SOUND_CATEGORIES) {
       const tile = h(
         'button',
-        { class: 'mpv-sound-tile', type: 'button', role: 'radio', 'aria-checked': 'false', 'data-sound': source.id, tabindex: '-1' },
-        SOUND_ICONS[source.id](),
-        h('span', { class: 'mpv-sound-name', text: source.label }),
+        { class: 'mpv-sound-tile', type: 'button', role: 'radio', 'aria-checked': 'false', 'data-category': category, tabindex: '-1' },
+        CATEGORY_ICONS[category](),
+        h('span', { class: 'mpv-sound-name', text: CATEGORY_LABELS[category] }),
         equalizer(),
       );
-      tile.addEventListener('click', () => actions.choose(source.id));
-      tile.addEventListener('keydown', (e) => this.onTileKey(e, source.id));
-      this.tiles.set(source.id, tile);
+      tile.addEventListener('click', () => this.chooseCategory(category));
+      tile.addEventListener('keydown', (e) => this.onTileKey(e, category));
+      this.tiles.set(category, tile);
       tiles.append(tile);
     }
+    this.addButton.addEventListener('click', () => actions.addSounds());
     this.playButton.addEventListener('click', () => actions.togglePlay());
     this.slider.addEventListener('input', () => actions.setVolume(Number(this.slider.value) / 100, false));
     this.slider.addEventListener('change', () => actions.setVolume(Number(this.slider.value) / 100, true));
@@ -625,6 +842,9 @@ class SoundsPanel {
       { class: 'mpv-popover mpv-sounds', role: 'dialog', 'aria-label': 'Reading sounds', tabindex: '-1', hidden: true },
       h('div', { class: 'mpv-sounds-header' }, h('span', { class: 'mpv-sounds-title', text: 'Reading sounds' })),
       tiles,
+      this.list,
+      this.empty,
+      this.addButton,
       h('div', { class: 'mpv-sounds-controls' }, this.playButton, this.volumeIcon, this.slider, this.percent),
     );
     document.body.append(this.element);
@@ -656,19 +876,24 @@ class SoundsPanel {
     return !this.element.hidden;
   }
 
-  show(anchor: HTMLElement): void {
+  /** Opens below `anchor`, showing `category` (default: the playing sound's) and focusing `focusId` if given. */
+  show(anchor: HTMLElement, category?: SoundCategory, focusId?: string): void {
     this.anchor = anchor;
+    this.editing = undefined;
+    this.shown = category ?? (this.state ? categoryOf(this.state.sound) : undefined) ?? 'rain';
+    this.render();
     const r = anchor.getBoundingClientRect();
     placeFloating(this.element, r.left + r.width / 2, r.bottom - 6);
     this.actions.openChanged(true);
-    // Focus the chosen sound: arrow keys switch sounds, Tab reaches play and the volume.
-    const chosen = this.state ? this.tiles.get(this.state.sound) : undefined;
-    (chosen ?? this.tiles.values().next().value ?? this.playButton).focus();
+    // Focus the chosen recording: arrow keys switch recordings, Tab reaches the rest.
+    const id = focusId ?? this.chosenId();
+    (this.rowButton(id) ?? this.tiles.get(this.shown) ?? this.playButton).focus();
   }
 
   hide(restoreFocus = false): void {
     if (this.element.hidden) return;
     this.element.hidden = true;
+    this.editing = undefined;
     this.actions.openChanged(false);
     if (restoreFocus) this.anchor?.focus();
   }
@@ -678,24 +903,56 @@ class SoundsPanel {
     else this.show(anchor);
   }
 
+  setSources(sources: SoundSource[]): void {
+    this.sources = sources;
+    if (this.editing && !sources.some((s) => s.id === this.editing?.id)) this.editing = undefined;
+    this.render();
+  }
+
   update(state: SoundState): void {
     this.state = state;
-    let anyChecked = false;
-    for (const [id, tile] of this.tiles) {
-      const checked = id === state.sound;
-      anyChecked ||= checked;
-      tile.setAttribute('aria-checked', String(checked));
-      tile.tabIndex = checked ? 0 : -1;
-      tile.classList.toggle('mpv-sound-playing', checked && state.playing);
-      tile.title = checked && state.playing ? `${soundLabel(id)} is playing` : `Play ${soundLabel(id).toLowerCase()} sounds`;
+    this.render();
+  }
+
+  /** Shows a category's recordings (the tile was clicked). */
+  showCategory(category: SoundCategory): void {
+    this.shown = category;
+    this.editing = undefined;
+    this.render();
+  }
+
+  private chooseCategory(category: SoundCategory): void {
+    this.showCategory(category);
+    this.actions.chooseCategory(category);
+  }
+
+  /** The recording the shown category plays. */
+  private chosenId(): string | undefined {
+    const inShown = this.sources.filter((s) => s.category === this.shown);
+    const choice = this.state?.choices[this.shown];
+    return inShown.find((s) => s.id === choice)?.id ?? inShown[0]?.id;
+  }
+
+  private rowButton(id: string | undefined): HTMLButtonElement | undefined {
+    if (!id) return undefined;
+    return this.list.querySelector<HTMLButtonElement>(`.mpv-sound-item[data-sound="${CSS.escape(id)}"]`) ?? undefined;
+  }
+
+  private render(): void {
+    const state = this.state;
+    const playingCategory = state?.playing ? categoryOf(state.sound) : undefined;
+    for (const [category, tile] of this.tiles) {
+      const shown = category === this.shown;
+      tile.setAttribute('aria-checked', String(shown));
+      tile.tabIndex = shown ? 0 : -1;
+      tile.classList.toggle('mpv-sound-playing', category === playingCategory);
+      const name = CATEGORY_LABELS[category].toLowerCase();
+      tile.title = category === playingCategory ? `Playing: ${this.nameOf(state?.sound)}` : category === 'custom' ? 'Your own sounds' : `Play ${name} sounds`;
     }
-    if (!anyChecked) {
-      const first = this.tiles.values().next().value;
-      if (first) first.tabIndex = 0;
-    }
-    const label = soundLabel(state.sound).toLowerCase();
+    this.renderList();
+    if (!state) return;
     this.playButton.replaceChildren(icon(state.playing ? 'debug-pause' : 'play'));
-    this.playButton.title = state.playing ? 'Pause' : `Play ${label} sounds`;
+    this.playButton.title = state.playing ? 'Pause' : `Play "${this.nameOf(state.sound)}"`;
     this.playButton.setAttribute('aria-label', this.playButton.title);
     const percent = Math.round(state.volume * 100);
     this.slider.value = String(percent);
@@ -705,14 +962,187 @@ class SoundsPanel {
     this.volumeIcon.replaceChildren(icon(percent === 0 ? 'mute' : 'unmute'));
   }
 
-  private onTileKey(e: KeyboardEvent, id: SoundId): void {
-    const ids = this.sources.map((s) => s.id);
-    const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+  private nameOf(id: string | undefined): string {
+    return this.sources.find((s) => s.id === id)?.name ?? 'sound';
+  }
+
+  private renderList(): void {
+    const sources = this.sources.filter((s) => s.category === this.shown);
+    const custom = this.shown === 'custom';
+    this.list.setAttribute('aria-label', custom ? 'Your sounds' : `${CATEGORY_LABELS[this.shown]} recordings`);
+    this.empty.hidden = !custom || sources.length > 0;
+    this.addButton.hidden = !custom;
+    // Rebuild only when the rows themselves change (a name changes in place), so a focused row
+    // keeps its focus and a name being typed is not lost when the list updates.
+    const ids = JSON.stringify([this.shown, sources.map((s) => s.id), this.editing]);
+    if (ids !== this.rowIds) {
+      const focused = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('.mpv-sound-row')?.dataset.sound;
+      this.rowIds = ids;
+      this.list.replaceChildren(...sources.map((s) => this.buildRow(s)));
+      this.list.hidden = sources.length === 0;
+      if (focused && !this.editing) this.rowButton(focused)?.focus();
+    } else {
+      for (const source of sources) if (this.editing?.id !== source.id) this.nameRow(source);
+    }
+    const chosen = this.chosenId();
+    const playing = this.state?.playing ? this.state.sound : undefined;
+    for (const item of this.list.querySelectorAll<HTMLButtonElement>('.mpv-sound-item')) {
+      const id = item.dataset.sound;
+      const checked = id === chosen;
+      item.setAttribute('aria-checked', String(checked));
+      item.tabIndex = checked ? 0 : -1;
+      item.closest('.mpv-sound-row')?.classList.toggle('mpv-sound-playing', id === playing);
+    }
+  }
+
+  private buildRow(source: SoundSource): HTMLElement {
+    const row = h('div', { class: 'mpv-sound-row', 'data-sound': source.id });
+    const editing = this.editing?.id === source.id ? this.editing.mode : undefined;
+    if (editing === 'rename') return this.renameRow(row, source);
+    if (editing === 'remove') return this.removeRow(row, source);
+    const item = h(
+      'button',
+      { class: 'mpv-sound-item', type: 'button', role: 'radio', 'aria-checked': 'false', tabindex: '-1', 'data-sound': source.id },
+      h('span', { class: 'mpv-sound-mark', 'aria-hidden': 'true' }, equalizer()),
+      h('span', { class: 'mpv-sound-item-name' }),
+    );
+    item.addEventListener('click', () => this.actions.chooseSound(source.id));
+    item.addEventListener('keydown', (e) => this.onItemKey(e, source.id));
+    row.append(item);
+    if (source.category === 'custom') {
+      const rename = h('button', { class: 'mpv-btn mpv-sound-action', type: 'button', 'data-action': 'rename' }, icon('edit'));
+      const remove = h('button', { class: 'mpv-btn mpv-sound-action', type: 'button', 'data-action': 'remove' }, icon('trash'));
+      rename.addEventListener('click', () => this.edit(source.id, 'rename'));
+      remove.addEventListener('click', () => this.edit(source.id, 'remove'));
+      row.append(h('span', { class: 'mpv-sound-actions' }, rename, remove));
+    }
+    this.nameRow(source, row);
+    return row;
+  }
+
+  /** Puts the sound's name (which can change) into its row. */
+  private nameRow(source: SoundSource, row = this.list.querySelector<HTMLElement>(`.mpv-sound-row[data-sound="${CSS.escape(source.id)}"]`)): void {
+    if (!row) return;
+    const item = row.querySelector<HTMLElement>('.mpv-sound-item');
+    const name = row.querySelector('.mpv-sound-item-name');
+    if (!item || !name) return;
+    name.textContent = source.name;
+    item.title = tooltip(source);
+    for (const button of row.querySelectorAll<HTMLElement>('.mpv-sound-action')) {
+      const label = `${button.dataset.action === 'rename' ? 'Rename' : 'Remove'} "${source.name}"`;
+      button.title = label;
+      button.setAttribute('aria-label', label);
+    }
+  }
+
+  private edit(id: string, mode: 'rename' | 'remove'): void {
+    this.editing = { id, mode };
+    this.renderList();
+    const row = this.list.querySelector<HTMLElement>(`.mpv-sound-row[data-sound="${CSS.escape(id)}"]`);
+    if (mode === 'rename') {
+      const input = row?.querySelector('input');
+      input?.focus();
+      input?.select();
+    } else {
+      row?.querySelector<HTMLButtonElement>('.mpv-sound-cancel')?.focus();
+    }
+  }
+
+  private endEdit(id: string): void {
+    if (this.editing?.id !== id) return;
+    this.editing = undefined;
+    this.renderList();
+    this.rowButton(id)?.focus();
+  }
+
+  private renameRow(row: HTMLElement, source: SoundSource): HTMLElement {
+    row.classList.add('mpv-sound-editing');
+    const input = h('input', { class: 'mpv-sound-rename', type: 'text', value: source.name, maxlength: '80', 'aria-label': `New name for "${source.name}"` });
+    let done = false;
+    const finish = (save: boolean) => {
+      if (done) return;
+      done = true;
+      const name = input.value.replace(/\s+/g, ' ').trim();
+      if (save && name && name !== source.name) this.actions.renameSound(source.id, name);
+      this.endEdit(source.id);
+    };
+    input.addEventListener('keydown', (e) => {
+      // Typing is for the field: keep the viewer's shortcuts and the panel's Esc out of it.
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        finish(true);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(false);
+      }
+    });
+    input.addEventListener('blur', () => finish(true));
+    row.append(input);
+    return row;
+  }
+
+  private removeRow(row: HTMLElement, source: SoundSource): HTMLElement {
+    row.classList.add('mpv-sound-editing');
+    const remove = h('button', { class: 'mpv-sound-confirm', type: 'button', title: 'Removes it from your sounds. Your own file is not touched.', text: 'Remove' });
+    const cancel = h('button', { class: 'mpv-sound-cancel', type: 'button', text: 'Cancel' });
+    remove.addEventListener('click', () => {
+      this.editing = undefined;
+      this.actions.removeSound(source.id);
+    });
+    cancel.addEventListener('click', () => this.endEdit(source.id));
+    row.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.endEdit(source.id);
+    });
+    row.append(h('span', { class: 'mpv-sound-question', text: `Remove "${source.name}"?` }), remove, cancel);
+    return row;
+  }
+
+  private onTileKey(e: KeyboardEvent, category: SoundCategory): void {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      (this.rowButton(this.chosenId()) ?? (this.addButton.hidden ? undefined : this.addButton))?.focus();
+      return;
+    }
+    const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
     if (!step) return;
     e.preventDefault();
-    const next = ids[(ids.indexOf(id) + step + ids.length) % ids.length];
+    const all = SOUND_CATEGORIES;
+    const next = all[(all.indexOf(category) + step + all.length) % all.length];
     this.tiles.get(next)?.focus();
-    this.actions.choose(next);
+    this.chooseCategory(next);
+  }
+
+  private onItemKey(e: KeyboardEvent, id: string): void {
+    const source = this.sources.find((s) => s.id === id);
+    if (!source) return;
+    if (source.category === 'custom' && (e.key === 'F2' || e.key === 'Delete')) {
+      e.preventDefault();
+      this.edit(source.id, e.key === 'F2' ? 'rename' : 'remove');
+      return;
+    }
+    const ids = this.sources.filter((s) => s.category === this.shown).map((s) => s.id);
+    const index = ids.indexOf(source.id);
+    let next: number;
+    if (e.key === 'ArrowDown') next = index + 1;
+    else if (e.key === 'ArrowUp') next = index - 1;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = ids.length - 1;
+    else return;
+    e.preventDefault();
+    if (next < 0) {
+      this.tiles.get(this.shown)?.focus();
+      return;
+    }
+    if (next >= ids.length) {
+      if (!this.addButton.hidden) this.addButton.focus();
+      return;
+    }
+    this.rowButton(ids[next])?.focus();
+    this.actions.chooseSound(ids[next]);
   }
 }
 
@@ -721,9 +1151,11 @@ class SoundsPanel {
 export interface ReadingSoundsHooks {
   /** Sends a request to the extension, which keeps the state shared by all viewers. */
   request(request: SoundRequest): void;
-  /** The toolbar button shows whether a sound is playing. */
-  stateChanged(state: SoundState): void;
+  /** The toolbar button shows whether a sound is playing (and which). */
+  stateChanged(state: SoundState, name: string): void;
   openChanged(open: boolean): void;
+  /** The toolbar button the panel hangs from. */
+  anchor(): HTMLElement | undefined;
   /** Reports a problem (with a way to the log). */
   notify(message: string): void;
   /** A short tip for the reader. */
@@ -733,6 +1165,8 @@ export interface ReadingSoundsHooks {
 
 export class ReadingSounds {
   private state: SoundState;
+  private readonly builtIns: SoundSource[];
+  private custom: SoundSource[] = [];
   private readonly player: AmbientPlayer;
   private readonly panel: SoundsPanel;
   /** A volume set here that the extension has not been told about yet. */
@@ -743,22 +1177,36 @@ export class ReadingSounds {
   private toldReady = false;
 
   constructor(
-    sources: readonly SoundSource[],
+    builtIns: readonly SoundSource[],
     initial: SoundState,
     private readonly hooks: ReadingSoundsHooks,
   ) {
+    this.builtIns = [...builtIns];
     this.state = initial;
-    this.player = new AmbientPlayer(sources, {
+    this.player = new AmbientPlayer(this.builtIns, {
       error: (id, err) => this.failed(id, err),
-      warn: (id, message) => hooks.log('warn', `Reading sound "${id}": ${message}.`),
+      warn: (id, message) => hooks.log('warn', `Reading sound "${this.nameOf(id)}": ${message}.`),
       interrupted: (id) => this.interrupted(id),
+      measured: (id, gainDb) => {
+        hooks.log('info', `Reading sound "${this.nameOf(id)}" is leveled to match the built-in sounds (${gainDb >= 0 ? '+' : ''}${gainDb.toFixed(1)} dB).`);
+        hooks.request({ action: 'measured', sound: id, gainDb });
+      },
     });
-    this.panel = new SoundsPanel(sources, {
-      choose: (id) => this.choose(id),
+    this.panel = new SoundsPanel({
+      chooseCategory: (category) => this.chooseCategory(category),
+      chooseSound: (id) => this.choose(id),
       togglePlay: () => this.togglePlay(),
       setVolume: (volume, final) => this.changeVolume(volume, final),
-      openChanged: (open) => hooks.openChanged(open),
+      addSounds: () => hooks.request({ action: 'add' }),
+      renameSound: (id, name) => this.renameSound(id, name),
+      removeSound: (id) => this.removeSound(id),
+      openChanged: (open) => {
+        // Another VS Code window may have added or removed sounds: ask for the current list.
+        if (open) hooks.request({ action: 'refresh' });
+        hooks.openChanged(open);
+      },
     });
+    this.panel.setSources(this.sources);
     // The first click or key press anywhere in the viewer unlocks sound for good (see the top of
     // this file). Capture phase, so nothing in the viewer can stop the event before it gets here.
     const onGesture = (e: Event) => this.gesture(e);
@@ -786,9 +1234,47 @@ export class ReadingSounds {
     this.sync();
   }
 
+  /** The reader's own sounds, from the extension. */
+  setCustomSounds(sounds: CustomSoundView[]): void {
+    this.custom = sounds.map(customSource);
+    this.player.setSources(this.sources);
+    this.panel.setSources(this.sources);
+    this.render();
+  }
+
+  /** Sounds this viewer asked to add are in: measure how loud they are, and show them. */
+  soundsAdded(ids: string[], reveal: boolean): void {
+    const anchor = this.hooks.anchor();
+    if (reveal && anchor) this.panel.show(anchor, 'custom', ids[0]);
+    for (const id of ids) {
+      this.player.measure(id).catch((err: unknown) => {
+        if (err instanceof UndecodableError) {
+          this.hooks.request({ action: 'unplayable', sound: id, message: err.message || 'unknown audio format' });
+        } else {
+          this.hooks.log('warn', `Measuring the loudness of reading sound "${this.nameOf(id)}" failed: ${messageOf(err)}`);
+        }
+      });
+    }
+  }
+
   /** Diagnostics for tests. */
   describe(): Record<string, unknown> {
-    return { state: this.state, open: this.open, waiting: this.waiting, player: this.player.describe() };
+    return { state: this.state, open: this.open, waiting: this.waiting, sounds: this.sources.map((s) => s.id), player: this.player.describe() };
+  }
+
+  private get sources(): SoundSource[] {
+    return [...this.builtIns, ...this.custom];
+  }
+
+  private nameOf(id: string): string {
+    return this.sources.find((s) => s.id === id)?.name ?? id;
+  }
+
+  /** How a message names a sound: "the rain sound (Roof window)", or a custom sound's name. */
+  private describeSound(id: string): string {
+    const source = this.sources.find((s) => s.id === id);
+    if (!source) return 'the reading sound';
+    return source.category === 'custom' ? `"${source.name}"` : `the ${CATEGORY_LABELS[source.category].toLowerCase()} sound (${source.name})`;
   }
 
   private gesture(e: Event): void {
@@ -805,7 +1291,7 @@ export class ReadingSounds {
 
   private render(): void {
     this.panel.update(this.state);
-    this.hooks.stateChanged(this.state);
+    this.hooks.stateChanged(this.state, this.nameOf(this.state.sound));
   }
 
   /** Makes the audio match the state: play only in the owner viewer. */
@@ -817,6 +1303,7 @@ export class ReadingSounds {
       return;
     }
     const id = this.state.sound;
+    if (!this.sources.some((s) => s.id === id)) return; // its list has not arrived yet
     if (!this.player.ready) {
       this.wait(id);
       return;
@@ -829,11 +1316,11 @@ export class ReadingSounds {
   }
 
   /** Asked to play before the reader clicked in this viewer: start at the first click. */
-  private wait(id: SoundId): void {
+  private wait(id: string): void {
     if (this.waiting) return;
     this.waiting = true;
-    this.hooks.log('info', `Reading sound "${id}" starts at the next click in this viewer (VS Code lets a viewer play sound only after one).`);
-    this.hooks.hint(`Click anywhere in this viewer to start the ${soundLabel(id).toLowerCase()} sound.`);
+    this.hooks.log('info', `Reading sound "${this.nameOf(id)}" starts at the next click in this viewer (VS Code lets a viewer play sound only after one).`);
+    this.hooks.hint(`Click anywhere in this viewer to start ${this.describeSound(id)}.`);
   }
 
   private local(patch: Partial<SoundState>): void {
@@ -842,10 +1329,20 @@ export class ReadingSounds {
     this.sync();
   }
 
-  private choose(id: SoundId): void {
+  private chooseCategory(category: SoundCategory): void {
+    const inCategory = this.sources.filter((s) => s.category === category);
+    const choice = this.state.choices[category];
+    const id = inCategory.find((s) => s.id === choice)?.id ?? inCategory[0]?.id;
+    // An empty "Custom" just shows its list (with the button to add sounds).
+    if (id) this.choose(id);
+  }
+
+  private choose(id: string): void {
     this.player.unlock();
+    const category = categoryOf(id);
+    if (!category) return;
     if (this.state.playing && this.state.owner && this.state.sound === id) return;
-    this.local({ sound: id, playing: true, owner: true });
+    this.local({ sound: id, choices: { ...this.state.choices, [category]: id }, playing: true, owner: true });
     this.hooks.request({ action: 'play', sound: id });
   }
 
@@ -858,6 +1355,22 @@ export class ReadingSounds {
     this.player.unlock();
     this.local({ playing: true, owner: true });
     this.hooks.request({ action: 'play', sound: this.state.sound });
+  }
+
+  private renameSound(id: string, name: string): void {
+    // Show the new name right away; the extension confirms it with the new list.
+    this.custom = this.custom.map((s) => (s.id === id ? { ...s, name } : s));
+    this.panel.setSources(this.sources);
+    this.render();
+    this.hooks.request({ action: 'rename', sound: id, name });
+  }
+
+  private removeSound(id: string): void {
+    this.custom = this.custom.filter((s) => s.id !== id);
+    this.player.setSources(this.sources);
+    this.panel.setSources(this.sources);
+    this.render();
+    this.hooks.request({ action: 'remove', sound: id });
   }
 
   private changeVolume(volume: number, final: boolean): void {
@@ -880,21 +1393,22 @@ export class ReadingSounds {
   }
 
   /** Paused from outside the viewer (media keys, the system's media controls): pause everywhere. */
-  private interrupted(id: SoundId): void {
+  private interrupted(id: string): void {
     if (!(this.state.playing && this.state.owner && this.state.sound === id)) return;
-    this.hooks.log('info', `Reading sound "${id}" was paused from outside the viewer (media keys or the system's media controls).`);
+    this.hooks.log('info', `Reading sound "${this.nameOf(id)}" was paused from outside the viewer (media keys or the system's media controls).`);
     this.local({ playing: false, owner: false });
     this.hooks.request({ action: 'pause' });
   }
 
-  private failed(id: SoundId, err: unknown): void {
+  private failed(id: string, err: unknown): void {
     const message = messageOf(err);
-    this.hooks.log('warn', `Reading sound "${id}" failed: ${message}`);
+    this.hooks.log('warn', `Reading sound "${this.nameOf(id)}" failed: ${message}`);
     this.player.pause();
     this.waiting = false;
     this.state = { ...this.state, playing: false, owner: false };
     this.render();
-    this.hooks.request({ action: 'failed', message: `${id}: ${message}` });
-    this.hooks.notify(`The ${soundLabel(id).toLowerCase()} sound could not be played: ${message}.`);
+    this.hooks.request({ action: 'failed', sound: id, message });
+    const what = this.describeSound(id);
+    this.hooks.notify(`${what.charAt(0).toUpperCase()}${what.slice(1)} could not be played: ${message}.`);
   }
 }

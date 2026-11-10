@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { PdfCache } from '../cache/PdfCache';
 import { downloadsFolder, writeDownloadedPdf } from '../export/downloads';
-import type { AnchorResult, ExportHighlight, HostToViewer, ViewerToHost } from '../shared/messages';
+import type { AnchorResult, CustomSoundView, ExportHighlight, HostToViewer, ViewerToHost } from '../shared/messages';
 import {
   DEFAULT_ZOOM,
   MAX_NOTE_LENGTH,
@@ -21,7 +21,8 @@ import {
   type PageTheme,
 } from '../shared/types';
 import { normalizeKeyPath, sanitizeHighlight, sanitizeMarker, type DocumentRef, type HighlightStore } from '../store/HighlightStore';
-import type { SoundState } from '../shared/sounds';
+import type { SoundRequest, SoundState } from '../shared/sounds';
+import type { SoundLibrary } from '../store/SoundLibrary';
 import { readSettings } from '../util/settings';
 import { RenderError, type RenderService } from './RenderService';
 import type { SoundCoordinator } from './SoundCoordinator';
@@ -42,6 +43,11 @@ export interface PanelHost {
   readonly renderer: RenderService;
   readonly pdfCache: PdfCache;
   readonly sounds: SoundCoordinator<PreviewPanel>;
+  /** The reader's own reading sounds, and the folder their files are in. */
+  readonly soundLibrary: SoundLibrary;
+  readonly customSoundsUri: vscode.Uri;
+  /** A reading sounds request from a viewer's controls. */
+  soundRequest(panel: PreviewPanel, request: SoundRequest): void;
   uiState(): UiState;
   updateUiState(patch: Partial<UiState>): void;
   toggleTheme(): void;
@@ -130,7 +136,7 @@ export class PreviewPanel implements vscode.Disposable {
         dark: vscode.Uri.joinPath(host.extensionUri, 'media', 'preview-dark.svg'),
       };
     }
-    panel.webview.options = webviewOptions(host.extensionUri);
+    panel.webview.options = webviewOptions(host.extensionUri, host.customSoundsUri);
     this.disposables.push(
       panel.webview.onDidReceiveMessage((msg: ViewerToHost) => {
         this.onMessage(msg).catch((err: unknown) => this.host.log.error(`Message ${msg?.type} failed: ${String(err)}`));
@@ -170,11 +176,31 @@ export class PreviewPanel implements vscode.Disposable {
     this.post({ type: 'sound', state });
   }
 
+  /** The custom reading sounds changed. */
+  postCustomSounds(): void {
+    this.post({ type: 'customSounds', sounds: this.customSoundViews() });
+  }
+
+  /** Sounds this viewer asked to add are in: it measures their loudness (and shows them, if `reveal`). */
+  soundsAdded(ids: string[], reveal: boolean): void {
+    this.post({ type: 'soundsAdded', ids, reveal });
+  }
+
+  private customSoundViews(): CustomSoundView[] {
+    const library = this.host.soundLibrary;
+    return library.sounds.map((r) => ({
+      id: r.id,
+      name: r.name,
+      gainDb: r.gainDb,
+      url: this.panel.webview.asWebviewUri(vscode.Uri.file(library.pathOf(r))).toString(),
+    }));
+  }
+
   private post(message: HostToViewer): void {
     if (this.disposed) return;
     if (!this.ready) {
       // Keep only the latest of each kind of state message until the viewer is ready.
-      if (!['pdf', 'requestExport', 'undo', 'redo', 'deleteAll', 'marker'].includes(message.type)) {
+      if (!['pdf', 'requestExport', 'undo', 'redo', 'deleteAll', 'marker', 'soundsAdded'].includes(message.type)) {
         const i = this.outbox.findIndex((m) => m.type === message.type);
         if (i >= 0) this.outbox.splice(i, 1);
       }
@@ -262,8 +288,7 @@ export class PreviewPanel implements vscode.Disposable {
         await vscode.env.clipboard.writeText(msg.text);
         break;
       case 'sound':
-        if (msg.action === 'failed') this.host.log.warn(`Reading sound: ${msg.message}`);
-        this.host.sounds.handle(this, msg);
+        this.host.soundRequest(this, msg);
         break;
       case 'log':
         this.host.log[msg.level](`[viewer] ${msg.message}`);
@@ -295,6 +320,7 @@ export class PreviewPanel implements vscode.Disposable {
         fullView: this.kind !== 'pdf' && this.isFullView(),
         marginsPt: margins,
         sound: this.host.sounds.stateFor(this),
+        customSounds: this.customSoundViews(),
       },
     } satisfies HostToViewer);
     const queued = this.outbox.splice(0);

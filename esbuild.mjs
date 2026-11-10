@@ -87,11 +87,11 @@ async function copyAssets() {
   for (const name of await readdir(fontsDir)) {
     if (name.endsWith('.woff2')) await cp(join(fontsDir, name), join(dist, 'assets/katex/fonts', name));
   }
-  // Reading sounds: made by `npm run sounds` and kept out of git, so they may be missing.
+  // The built-in reading sounds (made by `npm run sounds`, kept in git); a sound whose file is missing is not offered.
   const soundsDir = join(root, 'media/sounds');
   const sounds = existsSync(soundsDir) ? (await readdir(soundsDir)).filter((name) => name.endsWith('.ogg')) : [];
   if (sounds.length === 0) {
-    console.warn('No reading sounds in media/sounds/ (run "npm run sounds" first); the viewer will not offer them.');
+    console.warn('No reading sounds in media/sounds/ (run "npm run sounds"); the viewer will only offer your own.');
   }
   for (const name of sounds) {
     await mkdir(join(dist, 'webview/sounds'), { recursive: true });

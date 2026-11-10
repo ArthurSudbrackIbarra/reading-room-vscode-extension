@@ -40,6 +40,20 @@ export async function writeFileAtomic(target: string, data: string | Uint8Array,
   }
 }
 
+/** Copies a file the same crash-safe way: into a temp file next to the target, then renamed over it. */
+export async function copyFileAtomic(source: string, target: string): Promise<void> {
+  const dir = dirname(target);
+  await ensureDir(dir);
+  const temp = join(dir, `${basename(target)}.tmp-${process.pid}-${randomBytes(4).toString('hex')}`);
+  try {
+    await fs.copyFile(source, temp);
+    await renameWithRetry(temp, target);
+  } catch (err) {
+    await fs.rm(temp, { force: true }).catch(() => undefined);
+    throw err;
+  }
+}
+
 /** Windows antivirus and indexers briefly lock files; retry the rename with backoff. */
 export async function renameWithRetry(from: string, to: string, attempts = 6): Promise<void> {
   for (let attempt = 1; ; attempt++) {

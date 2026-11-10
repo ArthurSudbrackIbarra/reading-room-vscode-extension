@@ -1,9 +1,30 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SoundCoordinator, type SoundViewer } from '../../src/preview/SoundCoordinator';
-import { DEFAULT_SOUND, DEFAULT_VOLUME, clampVolume, isSoundId, volumeToGain, type SoundState } from '../../src/shared/sounds';
+import { SoundCoordinator, type SoundEntry, type SoundViewer } from '../../src/preview/SoundCoordinator';
+import {
+  BUILT_IN_SOUNDS,
+  DEFAULT_CHOICES,
+  DEFAULT_SOUND,
+  DEFAULT_VOLUME,
+  SOUND_CATEGORIES,
+  categoryOf,
+  clampGainDb,
+  clampVolume,
+  isCustomId,
+  migrateSoundId,
+  volumeToGain,
+  type SoundState,
+} from '../../src/shared/sounds';
 import { fadeCurve } from '../../webview/sounds';
 // @ts-expect-error -- plain ES module build script without type declarations
 import { makeLoop } from '../../scripts/fetch-sounds.mjs';
+
+const root = join(__dirname, '..', '..');
+const FIRE = 'fire-home-fireplace';
+const RAIN = 'rain-half-open-window';
+const ROOF = 'rain-roof-window';
+const MINE = 'custom-a1b2c3d4';
 
 class FakeViewer implements SoundViewer {
   readonly received: SoundState[] = [];
@@ -17,13 +38,18 @@ class FakeViewer implements SoundViewer {
   }
 }
 
-function setup(saved?: unknown) {
+function setup(saved?: unknown, custom: string[] = []) {
   const viewers: FakeViewer[] = [];
   const writes: unknown[] = [];
   const playing: boolean[] = [];
+  const catalog = {
+    custom: [...custom],
+    entries: (): SoundEntry[] => [...BUILT_IN_SOUNDS.map((s) => ({ id: s.id, category: s.category })), ...catalog.custom.map((id) => ({ id, category: 'custom' as const }))],
+  };
   const coordinator = new SoundCoordinator<FakeViewer>(
     { get: () => saved, set: (value) => writes.push(value) },
     () => viewers,
+    () => catalog.entries(),
     (p) => playing.push(p),
   );
   const add = (name: string) => {
@@ -35,7 +61,7 @@ function setup(saved?: unknown) {
     viewer.isDisposed = true;
     viewers.splice(viewers.indexOf(viewer), 1);
   };
-  return { coordinator, viewers, writes, playing, add, remove };
+  return { coordinator, viewers, writes, playing, add, remove, catalog };
 }
 
 afterEach(() => {
@@ -43,14 +69,32 @@ afterEach(() => {
 });
 
 describe('sound helpers', () => {
-  it('validates ids and volumes', () => {
-    expect(isSoundId('rain')).toBe(true);
-    expect(isSoundId('fireplace')).toBe(true);
-    expect(isSoundId('thunder')).toBe(false);
+  it('knows the categories of sound ids', () => {
+    expect(categoryOf(RAIN)).toBe('rain');
+    expect(categoryOf(FIRE)).toBe('fireplace');
+    expect(categoryOf(MINE)).toBe('custom');
+    expect(categoryOf('thunder')).toBeUndefined();
+    expect(isCustomId(MINE)).toBe(true);
+    expect(isCustomId('custom-../x')).toBe(false);
+    expect(isCustomId('rain')).toBe(false);
+  });
+
+  it('turns the ids saved by 0.3 into their category defaults', () => {
+    expect(migrateSoundId('rain')).toBe(RAIN);
+    expect(migrateSoundId('fireplace')).toBe(FIRE);
+    expect(migrateSoundId(ROOF)).toBe(ROOF);
+    expect(migrateSoundId(3)).toBeUndefined();
+  });
+
+  it('validates volumes and gains', () => {
     expect(clampVolume(1.7)).toBe(1);
     expect(clampVolume(-1)).toBe(0);
     expect(clampVolume('0.5')).toBe(DEFAULT_VOLUME);
     expect(clampVolume(Number.NaN, 0.2)).toBe(0.2);
+    expect(clampGainDb(3.5)).toBe(3.5);
+    expect(clampGainDb(80)).toBe(24);
+    expect(clampGainDb(-80)).toBe(-20);
+    expect(clampGainDb('3')).toBeUndefined();
   });
 
   it('maps the slider to a squared gain', () => {
@@ -76,26 +120,58 @@ describe('sound helpers', () => {
   });
 });
 
+describe('built-in sounds', () => {
+  it('have unique ids, and each category starts with its default', () => {
+    expect(new Set(BUILT_IN_SOUNDS.map((s) => s.id)).size).toBe(BUILT_IN_SOUNDS.length);
+    for (const category of SOUND_CATEGORIES.filter((c) => c !== 'custom')) {
+      expect(BUILT_IN_SOUNDS.find((s) => s.category === category)?.id).toBe(DEFAULT_CHOICES[category]);
+    }
+    expect(DEFAULT_SOUND).toBe(RAIN);
+    expect(DEFAULT_CHOICES.fireplace).toBe(FIRE);
+  });
+
+  it('each have their loop in media/sounds, a build entry, and a credit in the README', () => {
+    const script = readFileSync(join(root, 'scripts', 'fetch-sounds.mjs'), 'utf8');
+    const readme = readFileSync(join(root, 'README.md'), 'utf8');
+    for (const sound of BUILT_IN_SOUNDS) {
+      expect(existsSync(join(root, 'media', 'sounds', sound.file)), sound.file).toBe(true);
+      expect(script, sound.id).toContain(`id: '${sound.id}'`);
+      expect(readme, sound.credit.url).toContain(sound.credit.url);
+    }
+  });
+});
+
 describe('SoundCoordinator', () => {
-  it('starts paused with the saved sound and volume, ignoring bad values', () => {
-    const a = setup({ sound: 'fireplace', volume: 0.3 });
+  it('starts paused with the saved sound, choices and volume, ignoring bad values', () => {
+    const a = setup({ sound: ROOF, volume: 0.3, choices: { rain: ROOF, fireplace: 'fire-wet-log' } });
     const viewer = a.add('a');
-    expect(a.coordinator.stateFor(viewer)).toEqual({ sound: 'fireplace', volume: 0.3, playing: false, owner: false });
-    const b = setup({ sound: 'nope', volume: 'loud' });
-    expect(b.coordinator.stateFor(b.add('b'))).toEqual({ sound: DEFAULT_SOUND, volume: DEFAULT_VOLUME, playing: false, owner: false });
+    expect(a.coordinator.stateFor(viewer)).toEqual({
+      sound: ROOF,
+      choices: { rain: ROOF, fireplace: 'fire-wet-log', custom: undefined },
+      volume: 0.3,
+      playing: false,
+      owner: false,
+    });
+    const b = setup({ sound: 'nope', volume: 'loud', choices: { rain: FIRE, fireplace: 7 } });
+    expect(b.coordinator.stateFor(b.add('b'))).toEqual({ sound: DEFAULT_SOUND, choices: { ...DEFAULT_CHOICES }, volume: DEFAULT_VOLUME, playing: false, owner: false });
+  });
+
+  it('upgrades what 0.3 saved: its sound becomes the default of its category', () => {
+    const { coordinator, add } = setup({ sound: 'fireplace', volume: 0.5 });
+    expect(coordinator.stateFor(add('a'))).toMatchObject({ sound: FIRE, choices: { rain: RAIN, fireplace: FIRE }, volume: 0.5 });
   });
 
   it('plays in exactly one viewer and shows the state in all of them', () => {
     const { coordinator, add, playing } = setup();
     const a = add('a');
     const b = add('b');
-    coordinator.handle(a, { action: 'play', sound: 'rain' });
-    expect(a.last).toMatchObject({ sound: 'rain', playing: true, owner: true });
-    expect(b.last).toMatchObject({ sound: 'rain', playing: true, owner: false });
+    coordinator.handle(a, { action: 'play', sound: RAIN });
+    expect(a.last).toMatchObject({ sound: RAIN, playing: true, owner: true });
+    expect(b.last).toMatchObject({ sound: RAIN, playing: true, owner: false });
     // Choosing another sound in b moves the audio there.
-    coordinator.handle(b, { action: 'play', sound: 'fireplace' });
-    expect(a.last).toMatchObject({ sound: 'fireplace', playing: true, owner: false });
-    expect(b.last).toMatchObject({ sound: 'fireplace', playing: true, owner: true });
+    coordinator.handle(b, { action: 'play', sound: FIRE });
+    expect(a.last).toMatchObject({ sound: FIRE, playing: true, owner: false });
+    expect(b.last).toMatchObject({ sound: FIRE, playing: true, owner: true });
     // Pausing from any viewer pauses everywhere.
     coordinator.handle(a, { action: 'pause' });
     expect(a.last).toMatchObject({ playing: false, owner: false });
@@ -103,13 +179,22 @@ describe('SoundCoordinator', () => {
     expect(playing).toEqual([true, false]);
   });
 
+  it('makes the played recording its category choice, keeping the other categories', () => {
+    const { coordinator, add } = setup();
+    const a = add('a');
+    coordinator.handle(a, { action: 'play', sound: ROOF });
+    coordinator.handle(a, { action: 'play', sound: 'fire-log-cabin' });
+    expect(a.last).toMatchObject({ sound: 'fire-log-cabin', choices: { rain: ROOF, fireplace: 'fire-log-cabin', custom: undefined } });
+  });
+
   it('remembers the chosen sound at once and the volume after a pause in the slider', () => {
     vi.useFakeTimers();
     const { coordinator, add, writes } = setup();
     const a = add('a');
     const b = add('b');
-    coordinator.handle(a, { action: 'play', sound: 'fireplace' });
-    expect(writes).toEqual([{ sound: 'fireplace', volume: DEFAULT_VOLUME }]);
+    coordinator.handle(a, { action: 'play', sound: FIRE });
+    const firstWrite = { sound: FIRE, volume: DEFAULT_VOLUME, choices: { ...DEFAULT_CHOICES } };
+    expect(writes).toEqual([firstWrite]);
     const before = a.received.length;
     coordinator.handle(a, { action: 'volume', volume: 0.4 });
     coordinator.handle(a, { action: 'volume', volume: 0.45 });
@@ -118,10 +203,7 @@ describe('SoundCoordinator', () => {
     expect(b.last).toMatchObject({ volume: 0.45 });
     expect(writes).toHaveLength(1);
     vi.advanceTimersByTime(1000);
-    expect(writes).toEqual([
-      { sound: 'fireplace', volume: DEFAULT_VOLUME },
-      { sound: 'fireplace', volume: 0.45 },
-    ]);
+    expect(writes).toEqual([firstWrite, { ...firstWrite, volume: 0.45 }]);
   });
 
   it('writes a pending volume when disposed', () => {
@@ -129,7 +211,7 @@ describe('SoundCoordinator', () => {
     const { coordinator, add, writes } = setup();
     coordinator.handle(add('a'), { action: 'volume', volume: 0.2 });
     coordinator.dispose();
-    expect(writes).toEqual([{ sound: DEFAULT_SOUND, volume: 0.2 }]);
+    expect(writes).toEqual([{ sound: DEFAULT_SOUND, volume: 0.2, choices: { ...DEFAULT_CHOICES } }]);
   });
 
   it('stops when the playing viewer fails, but not when another one does', () => {
@@ -138,11 +220,11 @@ describe('SoundCoordinator', () => {
     const b = add('b');
     coordinator.play(a);
     const count = a.received.length;
-    coordinator.handle(b, { action: 'failed', message: 'x' });
+    coordinator.handle(b, { action: 'failed', sound: RAIN, message: 'x' });
     expect(coordinator.isPlaying).toBe(true);
     expect(a.received.length).toBe(count);
     expect(b.last).toMatchObject({ playing: true, owner: false });
-    coordinator.handle(a, { action: 'failed', message: 'blocked' });
+    coordinator.handle(a, { action: 'failed', sound: RAIN, message: 'blocked' });
     expect(coordinator.isPlaying).toBe(false);
     expect(b.last).toMatchObject({ playing: false });
     expect(playing).toEqual([true, false]);
@@ -152,10 +234,10 @@ describe('SoundCoordinator', () => {
     const { coordinator, add, remove } = setup();
     const a = add('a');
     const b = add('b');
-    coordinator.play(a, 'fireplace');
+    coordinator.play(a, FIRE);
     remove(a);
     coordinator.viewerClosed(a, b);
-    expect(b.last).toMatchObject({ sound: 'fireplace', playing: true, owner: true });
+    expect(b.last).toMatchObject({ sound: FIRE, playing: true, owner: true });
     expect(coordinator.currentOwner).toBe(b);
     remove(b);
     coordinator.viewerClosed(b, undefined);
@@ -191,7 +273,7 @@ describe('SoundCoordinator', () => {
     const b = add('b');
     const c = add('c');
     coordinator.handle(c, { action: 'ready' });
-    coordinator.play(a, 'rain');
+    coordinator.play(a, RAIN);
     remove(a);
     // b is the active viewer, but only c can start sound without another click.
     coordinator.viewerClosed(a, b);
@@ -229,11 +311,64 @@ describe('SoundCoordinator', () => {
     expect(coordinator.currentOwner).toBe(a);
   });
 
-  it('ignores unknown sounds in requests', () => {
+  it('ignores unknown sounds in requests, and puts the asking viewer right', () => {
     const { coordinator, add } = setup();
     const a = add('a');
-    coordinator.handle(a, { action: 'play', sound: 'thunder' as never });
-    expect(a.last).toMatchObject({ sound: DEFAULT_SOUND, playing: true });
+    coordinator.handle(a, { action: 'play', sound: 'thunder' });
+    expect(coordinator.isPlaying).toBe(false);
+    expect(a.last).toMatchObject({ sound: DEFAULT_SOUND, playing: false });
+  });
+
+  it('keeps a saved custom choice until the custom sounds are loaded', () => {
+    const { coordinator, add, catalog } = setup({ sound: MINE, choices: { custom: MINE } });
+    const a = add('a');
+    expect(coordinator.stateFor(a)).toMatchObject({ sound: MINE, choices: { custom: MINE } });
+    catalog.custom = [MINE];
+    coordinator.catalogChanged();
+    expect(a.last).toMatchObject({ sound: MINE, choices: { custom: MINE } });
+    // Loaded, and that sound is not among them (removed in another window): back to rain.
+    const other = setup({ sound: MINE, choices: { custom: MINE } });
+    const b = other.add('b');
+    other.coordinator.catalogChanged();
+    expect(b.last).toMatchObject({ sound: RAIN, choices: { custom: undefined } });
+  });
+
+  it('chooses a sound just added without playing it', () => {
+    const { coordinator, add, catalog, writes } = setup();
+    const a = add('a');
+    catalog.custom = [MINE];
+    coordinator.catalogChanged();
+    coordinator.choose(MINE);
+    expect(a.last).toMatchObject({ sound: RAIN, playing: false, choices: { custom: MINE } });
+    expect(writes[writes.length - 1]).toMatchObject({ choices: { custom: MINE } });
+    coordinator.choose('custom-unknown1');
+    expect(a.last).toMatchObject({ choices: { custom: MINE } });
+  });
+
+  it('stops when the custom sound that plays is removed, and moves the choice on', () => {
+    const { coordinator, add, catalog, playing } = setup(undefined, [MINE, 'custom-zzzz9999']);
+    coordinator.catalogChanged();
+    const a = add('a');
+    coordinator.handle(a, { action: 'play', sound: MINE });
+    expect(a.last).toMatchObject({ sound: MINE, playing: true, choices: { custom: MINE } });
+    catalog.custom = ['custom-zzzz9999'];
+    coordinator.catalogChanged();
+    expect(a.last).toMatchObject({ sound: 'custom-zzzz9999', playing: false, owner: false, choices: { custom: 'custom-zzzz9999' } });
+    expect(playing).toEqual([true, false]);
+    // The last custom sound goes: the choice empties and the sound falls back to rain.
+    catalog.custom = [];
+    coordinator.catalogChanged();
+    expect(a.last).toMatchObject({ sound: RAIN, choices: { rain: RAIN, custom: undefined } });
+  });
+
+  it('leaves the playing sound alone when another custom sound is removed', () => {
+    const { coordinator, add, catalog } = setup(undefined, [MINE, 'custom-zzzz9999']);
+    coordinator.catalogChanged();
+    const a = add('a');
+    coordinator.handle(a, { action: 'play', sound: ROOF });
+    catalog.custom = [MINE];
+    coordinator.catalogChanged();
+    expect(a.last).toMatchObject({ sound: ROOF, playing: true, owner: true });
   });
 });
 

@@ -13,7 +13,7 @@ import { ReadingSounds, canPlaySounds, type SoundSource } from './sounds';
 import { h } from './dom';
 import { getState, log, post, setState } from './vscodeApi';
 import type { HostToViewer, ViewerCommand } from '../src/shared/messages';
-import { DEFAULT_SOUND, DEFAULT_VOLUME } from '../src/shared/sounds';
+import { DEFAULT_CHOICES, DEFAULT_SOUND, DEFAULT_VOLUME } from '../src/shared/sounds';
 import { DEFAULT_COLOR, DEFAULT_ZOOM, type DocumentKind, type HighlightColor, type PageTheme, type ReadingMarker, type ZoomValue } from '../src/shared/types';
 
 interface Config {
@@ -22,7 +22,7 @@ interface Config {
   cmaps: string;
   standardFonts: string;
   wasm: string;
-  /** Reading sounds included in this build. */
+  /** Built-in reading sounds included in this build. */
   sounds?: SoundSource[];
 }
 
@@ -107,17 +107,17 @@ class App {
       download: (withHighlights) => this.command(withHighlights ? 'download' : 'downloadWithoutHighlights'),
     });
     this.toolbar.setKind(this.kind);
-    const soundSources = config.sounds ?? [];
-    if (soundSources.length > 0 && !canPlaySounds()) {
+    if (!canPlaySounds()) {
       log('warn', 'Reading sounds are hidden: this webview cannot play Ogg Vorbis audio.');
-    } else if (soundSources.length > 0) {
+    } else {
       this.sounds = new ReadingSounds(
-        soundSources,
-        { sound: DEFAULT_SOUND, volume: DEFAULT_VOLUME, playing: false, owner: false },
+        config.sounds ?? [],
+        { sound: DEFAULT_SOUND, choices: { ...DEFAULT_CHOICES }, volume: DEFAULT_VOLUME, playing: false, owner: false },
         {
           request: (request) => post({ type: 'sound', ...request }),
-          stateChanged: (state) => this.toolbar.setSoundState(state),
+          stateChanged: (state, name) => this.toolbar.setSoundState(state, name),
           openChanged: (open) => this.toolbar.setSoundsOpen(open),
+          anchor: () => this.toolbar.soundsAnchor,
           notify: (message) => this.toast.show(message, { action: { label: 'Show Log', run: () => this.command('showLog') } }),
           hint: (message) => this.toast.show(message, { durationMs: 8000 }),
           log: (level, message) => log(level, message),
@@ -256,6 +256,7 @@ class App {
         this.toolbar.setColor(init.color);
         this.toolbar.setFullView(init.fullView);
         this.setTool(init.toolActive, false);
+        if (init.customSounds) this.sounds?.setCustomSounds(init.customSounds);
         if (init.sound) this.sounds?.apply(init.sound);
         // In a narrow panel the list would cover the pages; open it only on request there.
         this.setListOpen(init.listOpen && !narrowPanel(), false);
@@ -345,6 +346,12 @@ class App {
         break;
       case 'sound':
         this.sounds?.apply(msg.state);
+        break;
+      case 'customSounds':
+        this.sounds?.setCustomSounds(msg.sounds);
+        break;
+      case 'soundsAdded':
+        this.sounds?.soundsAdded(msg.ids, msg.reveal);
         break;
     }
   }
