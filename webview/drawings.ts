@@ -1,7 +1,8 @@
 // Drawings and text boxes in the viewer: one SVG per page whose content is in PDF units (zoom and
-// resize never recompute anything), draw mode and text mode (a capture surface above every page
-// layer), the eraser, typing text, selecting, moving and resizing, and hit-testing. The App
-// records undo steps and talks to the host.
+// resize never recompute anything), draw mode, text mode and erase mode (a capture surface above
+// every page layer), typing text, selecting, moving and resizing, and hit-testing. Two erasers:
+// the one of draw mode rubs out the part of a drawing it goes over; erase mode deletes whole
+// things, highlights included. The App records undo steps and talks to the host.
 import { inkShades, type Ink } from '../src/shared/colors';
 import {
   clampMove,
@@ -25,6 +26,8 @@ import {
   type PdfPoint,
   type Shape,
 } from '../src/shared/drawingGeometry';
+import { eraseShape } from '../src/shared/erase';
+import { sameSpans, sanitizeSpans, type CharStyle, type CharStyleName } from '../src/shared/richText';
 import {
   DEFAULT_DRAW_TOOL,
   DEFAULT_INK,
@@ -32,7 +35,6 @@ import {
   DEFAULT_TEXT_STYLE,
   INK_WIDTH_PT,
   MAX_DRAWINGS,
-  MAX_TEXT_LENGTH,
   MIN_TEXT_BOX_WIDTH,
   TEXT_PAD_X,
   drawingShape,
@@ -44,6 +46,7 @@ import {
   type DrawingTool,
   type InkDrawing,
   type InkWidth,
+  type TextBoxStyle,
   type TextDrawing,
   type TextLayout,
   type TextStyle,
@@ -64,9 +67,13 @@ const CLICK_SLOP_PX = 3;
 const SIMPLIFY_PX = 0.6;
 /** A pen that moves less than this (pixels) made a dot. */
 const DOT_PX = 1.5;
-/** How far from a stroke (pixels, beyond half its width) a click or the eraser still hits it. */
+/** How far from a stroke (pixels, beyond half its width) a click or the eraser of erase mode still hits it. */
 const HIT_PX = 5;
 const ERASER_PX = 7;
+/** Radius (pixels) of the eraser of draw mode, which rubs out what is under it (its cursor is this circle). */
+const RUBBER_PX = 8;
+/** What the rubber leaves is dropped when it is shorter than this (pixels): crumbs. */
+const CRUMB_PX = 2.5;
 /** Size of the resize handles of a selected text box, and how far around them a press still grabs them (pixels). */
 const HANDLE_PX = 8;
 const HANDLE_REACH_PX = 6;
@@ -77,13 +84,25 @@ const TEXT_MIN_ROOM = 72;
 /** Fallback page geometry (US Letter) for thumbnails of pages PDF.js has not fetched yet. */
 const FALLBACK_PAGE = pageGeometry([0, 0, 612, 792]);
 
-export type DrawingMode = 'off' | 'draw' | 'text';
+export type DrawingMode = 'off' | 'draw' | 'text' | 'erase';
+
+/** What erase mode would delete under the pointer. */
+interface EraseTarget {
+  kind: 'drawing' | 'highlight';
+  id: string;
+  pageIndex: number;
+}
 
 export interface DrawingEvents {
   /** A shape was drawn (already shown). */
   drawn(drawing: InkDrawing): void;
-  /** The eraser went over these drawings in one gesture (they are still shown). */
-  erased(drawings: Drawing[]): void;
+  /** Erase mode went over these drawings, text boxes and highlights in one gesture (they are still shown). */
+  erased(drawings: Drawing[], highlights: string[]): void;
+  /**
+   * The eraser of draw mode rubbed out parts of drawings in one gesture (already shown): the
+   * drawings it touched are gone, and what is left of them are new drawings.
+   */
+  rubbed(removed: InkDrawing[], added: InkDrawing[]): void;
   /** A drawing or text box was dragged to a new place (already shown there). */
   moved(before: Drawing, after: Drawing): void;
   /** A text box was made wider or narrower (already shown so). */
@@ -116,12 +135,30 @@ interface DrawGesture {
   client: [number, number];
 }
 
+/** Erase mode: everything the pointer goes over is deleted when the button is released. */
 interface EraseGesture {
   kind: 'erase';
   pointerId: number;
   pageIndex: number;
   erased: Set<string>;
+  highlights: Set<string>;
+  /** The pages with something erased. */
+  pages: Set<number>;
+  last?: [number, number];
+  client: [number, number];
+}
+
+/** The eraser of draw mode: rubs out the parts of the drawings it goes over, as it goes. */
+interface RubGesture {
+  kind: 'rub';
+  pointerId: number;
+  pageIndex: number;
+  /** The drawings touched, as they were before the gesture (they are not shown any more). */
+  originals: Map<string, InkDrawing>;
+  /** What is left of them now (drawings made during this gesture). */
+  pieces: Set<string>;
   last?: PdfPoint;
+  full: boolean;
   client: [number, number];
 }
 
@@ -164,7 +201,7 @@ interface ResizeGesture {
   client: [number, number];
 }
 
-type Gesture = DrawGesture | EraseGesture | PressGesture | CreateGesture | ResizeGesture;
+type Gesture = DrawGesture | EraseGesture | RubGesture | PressGesture | CreateGesture | ResizeGesture;
 
 interface Outline {
   drawing: InkDrawing;
@@ -216,10 +253,8 @@ function fitInside(start: PdfPoint, end: PdfPoint, view: [number, number, number
 function sameText(a: TextDrawing, b: TextDrawing): boolean {
   return (
     a.text === b.text &&
+    sameSpans(a.spans, b.spans) &&
     a.size === b.size &&
-    a.bold === b.bold &&
-    a.italic === b.italic &&
-    a.underline === b.underline &&
     a.align === b.align &&
     a.color === b.color &&
     a.boxWidth === b.boxWidth &&
@@ -244,7 +279,7 @@ export class DrawingController {
   private edit?: TextEdit;
   private preview?: SVGPathElement;
   private previewFrame = 0;
-  private eraseHover?: string;
+  private eraseHover?: EraseTarget;
   private flashing?: string;
   private flashTimer?: ReturnType<typeof setTimeout>;
   private clickConsumed = false;
@@ -260,7 +295,12 @@ export class DrawingController {
     layers.register({ className: LAYER, placement: 'top', fill: (layer, i) => this.fill(layer, i) });
     layers.register({ className: CAPTURE, placement: 'top', fill: () => undefined });
     const c = viewer.container;
-    this.editor = new TextEditor(c, { input: () => this.onEditorInput(), finish: () => this.commitEditing() });
+    this.editor = new TextEditor(c, {
+      input: () => this.onEditorInput(),
+      selection: () => this.events.editingChanged(this.editing),
+      finish: () => this.commitEditing(),
+      notice: (message) => this.events.notice(message),
+    });
     c.addEventListener('pointerdown', (e) => this.onPointerDown(e));
     c.addEventListener('pointermove', (e) => this.onPointerMove(e));
     c.addEventListener('pointerup', (e) => this.onPointerUp(e));
@@ -310,7 +350,7 @@ export class DrawingController {
     if (!drawing) return;
     this.drawings.delete(id);
     this.outlines.delete(id);
-    if (this.eraseHover === id) this.eraseHover = undefined;
+    if (this.eraseHover?.kind === 'drawing' && this.eraseHover.id === id) this.eraseHover = undefined;
     if (this.selected === id) this.select(undefined);
     this.redraw(drawing.pageIndex);
     this.events.changed();
@@ -375,6 +415,11 @@ export class DrawingController {
     return this.modeValue === 'text';
   }
 
+  /** Erase mode is on. */
+  get erasing(): boolean {
+    return this.modeValue === 'erase';
+  }
+
   /** A gesture (drawing, erasing, pressing, moving or resizing) is in progress. */
   get busy(): boolean {
     return this.gesture !== undefined;
@@ -390,6 +435,7 @@ export class DrawingController {
     this.select(undefined);
     document.body.classList.toggle('mpv-draw-mode', mode === 'draw');
     document.body.classList.toggle('mpv-text-mode', mode === 'text');
+    document.body.classList.toggle('mpv-erase-mode', mode === 'erase');
     document.body.dataset.drawTool = this.toolValue;
   }
 
@@ -408,7 +454,6 @@ export class DrawingController {
   setTool(tool: DrawTool): void {
     this.toolValue = tool;
     document.body.dataset.drawTool = tool;
-    if (tool !== 'eraser') this.setEraseHover(undefined);
   }
 
   setColor(color: Ink): void {
@@ -646,7 +691,7 @@ export class DrawingController {
     setInk(group, drawing.color);
     if (this.flashing === drawing.id) group.classList.add('mpv-flash');
     if (this.selected === drawing.id) group.classList.add('mpv-selected');
-    if (this.eraseHover === drawing.id || (this.gesture?.kind === 'erase' && this.gesture.erased.has(drawing.id))) group.classList.add('mpv-erasing');
+    if (this.isErasing(drawing.id)) group.classList.add('mpv-erasing');
     const d = svgPathData(shapePath(drawingShape(drawing)));
     const width = INK_WIDTH_PT[drawing.width];
     group.append(
@@ -682,6 +727,7 @@ export class DrawingController {
     if (this.flashing === text.id) group.classList.add('mpv-flash');
     if (this.selected === text.id) group.classList.add('mpv-selected');
     if (this.edit?.draft.id === text.id) group.classList.add('mpv-editing');
+    if (this.isErasing(text.id)) group.classList.add('mpv-erasing');
     const object = svgEl('foreignObject', { x: '0', y: '0', width: String(width + 1), height: String(height + 1) });
     object.append(textContentElement(text));
     group.append(svgEl('rect', { class: 'mpv-text-hit', x: '0', y: '0', width: String(width), height: String(height) }), object);
@@ -734,7 +780,7 @@ export class DrawingController {
   private createPreview(g: CreateGesture): SVGRectElement {
     const x0 = Math.min(g.start[0], g.end[0]);
     const x1 = Math.max(g.start[0], g.end[0]);
-    const lineHeight = this.measurer.measure({ ...this.textStyleValue, text: '', boxWidth: undefined }).height;
+    const lineHeight = this.lineHeight();
     return svgEl('rect', { class: 'mpv-drawing-selection mpv-text-new', x: String(x0), y: String(g.start[1]), width: String(x1 - x0), height: String(lineHeight) });
   }
 
@@ -819,8 +865,20 @@ export class DrawingController {
   private onPointerDown(e: PointerEvent): void {
     if (e.button !== 0 || this.gesture) return;
     const target = e.target as Element | null;
-    if (target === this.editor.textarea) return;
+    if (target && this.editor.element.contains(target)) return;
     const client: [number, number] = [e.clientX, e.clientY];
+    if (this.modeValue === 'erase') {
+      const pageIndex = this.pageUnder(target);
+      if (pageIndex === undefined) return;
+      e.preventDefault();
+      this.viewer.container.focus({ preventScroll: true });
+      const gesture: EraseGesture = { kind: 'erase', pointerId: e.pointerId, pageIndex, erased: new Set(), highlights: new Set(), pages: new Set(), client };
+      this.gesture = gesture;
+      this.setEraseHover(undefined);
+      this.eraseTo(gesture, e.clientX, e.clientY);
+      this.capture(e.pointerId);
+      return;
+    }
     if (this.modeValue === 'draw') {
       const pageIndex = this.pageUnder(target);
       const p = pageIndex === undefined ? undefined : this.toPdf(pageIndex, e.clientX, e.clientY);
@@ -828,10 +886,9 @@ export class DrawingController {
       e.preventDefault();
       this.viewer.container.focus({ preventScroll: true });
       if (this.toolValue === 'eraser') {
-        const gesture: EraseGesture = { kind: 'erase', pointerId: e.pointerId, pageIndex, erased: new Set(), client };
+        const gesture: RubGesture = { kind: 'rub', pointerId: e.pointerId, pageIndex, originals: new Map(), pieces: new Set(), full: false, client };
         this.gesture = gesture;
-        this.setEraseHover(undefined);
-        this.eraseTo(gesture, e.clientX, e.clientY);
+        this.rubTo(gesture, e.clientX, e.clientY);
       } else {
         if (this.drawings.size >= MAX_DRAWINGS) {
           this.events.notice(`This file has ${MAX_DRAWINGS} drawings and text boxes, the most it can have. Delete some to draw more.`);
@@ -938,7 +995,7 @@ export class DrawingController {
   private onPointerMove(e: PointerEvent): void {
     const g = this.gesture;
     if (!g) {
-      if (this.modeValue === 'draw' && this.toolValue === 'eraser' && e.buttons === 0) this.hoverEraser(e.clientX, e.clientY);
+      if (this.modeValue === 'erase' && e.buttons === 0) this.hoverEraser(e.clientX, e.clientY);
       if (this.modeValue === 'text' && e.buttons === 0) this.hoverText(e);
       return;
     }
@@ -956,6 +1013,7 @@ export class DrawingController {
 
   private continueGesture(g: Exclude<Gesture, DrawGesture>, x: number, y: number): void {
     if (g.kind === 'erase') this.eraseTo(g, x, y);
+    else if (g.kind === 'rub') this.rubTo(g, x, y);
     else if (g.kind === 'press') this.pressMove(g, x, y);
     else if (g.kind === 'create') this.createMove(g, x, y);
     else this.resizeMove(g, x, y);
@@ -984,6 +1042,8 @@ export class DrawingController {
       this.finishDrawing(g);
     } else if (g.kind === 'erase') {
       this.finishErasing(g);
+    } else if (g.kind === 'rub') {
+      this.finishRubbing(g);
     } else if (g.kind === 'press') {
       this.finishPress(g, e.clientX, e.clientY);
     } else if (g.kind === 'create') {
@@ -1000,6 +1060,18 @@ export class DrawingController {
     this.gesture = undefined;
     this.release(g.pointerId);
     this.preview = undefined;
+    if (g.kind === 'rub') {
+      // What was rubbed out comes back.
+      for (const id of g.pieces) {
+        this.drawings.delete(id);
+        this.outlines.delete(id);
+      }
+      for (const drawing of g.originals.values()) this.drawings.set(drawing.id, drawing);
+    }
+    if (g.kind === 'erase') {
+      this.syncErasingHighlights();
+      for (const page of g.pages) this.redraw(page);
+    }
     this.redraw(g.pageIndex);
     return true;
   }
@@ -1158,46 +1230,158 @@ export class DrawingController {
     return undefined;
   }
 
+  /**
+   * What erase mode would delete at a point: the drawing or text box there (the smallest, where
+   * they overlap), else the highlight under it. `skip`: what this gesture already took.
+   */
+  private eraseTargetAt(clientX: number, clientY: number, skip?: EraseGesture): EraseTarget | undefined {
+    const pageIndex = this.viewer.pageIndexAt(clientX, clientY);
+    const box = pageIndex === undefined ? undefined : this.pageBox(pageIndex);
+    if (pageIndex === undefined || !box) return undefined;
+    const p = this.toPdf(pageIndex, clientX, clientY, false);
+    const id = p ? this.hitsAt(pageIndex, p, ERASER_PX).find((hit) => !skip?.erased.has(hit)) : undefined;
+    if (id) return { kind: 'drawing', id, pageIndex };
+    const highlight = this.highlights.hitTestOnPage(pageIndex, (clientX - box.left) / box.width, (clientY - box.top) / box.height, skip?.highlights);
+    return highlight ? { kind: 'highlight', id: highlight, pageIndex } : undefined;
+  }
+
+  /** Whether a drawing or text box is shown dimmed: erase mode would delete it, or already took it in this gesture. */
+  private isErasing(id: string): boolean {
+    if (this.eraseHover?.kind === 'drawing' && this.eraseHover.id === id) return true;
+    return this.gesture?.kind === 'erase' && this.gesture.erased.has(id);
+  }
+
+  /** Tells the highlights which of them to show dimmed. */
+  private syncErasingHighlights(): void {
+    const ids = new Set<string>(this.gesture?.kind === 'erase' ? this.gesture.highlights : []);
+    if (this.eraseHover?.kind === 'highlight') ids.add(this.eraseHover.id);
+    this.highlights.setErasing(ids);
+  }
+
   private eraseTo(g: EraseGesture, clientX: number, clientY: number): void {
-    const p = this.toPdf(g.pageIndex, clientX, clientY, false);
-    if (!p) return;
-    const from = g.last ?? p;
-    g.last = p;
-    // Test along the way from the last position, so a fast drag cannot jump over a stroke.
-    const step = Math.max(0.5, ERASER_PX / this.pxPerUnit(g.pageIndex) / 2);
-    const steps = Math.min(200, Math.ceil(Math.hypot(p[0] - from[0], p[1] - from[1]) / step));
-    let added = false;
+    const from = g.last ?? [clientX, clientY];
+    g.last = [clientX, clientY];
+    // Test along the way from the last position, so a fast drag cannot jump over a stroke. A
+    // click takes the one thing under it; a drag takes whatever it passes, one thing per step.
+    const steps = Math.min(300, Math.ceil(Math.hypot(clientX - from[0], clientY - from[1]) / 3));
+    const pages = new Set<number>();
+    let highlights = false;
     for (let i = 0; i <= steps; i++) {
       const t = steps === 0 ? 1 : i / steps;
-      const at: PdfPoint = [from[0] + t * (p[0] - from[0]), from[1] + t * (p[1] - from[1])];
-      for (const id of this.hitsAt(g.pageIndex, at, ERASER_PX, true)) {
-        if (g.erased.has(id)) continue;
-        g.erased.add(id);
-        added = true;
+      const target = this.eraseTargetAt(from[0] + t * (clientX - from[0]), from[1] + t * (clientY - from[1]), g);
+      if (!target) continue;
+      if (target.kind === 'drawing') {
+        g.erased.add(target.id);
+        pages.add(target.pageIndex);
+      } else {
+        g.highlights.add(target.id);
+        highlights = true;
       }
     }
-    if (added) this.redraw(g.pageIndex);
+    for (const page of pages) {
+      g.pages.add(page);
+      this.redraw(page);
+    }
+    if (highlights) this.syncErasingHighlights();
   }
 
   private finishErasing(g: EraseGesture): void {
     const erased = [...g.erased].map((id) => this.drawings.get(id)).filter((d): d is Drawing => d !== undefined);
-    this.redraw(g.pageIndex);
-    if (erased.length > 0) this.events.erased(erased.map((d) => structuredClone(d)));
+    this.syncErasingHighlights();
+    for (const page of g.pages) this.redraw(page);
+    if (erased.length > 0 || g.highlights.size > 0) this.events.erased(erased.map((d) => structuredClone(d)), [...g.highlights]);
   }
 
-  /** With the eraser, the drawing under the pointer dims before a click deletes it. */
+  /** In erase mode, what is under the pointer dims before a click deletes it. */
   private hoverEraser(clientX: number, clientY: number): void {
-    const target = document.elementFromPoint(clientX, clientY);
-    const pageIndex = target?.classList.contains(CAPTURE) ? Number(target.closest<HTMLElement>('.page')?.dataset.pageNumber) - 1 : -1;
-    const p = pageIndex >= 0 ? this.toPdf(pageIndex, clientX, clientY, false) : undefined;
-    this.setEraseHover(p ? this.hitsAt(pageIndex, p, ERASER_PX, true)[0] : undefined);
+    this.setEraseHover(this.eraseTargetAt(clientX, clientY));
   }
 
-  private setEraseHover(id: string | undefined): void {
-    if (id === this.eraseHover) return;
-    const pages = new Set([this.eraseHover, id].map((x) => (x ? this.drawings.get(x)?.pageIndex : undefined)));
-    this.eraseHover = id;
-    for (const page of pages) if (page !== undefined) this.redraw(page);
+  private setEraseHover(target: EraseTarget | undefined): void {
+    const before = this.eraseHover;
+    if (before?.kind === target?.kind && before?.id === target?.id) return;
+    this.eraseHover = target;
+    for (const t of [before, target]) if (t?.kind === 'drawing') this.redraw(t.pageIndex);
+    if (before?.kind === 'highlight' || target?.kind === 'highlight') this.syncErasingHighlights();
+  }
+
+  // ---------- Rubbing out (the eraser of draw mode) ----------
+
+  private rubTo(g: RubGesture, clientX: number, clientY: number): void {
+    const p = this.toPdf(g.pageIndex, clientX, clientY, false);
+    if (!p) return;
+    const from = g.last ?? p;
+    g.last = p;
+    const px = this.pxPerUnit(g.pageIndex);
+    const radius = RUBBER_PX / px;
+    // Discs close together along the way from the last position stand in for the swept path.
+    const steps = Math.min(400, Math.ceil(Math.hypot(p[0] - from[0], p[1] - from[1]) / (radius / 3)));
+    let changed = false;
+    for (let i = steps === 0 ? 0 : 1; i <= steps; i++) {
+      const t = steps === 0 ? 1 : i / steps;
+      if (this.rubAt(g, [from[0] + t * (p[0] - from[0]), from[1] + t * (p[1] - from[1])], radius, px)) changed = true;
+    }
+    if (changed) this.redraw(g.pageIndex);
+  }
+
+  /** Rubs out what is within `radius` of a point (PDF units). True if something changed. */
+  private rubAt(g: RubGesture, at: PdfPoint, radius: number, px: number): boolean {
+    let changed = false;
+    for (const drawing of [...this.drawings.values()]) {
+      if (drawing.pageIndex !== g.pageIndex || isTextDrawing(drawing)) continue;
+      // The round end of what is left stops at the eraser's edge.
+      const reach = radius + INK_WIDTH_PT[drawing.width] / 2;
+      const [x0, y0, x1, y1] = this.outline(drawing).bounds;
+      if (at[0] < x0 - reach || at[0] > x1 + reach || at[1] < y0 - reach || at[1] > y1 + reach) continue;
+      const left = eraseShape(drawingShape(drawing), at, reach, CRUMB_PX / px);
+      if (!left) continue;
+      const pieces = left.map((points) => this.pieceOf(drawing, points)).filter((piece): piece is InkDrawing => piece !== undefined);
+      if (this.drawings.size - 1 + pieces.length > MAX_DRAWINGS) {
+        if (!g.full) this.events.notice(`This file has ${MAX_DRAWINGS} drawings and text boxes, the most it can have, so the eraser cannot split this one.`);
+        g.full = true;
+        continue;
+      }
+      changed = true;
+      this.drawings.delete(drawing.id);
+      this.outlines.delete(drawing.id);
+      if (!g.pieces.delete(drawing.id)) g.originals.set(drawing.id, drawing);
+      for (const piece of pieces) {
+        this.drawings.set(piece.id, piece);
+        g.pieces.add(piece.id);
+      }
+    }
+    return changed;
+  }
+
+  /** What the eraser left of a drawing, as a drawing of its own: straight lines through the points. */
+  private pieceOf(from: InkDrawing, raw: PdfPoint[]): InkDrawing | undefined {
+    const rounded = raw.map(([x, y]): PdfPoint => [round2(x), round2(y)]).filter((p, i, all) => i === 0 || p[0] !== all[i - 1][0] || p[1] !== all[i - 1][1]);
+    if (rounded.length < 2) return undefined;
+    const piece: InkDrawing = {
+      id: crypto.randomUUID(),
+      tool: 'pen',
+      color: from.color,
+      width: from.width,
+      pageIndex: from.pageIndex,
+      points: fitStroke(rounded).points,
+      polyline: true,
+      createdAt: from.createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+    if (from.textModelHash) piece.textModelHash = from.textModelHash;
+    return piece;
+  }
+
+  private finishRubbing(g: RubGesture): void {
+    const removed = [...g.originals.values()];
+    if (removed.length === 0) return;
+    const added = [...g.pieces].map((id) => this.drawings.get(id)).filter((d): d is InkDrawing => d !== undefined && !isTextDrawing(d));
+    if (this.selected && !this.drawings.has(this.selected)) this.select(undefined);
+    this.events.rubbed(
+      removed.map((d) => structuredClone(d)),
+      added.map((d) => structuredClone(d)),
+    );
+    this.events.changed();
   }
 
   /** Text mode: the pointer says what a press would do (resize, type in a box, or start one). */
@@ -1309,27 +1493,37 @@ export class DrawingController {
       const room = Math.min(TEXT_MIN_ROOM, geometry.width - 2 * TEXT_EDGE_MARGIN);
       x = Math.min(x, geometry.width - TEXT_EDGE_MARGIN - room);
     }
-    const lineHeight = this.measurer.measure({ ...this.textStyleValue, text: '', boxWidth: undefined }).height;
+    const lineHeight = this.lineHeight();
     // The click is at the middle of the first line.
     if (!dragged) y -= lineHeight / 2;
     y = Math.min(Math.max(0, y), geometry.height - lineHeight);
     x = Math.max(0, x);
     const anchor = toPdfSpace(geometry, [x, y]);
     const now = new Date().toISOString();
+    const style = this.textStyleValue;
     const draft: TextDrawing = {
       id: crypto.randomUUID(),
       tool: 'text',
       pageIndex: g.pageIndex,
       points: [[round2(anchor[0]), round2(anchor[1])]],
       text: '',
-      ...this.textStyleValue,
+      size: style.size,
+      align: style.align,
+      color: style.color,
       createdAt: now,
       updatedAt: now,
     };
     if (boxWidth !== undefined) draft.boxWidth = round2(boxWidth);
     const hash = this.highlights.textModel?.hash;
     if (hash) draft.textModelHash = hash;
-    this.openEditor({ draft });
+    // What is typed gets the bold, italic and underline picked in the text bar.
+    this.openEditor({ draft }, undefined, { bold: style.bold, italic: style.italic, underline: style.underline });
+  }
+
+  /** The height of one line of new text (points). */
+  private lineHeight(): number {
+    const { size, align, color } = this.textStyleValue;
+    return this.measurer.measure({ size, align, color, text: '', boxWidth: undefined }).height;
   }
 
   private resizeMove(g: ResizeGesture, clientX: number, clientY: number): void {
@@ -1375,12 +1569,45 @@ export class DrawingController {
   /** The text box being typed in, as it is now. */
   get editing(): TextDrawing | undefined {
     const edit = this.edit;
-    return edit ? { ...edit.draft, text: this.editor.value } : undefined;
+    return edit ? this.withContent(edit.draft) : undefined;
+  }
+
+  /** A text box with the editor's text and styled parts. */
+  private withContent(draft: TextDrawing): TextDrawing {
+    const text: TextDrawing = { ...draft, text: this.editor.value };
+    const spans = this.editor.spans;
+    if (spans) text.spans = spans;
+    else delete text.spans;
+    return text;
   }
 
   /** Whether the keyboard is in the text box editor. */
   get editorFocused(): boolean {
-    return this.edit !== undefined && document.activeElement === this.editor.textarea;
+    return this.edit !== undefined && document.activeElement === this.editor.element;
+  }
+
+  /** Bold, italic and underline where the reader is typing: at the caret (what is typed next), or of the selection. */
+  get editingCharStyle(): CharStyle | undefined {
+    return this.edit ? this.editor.charStyle : undefined;
+  }
+
+  /** Whether part of the text being typed is selected. */
+  get editingSelection(): boolean {
+    return this.edit !== undefined && this.editor.hasSelection;
+  }
+
+  /** Bold, italic or underline on the selected text, or for what is typed next. Returns the new state. */
+  toggleEditingStyle(name: CharStyleName): boolean | undefined {
+    return this.edit ? this.editor.toggle(name) : undefined;
+  }
+
+  /** Undo and redo while typing: the changes made in this text box since typing started. */
+  editorUndo(): boolean {
+    return this.edit !== undefined && this.editor.undo();
+  }
+
+  editorRedo(): boolean {
+    return this.edit !== undefined && this.editor.redo();
   }
 
   focusEditor(): void {
@@ -1404,22 +1631,26 @@ export class DrawingController {
     return true;
   }
 
-  private openEditor(edit: TextEdit, caret?: number): void {
+  private openEditor(edit: TextEdit, caret?: number, typing?: CharStyle): void {
     this.cancelGesture();
     if (this.selected !== edit.draft.id && this.selected) this.select(undefined);
     this.edit = edit;
-    this.editor.show(edit.draft, caret);
+    this.editor.show(edit.draft, caret, typing);
     this.placeEditor();
     this.redraw(edit.draft.pageIndex);
     this.events.editingChanged(this.editing);
   }
 
-  /** Changes the style of the text box being typed in (part of the same edit). */
-  setEditingStyle(patch: Partial<TextStyle>): void {
+  /** Changes the size, alignment or color of the text box being typed in (part of the same edit). */
+  setEditingStyle(patch: Partial<TextBoxStyle>): void {
     const edit = this.edit;
     if (!edit) return;
-    edit.draft = { ...edit.draft, ...patch, text: this.editor.value };
-    this.editor.restyle(edit.draft);
+    const draft = this.withContent(edit.draft);
+    if (patch.size !== undefined) draft.size = patch.size;
+    if (patch.align !== undefined) draft.align = patch.align;
+    if (patch.color !== undefined) draft.color = patch.color;
+    edit.draft = draft;
+    this.editor.restyle(draft);
     this.fitEditor();
     this.events.editingChanged(this.editing);
   }
@@ -1427,13 +1658,7 @@ export class DrawingController {
   private onEditorInput(): void {
     const edit = this.edit;
     if (!edit) return;
-    if (this.editor.value.length > MAX_TEXT_LENGTH) {
-      const caret = this.editor.textarea.selectionStart;
-      this.editor.textarea.value = this.editor.value.slice(0, MAX_TEXT_LENGTH);
-      this.editor.textarea.setSelectionRange(Math.min(caret, MAX_TEXT_LENGTH), Math.min(caret, MAX_TEXT_LENGTH));
-      this.events.notice(`A text box holds up to ${MAX_TEXT_LENGTH.toLocaleString()} characters.`);
-    }
-    edit.draft = { ...edit.draft, text: this.editor.value };
+    edit.draft = this.withContent(edit.draft);
     this.fitEditor();
   }
 
@@ -1467,12 +1692,8 @@ export class DrawingController {
     const cr = c.getBoundingClientRect();
     const left = box.left - cr.left - c.clientLeft + c.scrollLeft + x * scale;
     const top = box.top - cr.top - c.clientTop + c.scrollTop + y * scale;
-    const value = this.editor.value;
-    // An editor shows the empty line after a last line break: measure it too.
-    const measured = this.measurer.measure({ ...edit.draft, text: value.endsWith('\n') || value === '' ? `${value}\u200b` : value });
-    const minWidth = edit.draft.size * 0.6 + 2 * TEXT_PAD_X;
-    const width = edit.draft.boxWidth ?? Math.max(measured.width + 1, minWidth);
-    this.editor.place(left, top, { width, height: measured.height }, scale);
+    // The editor sizes itself to its text; an empty one still has room for the caret.
+    this.editor.place(left, top, edit.draft.size * 0.6 + 2 * TEXT_PAD_X, scale);
   }
 
   /** Ends typing: stores the box (or drops it, if it has no text), and keeps it selected. */
@@ -1480,9 +1701,12 @@ export class DrawingController {
     const edit = this.edit;
     if (!edit) return;
     const value = this.editor.value;
+    const styled = this.editor.spans;
     this.edit = undefined;
     this.editor.hide();
     const text = normalizeText(value);
+    // (Styled parts count characters: they hold as long as the cleaned text is the start of what was typed.)
+    const spans = value.startsWith(text) ? sanitizeSpans(styled, text.length) : undefined;
     const before = edit.before;
     const pageIndex = edit.draft.pageIndex;
     if (!text) {
@@ -1499,6 +1723,8 @@ export class DrawingController {
       return;
     }
     const after: TextDrawing = { ...edit.draft, text };
+    if (spans) after.spans = spans;
+    else delete after.spans;
     if (before && sameText(before, after)) {
       this.redraw(pageIndex);
       this.select(after.id, false);

@@ -1,8 +1,8 @@
 {
   "name": "markdown-pdf-viewer",
   "displayName": "Document Viewer & Highlighter",
-  "description": "Read Markdown, text and PDF files as PDFs inside VS Code. Highlight in five colors, add notes, draw and type on the page, mark where you stopped reading, play relaxing rain, fireplace or your own sounds, undo with Ctrl+Z, and download with all of it as PDF annotations.",
-  "version": "0.6.0",
+  "description": "Read Markdown, text and PDF files as PDFs inside VS Code. Highlight in five colors, add notes, draw, type and erase on the page, mark where you stopped reading, play relaxing rain, fireplace or your own sounds, undo with Ctrl+Z, and download with all of it as PDF annotations.",
+  "version": "0.7.0",
   "publisher": "local",
   "license": "MIT",
   "repository": {
@@ -125,6 +125,11 @@
       {
         "command": "markdownPdfViewer.toggleText",
         "title": "Toggle Adding Text",
+        "category": "Document Viewer"
+      },
+      {
+        "command": "markdownPdfViewer.toggleEraser",
+        "title": "Toggle Eraser",
         "category": "Document Viewer"
       },
       {
@@ -288,6 +293,10 @@
         },
         {
           "command": "markdownPdfViewer.toggleText",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+        },
+        {
+          "command": "markdownPdfViewer.toggleEraser",
           "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
         },
         {

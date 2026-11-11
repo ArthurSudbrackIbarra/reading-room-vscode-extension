@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0 — 2026-11-11
+
+- **An eraser for everything**: the new eraser button in the toolbar (or *Toggle Eraser*) deletes highlights, drawings and text boxes. What is under the pointer fades to show what a click would delete; a click deletes it, a drag deletes everything it goes over, and each click or drag is one undo step. Esc during a drag keeps everything.
+- **The drawing bar's eraser now rubs out**: it removes only the part of a drawing it goes over, like an eraser on paper, and what is left keeps its exact shape (corners stay corners, curves stay curves). Cut a line in two, shorten an arrow, open a rectangle. One drag is one undo step, and Esc during a drag puts everything back. Its round cursor is its size.
+- **Bold, italic and underline on part of a text**: while typing in a text box, select some of the text and click B, I or U (or press Ctrl+B, Ctrl+I, Ctrl+U): only that part changes. With nothing selected they apply to what you type next, and the buttons show the style at the caret. A selected box's bar still changes all of its text at once. Downloads switch between Helvetica's regular, bold, oblique and bold oblique faces inside a line and underline only the underlined part. Text boxes of 0.6.0 keep their look.
+  - Typing has its own undo: Ctrl+Z and Ctrl+Y undo and redo the typing and the styling while you type; afterwards the whole edit is one step. Pasted text comes in as plain text.
+- **The same keys for everything**: Delete (or Backspace) deletes what is selected, whatever it is: a drawing, a text box, the highlight whose small bar is open (it now shows darker while it is), the reading marker whose bar is open, or the focused row of the list. Enter edits it: types in the text box, opens the highlight's note. Ctrl+Z and Ctrl+Y undo and redo all of it, and Esc backs out of whatever is going on.
+- **Drawing and text bars**: their groups are divided by lines again, with the same tight spacing as the toolbar, so the tools no longer look scattered. Each bar starts with its mode's icon in a box as wide as a button, which puts its first divider exactly under the toolbar's first one. Opening or closing a bar no longer moves the page under the pointer.
+- **Labels centered by their letters**: "Done" sat about a pixel low in its button, because a line of text has more room above its letters than below. Labels are now centered by their capital letters, and the same was checked and fixed in the page number, the zoom and size menus, the menus, the messages at the bottom, the banner and the buttons of the popups, by measuring the rendered pixels. Three icons that were half a pixel off center were redrawn.
+- **White** and **brown** join the preset colors of the color picker, now two even rows of six; it remembers six recent colors.
+
 ## 0.6.0 — 2026-11-11
 
 - **Text boxes**: the new **T** button in the toolbar (or *Toggle Adding Text*) turns on text mode, with its own row of tools: font size, bold, italic, underline, alignment (left, center, right, justify) and color.

@@ -58,7 +58,7 @@ describe('drawings in the store', () => {
 
   it('keep text boxes and custom colors next to the drawings', async () => {
     const ref = winRef('C:\\Notes\\text.md');
-    const text = makeText({ text: 'Remember this', color: '#3366CC', size: 16, bold: true, align: 'center', boxWidth: 150 });
+    const text = makeText({ text: 'Remember this', color: '#3366CC', size: 16, align: 'center', boxWidth: 150, spans: [{ start: 0, end: 8, bold: true, italic: true }] });
     const ink = makeDrawing({ color: '#AA00FF' });
     const store = newStore();
     await store.update(ref, (r) => r.drawings.push(text, ink));

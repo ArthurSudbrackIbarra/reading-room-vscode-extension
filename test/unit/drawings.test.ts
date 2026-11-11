@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_STROKE_POINTS, MAX_TEXT_LENGTH, MAX_TEXT_SIZE, MIN_TEXT_BOX_WIDTH, MIN_TEXT_SIZE, normalizeText, sanitizeDrawing, sanitizeTextStyle } from '../../src/shared/drawings';
+import { MAX_STROKE_POINTS, MAX_TEXT_LENGTH, MAX_TEXT_SIZE, MIN_TEXT_BOX_WIDTH, MIN_TEXT_SIZE, applyTextStyle, normalizeText, sanitizeDrawing, sanitizeTextStyle, textStyleOf } from '../../src/shared/drawings';
 import { makeDrawing as make, makeText } from './helpers';
 
 const makeDrawing: typeof make = (overrides = {}) => make({ id: 'd-1', ...overrides });
@@ -12,12 +12,19 @@ describe('sanitizeDrawing', () => {
 
   it('accepts every tool, ink and width', () => {
     for (const tool of ['pen', 'line', 'arrow', 'rect', 'ellipse'] as const) {
-      for (const color of ['black', 'gray', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'] as const) {
+      for (const color of ['black', 'gray', 'white', 'brown', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'] as const) {
         for (const width of ['thin', 'medium', 'thick'] as const) {
           expect(sanitizeDrawing(makeDrawing({ tool, color, width }))?.tool).toBe(tool);
         }
       }
     }
+  });
+
+  it('keeps a pen stroke drawn with straight lines (what the eraser leaves), on pen strokes only', () => {
+    const piece = makeDrawing({ tool: 'pen', points: [[10, 10], [40, 10], [40, 30]], polyline: true });
+    expect(sanitizeDrawing(piece)).toEqual(piece);
+    expect(sanitizeDrawing({ ...makeDrawing({ tool: 'pen' }), polyline: 'yes' })).not.toHaveProperty('polyline');
+    expect(sanitizeDrawing({ ...makeDrawing({ tool: 'line', points: [[0, 0], [5, 5]] }), polyline: true })).not.toHaveProperty('polyline');
   });
 
   it('refuses unknown tools, inks and widths', () => {
@@ -89,14 +96,56 @@ describe('sanitizeDrawing', () => {
 
 describe('text boxes', () => {
   it('keep a valid text box, built from the known fields only', () => {
-    const text = makeText({ id: 't-1', color: '#336699', size: 18, bold: true, align: 'justify', boxWidth: 200, textModelHash: 'h' });
+    const text = makeText({ id: 't-1', color: '#336699', size: 18, align: 'justify', boxWidth: 200, textModelHash: 'h', spans: [{ start: 2, end: 6, bold: true }] });
     expect(sanitizeDrawing({ ...text, width: 'thick', extra: 1 })).toEqual(text);
   });
 
+  it('keep the bold, italic and underlined parts: inside the text, in order, merged', () => {
+    const text = makeText({ text: 'abcdefghij' });
+    const spans = [
+      { start: 6, end: 50, italic: true },
+      { start: 0, end: 3, bold: true },
+      { start: 3, end: 5, bold: true },
+      { start: 4, end: 4, underline: true },
+      { start: 7, end: 9 },
+      { start: 'x', end: 2, bold: true },
+    ];
+    expect(sanitizeDrawing({ ...text, spans })).toMatchObject({
+      spans: [
+        { start: 0, end: 5, bold: true },
+        { start: 6, end: 10, italic: true },
+      ],
+    });
+    expect(sanitizeDrawing({ ...text, spans: [] })).not.toHaveProperty('spans');
+    expect(sanitizeDrawing({ ...text, spans: 'bold' })).not.toHaveProperty('spans');
+    // Trailing white space goes, and the spans with it.
+    expect(sanitizeDrawing({ ...text, text: 'abc   ', spans: [{ start: 1, end: 6, underline: true }] })).toMatchObject({ text: 'abc', spans: [{ start: 1, end: 3, underline: true }] });
+    // Cleaning that moves characters (a tab becomes four spaces) drops the spans rather than misplace them.
+    expect(sanitizeDrawing({ ...text, text: 'a' + String.fromCharCode(9) + 'bc', spans: [{ start: 2, end: 4, bold: true }] })).not.toHaveProperty('spans');
+  });
+
+  it('read a text box of 0.6.0, whose bold, italic and underline were the whole box', () => {
+    const old = { ...makeText({ text: 'All bold' }), bold: true, italic: false, underline: true };
+    const clean = sanitizeDrawing(old);
+    expect(clean).toMatchObject({ spans: [{ start: 0, end: 8, bold: true, underline: true }] });
+    expect(clean).not.toHaveProperty('bold');
+    expect(sanitizeDrawing({ ...makeText(), bold: false, italic: false, underline: false })).not.toHaveProperty('spans');
+  });
+
+  it('show and set the style of a whole box', () => {
+    const text = makeText({ text: 'one two', spans: [{ start: 0, end: 3, bold: true }] });
+    expect(textStyleOf(text)).toMatchObject({ bold: false, italic: false, size: 12 });
+    const bold = applyTextStyle(text, { bold: true, size: 20 });
+    expect(bold.spans).toEqual([{ start: 0, end: 7, bold: true }]);
+    expect(textStyleOf(bold)).toMatchObject({ bold: true, size: 20 });
+    expect(applyTextStyle(bold, { bold: false })).not.toHaveProperty('spans');
+  });
+
   it('fill in a missing style with the defaults, and refuse a wrong color', () => {
-    const { size: _s, bold: _b, italic: _i, underline: _u, align: _a, ...bare } = makeText({ id: 't-2' });
-    expect(sanitizeDrawing(bare)).toMatchObject({ size: 12, bold: false, italic: false, underline: false, align: 'left' });
-    expect(sanitizeDrawing({ ...makeText(), align: 'middle', bold: 'yes' })).toMatchObject({ align: 'left', bold: false });
+    const { size: _s, align: _a, ...bare } = makeText({ id: 't-2' });
+    expect(sanitizeDrawing(bare)).toMatchObject({ size: 12, align: 'left' });
+    expect(sanitizeDrawing({ ...makeText(), align: 'middle', bold: 'yes' })).toMatchObject({ align: 'left' });
+    expect(sanitizeDrawing({ ...makeText(), align: 'middle', bold: 'yes' })).not.toHaveProperty('spans');
     expect(sanitizeDrawing({ ...makeText(), color: 'teal-ish' })).toBeUndefined();
   });
 

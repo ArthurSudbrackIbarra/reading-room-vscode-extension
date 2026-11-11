@@ -45,6 +45,7 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
   private drawHintShown = false;
   /** The "how to add text" tip was shown in this VS Code session. */
   private textHintShown = false;
+  private eraseHintShown = false;
   private pruneTimer?: ReturnType<typeof setTimeout>;
   /** Reading sounds: shared by all viewers, played by one of them. */
   readonly sounds: SoundCoordinator<PreviewPanel>;
@@ -151,6 +152,11 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
   drawHint(shown?: boolean): boolean {
     if (shown) this.drawHintShown = true;
     return !this.drawHintShown;
+  }
+
+  eraseHint(shown?: boolean): boolean {
+    if (shown) this.eraseHintShown = true;
+    return !this.eraseHintShown;
   }
 
   textHint(shown?: boolean): boolean {

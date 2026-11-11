@@ -14,10 +14,11 @@
 **Highlight and annotate**
 - Highlight text in **five colors** and write a **note** on any highlight.
 - **Draw** anywhere on a page: pen strokes, lines, arrows, rectangles and ellipses, in any color and three widths.
-- **Type** anywhere on a page: text boxes in any color and size, bold, italic or underlined, aligned left, centered, right or justified.
+- **Type** anywhere on a page: text boxes in any color and size, aligned left, centered, right or justified, with bold, italic and underline on all of the text or on any part of it.
+- **Erase** any of it: one eraser deletes highlights, drawings and text boxes with a click or a drag; another rubs out just the part of a drawing it goes over.
 - Highlights hold on to the text itself, so they follow your edits to Markdown and text files.
 - A side list shows every highlight, note, drawing and text box; click one to jump to it.
-- **Undo and redo** all of it with `Ctrl+Z` / `Ctrl+Y`.
+- The same keys for everything: **Delete** deletes what is selected, **Enter** edits it, and `Ctrl+Z` / `Ctrl+Y` **undo and redo** all of it.
 
 **Keep your place**
 - Mark **where you stopped reading**. The document opens right there next time.
@@ -36,7 +37,7 @@
 
 - [Install](#install)
 - [Requirements](#requirements)
-- [Using it](#using-it): opening documents, highlights, notes, [drawing](#drawing), [text boxes](#text-boxes), the reading marker, [reading sounds](#reading-sounds), undo, download
+- [Using it](#using-it): opening documents, highlights, notes, [drawing](#drawing), [text boxes](#text-boxes), [erasing](#erasing), the reading marker, [reading sounds](#reading-sounds), undo, download
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Settings](#settings)
 - [Where your data is stored (backup and reset)](#where-your-data-is-stored-backup-and-reset)
@@ -65,7 +66,7 @@ The extension is installed from a `.vsix` file that you build yourself; it is no
 3. Install it:
 
    ```bash
-   code --install-extension markdown-pdf-viewer-0.6.0.vsix --force
+   code --install-extension markdown-pdf-viewer-0.7.0.vsix --force
    ```
 
 Then reload VS Code (**Developer: Reload Window**) or open a new window. Installing a newer `.vsix` replaces the previous version and keeps your highlights. The extension ID is still `local.markdown-pdf-viewer`, from the days it only handled Markdown.
@@ -116,6 +117,7 @@ For Markdown and text files:
 | ● ● ● ● ● | Highlight color: yellow (default), pink, green, blue, orange. The last color you used is remembered |
 | ✏️ (pencil) | **Draw**: turns drawing on, with a second row of drawing tools (see [Drawing](#drawing)). The band under the pencil shows the current ink |
 | T | **Text**: turns adding text on, with a second row of text tools (see [Text boxes](#text-boxes)). The band under the T shows the color new text gets |
+| Eraser | **Erase**: while it is on, a click deletes the highlight, drawing or text box under the pointer, and a drag deletes everything it goes over (see [Erasing](#erasing)) |
 | 🔖 ▾ | **Reading marker**: click, then click the line where you stopped reading. The menu also has *Go to* and *Remove* |
 | 🎧 | **Reading sounds**: opens a small panel to play rain, a fireplace or your own sounds, pick the recording, pause and set the volume. A dot on the button means a sound is playing |
 | ◐ | **Light/dark pages** (remembered for all files). Downloads always use normal light pages |
@@ -123,7 +125,7 @@ For Markdown and text files:
 | ⤢ | **Full view** (Markdown/text): move the PDF between "next to the source" and "in the source's editor group". Works with **View: Toggle Maximized Editor Group** and **Zen Mode** |
 | ⤓ ▾ | Download the PDF, with highlights, notes, drawings and text boxes (default) or without any annotations |
 
-The highlight tool, drawing, adding text and placing the reading marker exclude each other: turning one on turns the others off.
+The highlight tool, drawing, adding text, erasing and placing the reading marker exclude each other: turning one on turns the others off.
 
 Zoom also works with **Ctrl + mouse wheel** and **trackpad pinch**. Pages are re-rendered sharply at every zoom level and when the VS Code window zoom or the monitor's scale changes.
 
@@ -131,7 +133,7 @@ Zoom also works with **Ctrl + mouse wheel** and **trackpad pinch**. Pages are re
 
 - **Highlight tool on**: select text; it is highlighted in the current color.
 - **Highlight tool off**: select text and a small bar appears next to the selection. Pick a color, or use 💬 to highlight and write a note right away, or 🔖 to mark that line as your reading position. You can also select text and click a color in the toolbar.
-- **Click a highlight** to change its color, add or edit its note, copy its text, or delete it.
+- **Click a highlight** to change its color, add or edit its note, copy its text, or delete it. While its small bar is open the highlight is the selected one (it shows darker): **Delete** deletes it and **Enter** opens its note.
 - The **☰ list** (*Annotations*) shows your reading position at the top, then all highlights in document order with their notes and page, then your drawings and text boxes. Click one to jump to it.
 
 Highlights are attached to the *text*, not to a position on the page. Each one stores the highlighted words plus some text before and after (a W3C Web Annotation *TextQuoteSelector*), with the page and position as hints. Every time the PDF changes, the extension searches for each highlight again, so highlights follow the text when you edit a Markdown or text file. If the text was rewritten so much that it can't be found, the highlight is kept and listed under **Orphaned**, where you can copy its text or delete it.
@@ -150,7 +152,7 @@ Circle a figure, underline a line, point at something with an arrow, scribble in
 
 Click ✏️ **Draw** in the toolbar (or run **Document Viewer: Toggle Drawing**). A second row of tools appears under the toolbar, and every drag on a page draws:
 
-<img src="docs/drawing-bar.png" alt="The toolbar with drawing on: the pencil button is pressed and its band shows the red ink; the highlight colors are dimmed. Below it, the drawing bar: the tools (pen, line, arrow, rectangle, ellipse, eraser), the ink color (a red dot that opens the color picker), three widths and a Done button on the right" width="870">
+<img src="docs/drawing-bar.png" alt="The toolbar with drawing on: the pencil button is pressed and its band shows the red ink; the highlight colors are dimmed. Below it, the drawing bar, its groups divided by lines like the toolbar's: a pencil that names the bar, the tools (pen, line, arrow, rectangle, ellipse, eraser), the ink color (a red dot that opens the color picker), three widths and a Done button on the right" width="870">
 
 | Tool | Key | Draws | With Shift |
 |---|---|---|---|
@@ -159,16 +161,18 @@ Click ✏️ **Draw** in the toolbar (or run **Document Viewer: Toggle Drawing**
 | Arrow | `A` | A line with an open arrowhead at the end | The angle snaps to 15° steps |
 | Rectangle | `R` | The outline of the box you drag | A square |
 | Ellipse | `O` | The outline of an ellipse inside the box you drag | A circle |
-| Eraser | `E` | Click or drag over drawings to delete them (whole drawings). What it will delete dims first | |
+| Eraser | `E` | Rubs out the part of a drawing it goes over, like an eraser on paper: drag across a line to cut it in two, along it to shorten it. The round cursor is its size. What is left keeps its shape | |
 
-- **Ink**: the colored dot opens the **color picker**. Pick one of ten colors, one of your recent colors, or any color: drag in the square (saturation and brightness) and along the rainbow (hue), or type its hex code. The arrow keys move through the colors, and **Esc** closes the picker. On dark pages a dark ink is drawn lighter so it stays visible (black shows up light); downloads always use the color you picked.
+- **Ink**: the colored dot opens the **color picker**. Pick one of twelve colors (white is one of them: it covers what is under it on a white page, and shows on dark pictures), one of your recent colors, or any color: drag in the square (saturation and brightness) and along the rainbow (hue), or type its hex code. The arrow keys move through the colors, and **Esc** closes the picker. On dark pages a dark ink is drawn lighter so it stays visible (black shows up light); downloads always use the color you picked.
 - **Width**: thin, medium or thick. The last tool, ink and width are remembered for all files.
 - **Stop drawing** with **Esc**, **Done** or ✏️. Esc while dragging cancels only that shape.
 
-<img src="docs/color-picker.png" alt="The color picker: ten colors in two rows (black, gray, red, orange, yellow, green, teal, blue, purple, pink), red picked; below, a saturation and brightness square, a rainbow hue slider and the hex code #D1242F" width="202">
+<img src="docs/color-picker.png" alt="The color picker: twelve colors in two rows of six (black, gray, white, brown, red, orange; yellow, green, teal, blue, purple, pink), red picked; below, a saturation and brightness square, a rainbow hue slider and the hex code #D1242F" width="208">
 - While drawing, links, text selection and the highlight and note popups take a break; the mouse wheel still scrolls, and `Ctrl`+wheel and the zoom keys still zoom. Mouse, pen and touch all work.
 
 **Change a drawing** (with drawing off): click its line. It gets a dashed outline and a small bar to pick another **ink** (the same color picker; the drawing shows each color as you drag) or **width**, or to **delete** it (**Delete** and **Backspace** do too; **Esc** deselects). **Drag** a selected drawing to move it on its page; to resize one, draw it again. Clicking *inside* a rectangle or an ellipse does not select it, so the text inside stays selectable. Where drawings overlap, a click picks the smallest; a drawing over a highlight wins the click, because it is on top.
+
+**Erase part of a drawing** with the eraser of the drawing bar: what it goes over is gone, and the rest stays as it was, corners and curves included. The rest of a shape becomes plain strokes (the two halves of a cut rectangle are two drawings, listed as *Freehand*). The drawing eraser does not touch text boxes or highlights. To delete whole things, use the [eraser of the toolbar](#erasing), or select a drawing and press **Delete**.
 
 The ☰ list has a **Drawings** section with a small picture of each drawing: click one to go to it, or 🗑 to delete it. The section's own 🗑 (or **Document Viewer: Delete All Drawings for This File**) deletes all drawings of the file, after asking. Everything can be undone with `Ctrl+Z`; one eraser drag is one undo step.
 
@@ -178,17 +182,32 @@ Drawings stay where you drew them on their page. When a Markdown or text file is
 
 Write a word in the margin, label an arrow, add a correction. Click **T** in the toolbar (or run **Document Viewer: Toggle Adding Text**). A row of text tools appears under the toolbar:
 
-<img src="docs/text-bar.png" alt="The toolbar with adding text on: the T button is pressed. Below it, the text bar: the font size (12), bold, italic and underline, the four alignments (left is on), the text color (a black dot that opens the color picker) and a Done button on the right" width="870">
+<img src="docs/text-bar.png" alt="The toolbar with adding text on: the T button is pressed. Below it, the text bar, its groups divided by lines like the toolbar's: a T that names the bar, the font size (12), bold, italic and underline, the four alignments (left is on), the text color (a black dot that opens the color picker) and a Done button on the right" width="870">
 
 - **Click** on a page and type. The box grows as you type and wraps at the right edge of the page; **Enter** starts a new line.
 - **Drag** across a page instead to choose the box's width first: the text wraps inside it. Justified text needs a box like that.
-- **Size, bold, italic, underline, alignment and color** apply to the whole box: set them before you click, or while you type (**Ctrl+B**, **Ctrl+I** and **Ctrl+U** work too). New boxes get the last style you picked.
+- **Size, alignment and color** apply to the whole box: set them before you click, or while you type.
+- **Bold, italic and underline** go where you want them. While typing, select part of the text (with the mouse, or Shift and the arrow keys) and click **B**, *I* or U in the bar, or press **Ctrl+B**, **Ctrl+I** or **Ctrl+U**: only that part changes. With nothing selected they switch on or off for what you type next. The three buttons show the style at the caret, or of the selection.
+- New boxes get the last size, alignment and color you picked, and the bold, italic and underline you last set for typing.
+- Pasted text comes in as plain text, in the style you are typing in. While typing, **Ctrl+Z** and **Ctrl+Y** undo and redo the typing.
 - **Esc**, **Ctrl+Enter** or a click anywhere else ends typing. A box whose text you erase is deleted (and **Ctrl+Z** brings it back).
 - **Stop adding text** with **Esc** (when you are not typing), **Done** or **T**.
 
-**Change a text box**: in text mode, click its text to type in it (the caret goes where you click), or drag it to move it. With text mode off, click a box to select it: a small bar changes its color, size, format and alignment, edits it (✎, **Enter** or a double click) or deletes it (🗑, **Delete** or **Backspace**); drag it to move it. A selected box has a handle on each side: drag one to make the box wider or narrower.
+**Change a text box**: in text mode, click its text to type in it (the caret goes where you click), or drag it to move it. With text mode off, click a box to select it: a small bar changes its color, size and alignment, makes all of its text bold, italic or underlined (or none of it), edits it (✎, **Enter** or a double click) or deletes it (🗑, **Delete** or **Backspace**); drag it to move it. A selected box has a handle on each side: drag one to make the box wider or narrower.
 
-Text boxes are listed in the ☰ list under **Text boxes**, with their first words: click one to go to it. The section's 🗑 (or **Document Viewer: Delete All Text Boxes for This File**) deletes them all, after asking. Typing in a box, moving it, resizing it and every change of style are each one undo step. Like drawings, text boxes stay at their place on the page and read left to right on screen, also on pages turned by a PDF's /Rotate. The eraser leaves them alone.
+Text boxes are listed in the ☰ list under **Text boxes**, with their first words: click one to go to it. The section's 🗑 (or **Document Viewer: Delete All Text Boxes for This File**) deletes them all, after asking. Typing in a box, moving it, resizing it and every change of style are each one undo step. Like drawings, text boxes stay at their place on the page and read left to right on screen, also on pages turned by a PDF's /Rotate. The eraser of the drawing bar leaves them alone; the eraser of the toolbar deletes them.
+
+### Erasing
+
+The eraser in the toolbar (or **Document Viewer: Toggle Eraser**) deletes whole things, whatever they are: highlights (with their notes), drawings and text boxes.
+
+- **Point** at something: it fades, to show what a click would delete.
+- **Click** to delete it. Where things overlap, the click takes the one on top: a drawing or text box before the highlight under it, and the smallest where drawings overlap.
+- **Drag** to delete everything the pointer goes over. They fade as you go and are deleted when you let go; **Esc** before that keeps them.
+- Each click or drag is one undo step: `Ctrl+Z` brings back everything it deleted. If a deleted highlight had a note, a message says so and offers **Undo**.
+- **Stop erasing** with **Esc** or the eraser button.
+
+The reading marker is not erased (remove it from its own menu, or click it and press **Delete**). To take away only part of a drawing, use the eraser of the [drawing bar](#drawing) instead.
 
 ### Where you stopped reading
 
@@ -234,12 +253,13 @@ Under **Custom**, **Add sound files…** (or the command **Document Viewer: Add 
 `Ctrl+Z` undoes the last change to your highlights, notes, drawings and reading marker, and `Ctrl+Y` or `Ctrl+Shift+Z` redoes it (`Cmd+Z` and `Cmd+Shift+Z` on macOS). That covers:
 - creating, recoloring and deleting highlights
 - adding, editing and removing notes
-- drawing, moving, recoloring, changing the width of, deleting and erasing drawings
+- drawing, moving, recoloring, changing the width of and deleting drawings, and rubbing out parts of them
 - adding, typing in, moving, resizing, restyling and deleting text boxes
+- everything one click or drag of the eraser deleted
 - placing, moving and removing the marker
 - **Delete All Highlights**, **Delete All Drawings** and **Delete All Text Boxes**
 
-The viewer scrolls to the change and tells you what was undone. After deleting something, a message at the bottom also offers **Undo**. While you are typing a note or in a text box, `Ctrl+Z` undoes the typing instead. The history lasts while the viewer is open.
+The viewer scrolls to the change and tells you what was undone. After deleting something, a message at the bottom also offers **Undo**. While you are typing a note or in a text box, `Ctrl+Z` undoes the typing instead (in a text box: also the bold, italic and underline you put on parts of it); once you are done typing, the whole of it is one step. The history lasts while the viewer is open.
 
 ### Dark pages
 
@@ -267,14 +287,17 @@ The viewer asks for the password and keeps it in memory only while the PDF is op
 | `Ctrl+Y`, `Ctrl+Shift+Z` | Redo | The viewer is focused |
 | `Ctrl+Enter` | Save the note | Writing a note |
 | `Esc` | Cancel the note, stop placing the marker, deselect a drawing, close popups | The viewer is focused |
+| `Delete`, `Backspace` | Delete what is selected: a drawing, a text box, the highlight or the reading marker whose small bar is open | Something is selected |
+| `Delete` | Delete what the row shows | A row of the ☰ list is focused |
+| `Enter` | Edit what is selected: type in the text box, write the highlight's note | A text box or a highlight is selected |
 | `P`, `L`, `A`, `R`, `O`, `E` | Pen, Line, Arrow, Rectangle, Ellipse, Eraser | Drawing is on |
 | `Shift` (held) | Lines and arrows in 15° steps; squares and circles | Drawing a shape |
-| `Esc` | Cancel the shape being drawn; otherwise stop drawing | Drawing is on |
-| `Ctrl+B`, `Ctrl+I`, `Ctrl+U` | Bold, italic, underline | Typing in a text box |
+| `Esc` | Cancel the shape being drawn or the erasing in progress; otherwise stop drawing | Drawing is on |
+| `Ctrl+B`, `Ctrl+I`, `Ctrl+U` | Bold, italic, underline: on the selected text, or for what you type next | Typing in a text box |
+| `Ctrl+Z`, `Ctrl+Y` | Undo and redo the typing | Typing in a text box or a note |
 | `Esc`, `Ctrl+Enter` | Stop typing in the text box | Typing in a text box |
 | `Esc` | Stop adding text | Adding text is on, not typing |
-| `Enter` | Type in the selected text box | A text box is selected |
-| `Delete`, `Backspace` | Delete the selected drawing or text box | A drawing or text box is selected |
+| `Esc` | Keep what the drag in progress faded; otherwise stop erasing | Erasing is on |
 | `Ctrl+=`, `Ctrl+Shift+=`, `Ctrl+Numpad+` | Zoom in (PDF) | The viewer is focused |
 | `Ctrl+-`, `Ctrl+Shift+-`, `Ctrl+Numpad-` | Zoom out (PDF) | The viewer is focused |
 | `Ctrl+0`, `Ctrl+Numpad0` | Reset zoom to Fit Width (PDF) | The viewer is focused |
@@ -288,12 +311,12 @@ All commands are in the Command Palette under **Document Viewer:**. Besides the 
 - *Mark Where I Stopped Reading*, *Go to Where I Stopped Reading*, *Remove the Reading Marker*
 - *Play/Pause Reading Sounds*, *Add Reading Sounds from Files…*
 - *Undo/Redo Highlight, Note, Marker, Drawing or Text Change*
-- *Toggle Light/Dark Pages*, *Toggle Highlight Tool*, *Toggle Drawing*, *Toggle Adding Text*, *Toggle Annotations List*
+- *Toggle Light/Dark Pages*, *Toggle Highlight Tool*, *Toggle Drawing*, *Toggle Adding Text*, *Toggle Eraser*, *Toggle Annotations List*
 - *Reattach Highlights from Another File…* (drawings and text boxes come along), *Delete All Highlights for This File*, *Delete All Drawings for This File*, *Delete All Text Boxes for This File*
 - *Download PDF*, *Download PDF without Annotations*
 - *Clear Cached PDFs*, *Reveal Highlight Data Folder*, *Show Log*
 
-None of the drawing and text commands has a shortcut; you can give them one.
+None of the drawing, text and eraser commands has a shortcut; you can give them one.
 
 ## Settings
 
@@ -354,7 +377,7 @@ There is one JSON file per document, named after a SHA-256 hash of the file's ab
 }
 ```
 
-A document's drawings and text boxes are in a second file next to it, `<same hash>.drawings.json`, in PDF units of their page (so zooming never changes them). A drawing records its tool, color (a color name such as `red`, or a color you picked, such as `#1F77B4`) and width, its page, its points and the text of the render it was drawn on (a hash). A text box records its text, its top left corner, its style and, if you set one, its width. Shortened:
+A document's drawings and text boxes are in a second file next to it, `<same hash>.drawings.json`, in PDF units of their page (so zooming never changes them). A drawing records its tool, color (a color name such as `red`, or a color you picked, such as `#1F77B4`) and width, its page, its points and the text of the render it was drawn on (a hash). What the drawing eraser leaves of a drawing is a pen stroke marked `"polyline": true`: its points are joined by straight lines. A text box records its text, its top left corner, its size, alignment and color, the parts of the text that are bold, italic or underlined (`spans`, as ranges of characters) and, if you set one, its width. Shortened:
 
 ```json
 {
@@ -364,12 +387,12 @@ A document's drawings and text boxes are in a second file next to it, `<same has
   { "id": "9b1f…", "tool": "arrow", "color": "red", "width": "medium", "pageIndex": 0,
     "points": [[72.5, 640.2], [160.25, 702.8]], "createdAt": "2026-11-10T20:15:00.000Z", "updatedAt": "…", "textModelHash": "…" },
   { "id": "4c2e…", "tool": "text", "pageIndex": 0, "points": [[180, 655.4]], "text": "Test yourself\ninstead of re-reading",
-    "size": 12, "bold": true, "italic": false, "underline": false, "align": "left", "color": "#0969DA", "createdAt": "…", "updatedAt": "…" }
+    "size": 12, "align": "left", "color": "#0969DA", "spans": [{ "start": 0, "end": 13, "bold": true }], "createdAt": "…", "updatedAt": "…" }
  ]
 }
 ```
 
-Keeping drawings in their own file means going back to version 0.4, which rewrites the first file with only the fields it knows, cannot erase them. (Version 0.5 does not know text boxes or picked colors: if you go back to it, it drops those when it saves the file.)
+Keeping drawings in their own file means going back to version 0.4, which rewrites the first file with only the fields it knows, cannot erase them. (Version 0.5 does not know text boxes or picked colors: if you go back to it, it drops those when it saves the file. Version 0.6 shows a text with bold parts as plain text and smooths what the drawing eraser left, and forgets both when it saves the file.)
 
 - **Back up**: copy the `highlights` folder. To restore, copy the files back while VS Code is closed.
 - **Reset one file**: run **Document Viewer: Delete All Highlights for This File**, **Delete All Drawings for This File** or **Delete All Text Boxes for This File** from its viewer (you can undo them with `Ctrl+Z`), or delete its JSON files.
@@ -477,7 +500,8 @@ The loops are Ogg Vorbis because VS Code's built-in Chromium cannot play Opus or
 - Dark pages for PDF files are a color inversion. Diagrams that the PDF stores as pictures keep their light background.
 - Renames done outside VS Code are not detected automatically (use *Reattach Highlights*).
 - Drawings and text boxes keep their place on the page: when an edit moves the text of a Markdown or text file, they do not follow it (highlights and the marker do). There is no pressure sensitivity, and a drawing or text box cannot span two pages.
-- A text box has one style for all its text (no bold word inside plain text), and one font. In downloads, characters that Helvetica's standard character set lacks (most symbols outside Western European languages, and emoji) appear as "?"; the download's message says how many. The annotation's comment keeps the real text.
+- A text box has one font, one size, one color and one alignment for all its text (bold, italic and underline can be on any part of it). In downloads, characters that Helvetica's standard character set lacks (most symbols outside Western European languages, and emoji) appear as "?"; the download's message says how many. The annotation's comment keeps the real text.
+- The drawing eraser turns what it leaves of a shape into plain strokes: the rest of a rectangle is not a rectangle any more, here (it is listed as *Freehand*) and in other PDF programs.
 - If you go back to version 0.4 and rename a file there, its drawings stay under the old name; *Reattach Highlights* in this version brings them back.
 - Highlights, notes, drawings, text boxes and markers are per VS Code profile, and the undo history lasts while the viewer is open.
 - Reading sounds play only while at least one viewer is open, since a viewer produces the audio. Each VS Code window plays its own.

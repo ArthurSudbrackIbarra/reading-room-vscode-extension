@@ -3,6 +3,7 @@
 // Text boxes are drawings too: they share the list, the storage, selecting, moving and undo.
 import { DEFAULT_INK, isInk, sanitizeInk, type Ink } from './colors';
 import { round2, simplifyPoints, type PdfPoint, type Shape } from './drawingGeometry';
+import { CHAR_STYLES, rangeStyle, sanitizeSpans, styleRange, type CharStyle, type TextSpan } from './richText';
 
 export type { PdfPoint } from './drawingGeometry';
 export type { Ink } from './colors';
@@ -45,16 +46,20 @@ export const TEXT_ALIGNS = ['left', 'center', 'right', 'justify'] as const;
 export type TextAlign = (typeof TEXT_ALIGNS)[number];
 export const ALIGN_NAMES: Record<TextAlign, string> = { left: 'Align left', center: 'Center', right: 'Align right', justify: 'Justify' };
 
-/** The look of a text box (the whole box: there is no formatting inside the text). */
-export interface TextStyle {
+/** The look of a whole text box. */
+export interface TextBoxStyle {
   /** Font size in PDF points. */
   size: number;
-  bold: boolean;
-  italic: boolean;
-  underline: boolean;
   align: TextAlign;
   color: Ink;
 }
+
+/**
+ * A text style as the text bar shows and sets it: the box's own, plus bold, italic and underline,
+ * which belong to the characters (of a box: whether all of its text has them; for new text:
+ * whether what is typed next gets them).
+ */
+export interface TextStyle extends TextBoxStyle, CharStyle {}
 
 export const DEFAULT_TEXT_STYLE: TextStyle = { size: 12, bold: false, italic: false, underline: false, align: 'left', color: 'black' };
 /** The sizes offered in the size menu (any size in the range can be stored). */
@@ -92,13 +97,19 @@ export interface InkDrawing {
    * rect and ellipse: the box, as its lower-left and upper-right corners.
    */
   points: PdfPoint[];
+  /**
+   * Pen only: the points are joined by straight lines instead of a smooth curve. What the eraser
+   * leaves of a drawing is stored like this, so the rest keeps its exact shape (a corner of a
+   * rectangle stays a corner).
+   */
+  polyline?: true;
   createdAt: string;
   updatedAt: string;
   /** Hash of the text model of the render it was drawn on (for re-anchoring it later). */
   textModelHash?: string;
 }
 
-export interface TextDrawing extends TextStyle {
+export interface TextDrawing extends TextBoxStyle {
   id: string;
   tool: 'text';
   pageIndex: number;
@@ -109,6 +120,8 @@ export interface TextDrawing extends TextStyle {
   points: PdfPoint[];
   /** The text; lines are separated by "\n". Never empty. */
   text: string;
+  /** The bold, italic and underlined parts of the text. Absent: none. */
+  spans?: TextSpan[];
   /** Width of the box in points: lines wrap to fit. Absent: as wide as the longest line. */
   boxWidth?: number;
   createdAt: string;
@@ -135,8 +148,33 @@ export function isInkDrawing(drawing: Drawing): drawing is InkDrawing {
 }
 
 /** What the path of an ink drawing is built from (see shapePath). */
-export function drawingShape(drawing: Pick<InkDrawing, 'tool' | 'points' | 'width'>): Shape {
-  return { tool: drawing.tool, points: drawing.points, widthPt: INK_WIDTH_PT[drawing.width] };
+export function drawingShape(drawing: Pick<InkDrawing, 'tool' | 'points' | 'width' | 'polyline'>): Shape {
+  const shape: Shape = { tool: drawing.tool, points: drawing.points, widthPt: INK_WIDTH_PT[drawing.width] };
+  if (drawing.polyline && drawing.tool === 'pen') shape.polyline = true;
+  return shape;
+}
+
+type StyledText = Pick<TextDrawing, 'size' | 'align' | 'color' | 'text' | 'spans'>;
+
+/** The style of a text box as the text bar shows it: bold (and so on) when all of its text is. */
+export function textStyleOf(text: StyledText): TextStyle {
+  return { size: text.size, align: text.align, color: text.color, ...rangeStyle(text.text, text.spans, 0, text.text.length) };
+}
+
+/** A text box with a style change applied: bold, italic and underline go to all of its text. */
+export function applyTextStyle<T extends StyledText>(text: T, patch: Partial<TextStyle>): T {
+  const next = { ...text };
+  if (patch.size !== undefined) next.size = patch.size;
+  if (patch.align !== undefined) next.align = patch.align;
+  if (patch.color !== undefined) next.color = patch.color;
+  const chars: Partial<CharStyle> = {};
+  for (const name of CHAR_STYLES) if (patch[name] !== undefined) chars[name] = patch[name];
+  if (Object.keys(chars).length > 0) {
+    const spans = styleRange(text.spans, text.text.length, 0, text.text.length, chars);
+    if (spans) next.spans = spans;
+    else delete next.spans;
+  }
+  return next;
 }
 
 export function isDrawingTool(value: unknown): value is DrawingTool {
@@ -184,16 +222,17 @@ export function sanitizeTextStyle(value: unknown, fallback: TextStyle = DEFAULT_
   };
 }
 
-/**
- * The text of a text box as stored: line breaks as "\n", tabs as four spaces, no other control
- * characters, no trailing white space.
- */
-export function normalizeText(value: string): string {
+/** Text as it may be in a text box: line breaks as "\n", tabs as four spaces, no other control characters. */
+export function cleanText(value: string): string {
   return value
     .replace(/\r\n?|[\u2028\u2029]/g, '\n')
     .replace(/\t/g, '    ')
-    .replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, '')
-    .replace(/\s+$/u, '');
+    .replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, '');
+}
+
+/** The text of a text box as stored: clean (see cleanText), and without trailing white space. */
+export function normalizeText(value: string): string {
+  return cleanText(value).replace(/\s+$/u, '');
 }
 
 /**
@@ -246,7 +285,17 @@ export function sanitizeDrawing(value: unknown, onAdjusted?: (drawing: Drawing, 
       text = normalizeText(text.slice(0, MAX_TEXT_LENGTH));
     }
     const style = sanitizeTextStyle({ ...d, color });
-    const drawing: TextDrawing = { id: d.id, tool: 'text', pageIndex: d.pageIndex, points, text, ...style, createdAt, updatedAt };
+    const drawing: TextDrawing = { id: d.id, tool: 'text', pageIndex: d.pageIndex, points, text, size: style.size, align: style.align, color: style.color, createdAt, updatedAt };
+    // Spans count characters of the stored text: if cleaning the text moved them, they are dropped.
+    // A box of 0.6.0 has no spans: its bold, italic and underline were the whole box's.
+    const spans = Array.isArray(d.spans)
+      ? d.text.startsWith(text)
+        ? sanitizeSpans(d.spans, text.length)
+        : undefined
+      : style.bold || style.italic || style.underline
+        ? styleRange(undefined, text.length, 0, text.length, { bold: style.bold, italic: style.italic, underline: style.underline })
+        : undefined;
+    if (spans) drawing.spans = spans;
     if (typeof d.boxWidth === 'number' && Number.isFinite(d.boxWidth)) {
       drawing.boxWidth = round2(Math.min(MAX_TEXT_BOX_WIDTH, Math.max(MIN_TEXT_BOX_WIDTH, d.boxWidth)));
     }
@@ -276,6 +325,7 @@ export function sanitizeDrawing(value: unknown, onAdjusted?: (drawing: Drawing, 
     }
   }
   const drawing: InkDrawing = { id: d.id, tool: d.tool, color, width: d.width, pageIndex: d.pageIndex, points, createdAt, updatedAt };
+  if (d.tool === 'pen' && d.polyline === true) drawing.polyline = true;
   if (hash) drawing.textModelHash = hash;
   if (simplifiedFrom !== undefined) onAdjusted?.(drawing, simplifiedFrom);
   return drawing;

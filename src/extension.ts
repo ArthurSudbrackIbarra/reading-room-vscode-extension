@@ -58,6 +58,7 @@ export function activate(context: vscode.ExtensionContext): void {
     'markdownPdfViewer.toggleHighlightTool': withPanel((p) => p.toggleTool()),
     'markdownPdfViewer.toggleDrawing': withPanel((p) => p.toggleDrawing()),
     'markdownPdfViewer.toggleText': withPanel((p) => p.toggleText()),
+    'markdownPdfViewer.toggleEraser': withPanel((p) => p.toggleEraser()),
     'markdownPdfViewer.deleteAllDrawings': () => m.deleteAllDrawings(undefined, 'ink'),
     'markdownPdfViewer.deleteAllTextBoxes': () => m.deleteAllDrawings(undefined, 'text'),
     'markdownPdfViewer.toggleHighlightsList': withPanel((p) => p.toggleList()),

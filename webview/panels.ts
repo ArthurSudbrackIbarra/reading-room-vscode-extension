@@ -1,6 +1,6 @@
 // Sidebar (the annotations list), popovers (highlight, note, drawing, reading marker), tooltips,
 // toast, banner and the status overlay.
-import { TOOL_NAMES, type InkDrawing, type InkWidth, type TextDrawing, type TextStyle } from '../src/shared/drawings';
+import { TOOL_NAMES, textStyleOf, type InkDrawing, type InkWidth, type TextDrawing, type TextStyle } from '../src/shared/drawings';
 import { HIGHLIGHT_COLORS, HIGHLIGHT_HEX, MAX_NOTE_LENGTH, type Highlight, type HighlightColor, type ReadingMarker } from '../src/shared/types';
 import { ColorButton } from './colorPicker';
 import { h, icon, iconButton, placeFloating } from './dom';
@@ -64,10 +64,29 @@ export class Sidebar {
   private readonly list = h('div', { class: 'mpv-list', role: 'list' });
   private readonly title = h('span', { class: 'mpv-sidebar-title', text: 'Annotations' });
 
+  /** Delete on a row of the list deletes what the row shows (its last action is its delete button). */
+  private onKey(e: KeyboardEvent): void {
+    if (e.key !== 'Delete' || e.ctrlKey || e.metaKey || e.altKey) return;
+    const row = e.target instanceof HTMLElement && e.target.classList.contains('mpv-item') ? e.target : undefined;
+    const remove = row?.querySelector<HTMLButtonElement>('.mpv-item-actions > button:last-child');
+    if (!row || !remove) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // The keyboard goes to the row that takes this one's place.
+    const rows = [...this.element.querySelectorAll<HTMLElement>('.mpv-item[tabindex]')];
+    const index = rows.indexOf(row);
+    remove.click();
+    requestAnimationFrame(() => {
+      const next = [...this.element.querySelectorAll<HTMLElement>('.mpv-item[tabindex]')];
+      (next[Math.min(index, next.length - 1)] ?? this.element).focus();
+    });
+  }
+
   constructor(private readonly actions: SidebarActions) {
     const close = iconButton('close', 'Close the list');
     close.addEventListener('click', () => actions.close());
     this.element = h('aside', { class: 'mpv-sidebar', 'aria-label': 'Annotations', hidden: true }, h('div', { class: 'mpv-sidebar-header' }, this.title, close), this.list);
+    this.element.addEventListener('keydown', (e) => this.onKey(e));
   }
 
   set open(value: boolean) {
@@ -288,6 +307,8 @@ export interface PopoverActions {
   remove(id: string): void;
   copy(id: string): void;
   saveNote(id: string, note: string): void;
+  /** The popover opened for a highlight, or closed (undefined). */
+  shown(id: string | undefined): void;
 }
 
 /** Shown when clicking a highlight: colors, note, copy, delete. The note can be edited in place. */
@@ -379,7 +400,13 @@ export class HighlightPopover {
     this.editor.hidden = true;
     this.element.classList.remove('mpv-editing');
     placeFloating(this.element, x, y);
+    this.actions.shown(id);
     if (options.editNote) this.startEditing();
+  }
+
+  /** Opens the note for writing (Enter on the selected highlight). */
+  editNote(): void {
+    if (this.visible && !this.editing) this.startEditing();
   }
 
   get editing(): boolean {
@@ -414,6 +441,7 @@ export class HighlightPopover {
     this.element.hidden = true;
     this.editor.hidden = true;
     this.currentId = undefined;
+    this.actions.shown(undefined);
     if (editing && commit && id && value !== this.note.replace(/\s+$/, '')) this.actions.saveNote(id, value);
   }
 }
@@ -539,7 +567,7 @@ export class TextPopover {
 
   update(text: TextDrawing): void {
     if (text.id !== this.currentId) return;
-    this.controls.set(text);
+    this.controls.set(textStyleOf(text));
     this.color.setValue(text.color);
   }
 

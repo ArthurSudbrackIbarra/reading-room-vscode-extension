@@ -57,7 +57,8 @@ describe('inks', () => {
   it('presets are readable on both page themes', () => {
     for (const preset of INK_PRESETS) {
       const { light, dark } = INK_PRESET_SHADES[preset];
-      expect(contrast(light, '#FFFFFF'), `${preset} on white`).toBeGreaterThanOrEqual(preset === 'yellow' ? 2 : 3);
+      // (White is for covering things on a white page, and for dark pictures.)
+      if (preset !== 'white') expect(contrast(light, '#FFFFFF'), `${preset} on white`).toBeGreaterThanOrEqual(preset === 'yellow' ? 2 : 3);
       expect(contrast(dark, DARK_PAGE), `${preset} on dark`).toBeGreaterThanOrEqual(4.5);
     }
   });

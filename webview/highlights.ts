@@ -85,6 +85,10 @@ export class HighlightController {
   private ready: Promise<void> = Promise.resolve();
   private marginsPt = { top: 51, bottom: 57 };
   private flashTimer?: ReturnType<typeof setTimeout>;
+  /** Highlights shown dimmed: the eraser would delete them, or already took them in this gesture. */
+  private erasing = new Set<string>();
+  /** The highlight whose popover is open: Delete deletes it. */
+  private selectedId?: string;
 
   constructor(
     private readonly viewer: Viewer,
@@ -411,6 +415,8 @@ export class HighlightController {
         const box = document.createElement('div');
         box.className = rt.data.note ? 'mpv-hl mpv-noted' : 'mpv-hl';
         box.dataset.id = rt.data.id;
+        box.classList.toggle('mpv-erasing', this.erasing.has(rt.data.id));
+        box.classList.toggle('mpv-selected', this.selectedId === rt.data.id);
         box.style.left = `${(x1 * 100).toFixed(4)}%`;
         box.style.top = `${(y1 * 100).toFixed(4)}%`;
         box.style.width = `${((x2 - x1) * 100).toFixed(4)}%`;
@@ -443,6 +449,7 @@ export class HighlightController {
       badge.type = 'button';
       badge.className = 'mpv-note-badge';
       badge.dataset.id = rt.data.id;
+      badge.classList.toggle('mpv-erasing', this.erasing.has(rt.data.id));
       badge.setAttribute('aria-label', `Note: ${rt.data.note}`);
       badge.style.top = `${(top * 100).toFixed(4)}%`;
       badge.style.setProperty('--stack', String(stack));
@@ -467,6 +474,20 @@ export class HighlightController {
   redrawAll(): void {
     this.layers.redraw(HL_LAYER);
     this.layers.redraw(BADGE_LAYER);
+  }
+
+  /** Shows these highlights (and their note badges) dimmed: what the eraser is about to delete. */
+  setErasing(ids: Set<string>): void {
+    if (ids.size === this.erasing.size && [...ids].every((id) => this.erasing.has(id))) return;
+    this.erasing = new Set(ids);
+    for (const el of document.querySelectorAll<HTMLElement>('.mpv-hl, .mpv-note-badge')) el.classList.toggle('mpv-erasing', ids.has(el.dataset.id ?? ''));
+  }
+
+  /** Marks one highlight as selected (the one whose popover is open), or none. */
+  setSelected(id: string | undefined): void {
+    if (id === this.selectedId) return;
+    this.selectedId = id;
+    for (const el of document.querySelectorAll<HTMLElement>('.mpv-hl')) el.classList.toggle('mpv-selected', el.dataset.id === id);
   }
 
   flash(id: string): void {
@@ -649,11 +670,14 @@ export class HighlightController {
     const pageIndex = Number(pageDiv.dataset.pageNumber) - 1;
     const box = pageDiv.getBoundingClientRect();
     if (box.width === 0) return undefined;
-    const fx = (clientX - box.left) / box.width;
-    const fy = (clientY - box.top) / box.height;
+    return this.hitTestOnPage(pageIndex, (clientX - box.left) / box.width, (clientY - box.top) / box.height);
+  }
+
+  /** The highlight at a point of a page (fractions of its width and height), preferring the smallest; `skip`: not these. */
+  hitTestOnPage(pageIndex: number, fx: number, fy: number, skip?: Set<string>): string | undefined {
     let best: { id: string; area: number } | undefined;
     for (const rt of this.runtimes.values()) {
-      if (rt.data.status !== 'anchored') continue;
+      if (rt.data.status !== 'anchored' || skip?.has(rt.data.id)) continue;
       for (const [x1, y1, x2, y2] of rt.pages.get(pageIndex) ?? []) {
         const padX = 0.002;
         const padY = 0.002;

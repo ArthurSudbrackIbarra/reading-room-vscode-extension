@@ -19,14 +19,19 @@ import type { DrawStyle, HostToViewer, ViewerCommand } from '../src/shared/messa
 import {
   DEFAULT_TEXT_STYLE,
   TOOL_NAMES,
+  applyTextStyle,
   isInkDrawing,
   isTextDrawing,
+  textStyleOf,
   type Drawing,
   type DrawingTool,
   type InkDrawing,
+  type TextBoxStyle,
   type TextDrawing,
   type TextStyle,
 } from '../src/shared/drawings';
+import { CHAR_STYLES, PLAIN } from '../src/shared/richText';
+import type { Highlight } from '../src/shared/types';
 import { DEFAULT_CHOICES, DEFAULT_SOUND, DEFAULT_VOLUME } from '../src/shared/sounds';
 import { DEFAULT_COLOR, DEFAULT_ZOOM, type DocumentKind, type HighlightColor, type PageTheme, type ReadingMarker, type ZoomValue } from '../src/shared/types';
 
@@ -104,8 +109,9 @@ class App {
   private readonly sounds?: ReadingSounds;
   /** Show how drawing works the first time draw mode turns on (once per VS Code session). */
   private drawHint = false;
-  /** The same for text mode. */
+  /** The same for text mode, and for the eraser. */
   private textHint = false;
+  private eraseHint = false;
   /** The style new text boxes get (the last one picked). */
   private textStyle: TextStyle = { ...DEFAULT_TEXT_STYLE };
 
@@ -143,6 +149,7 @@ class App {
       setColor: (c) => this.pickColor(c),
       toggleDrawing: () => this.setMode(this.drawings.active ? 'off' : 'draw'),
       toggleText: () => this.setMode(this.drawings.textActive ? 'off' : 'text'),
+      toggleEraser: () => this.setMode(this.drawings.erasing ? 'off' : 'erase'),
       placeMarker: () => this.toggleMarkerPlacement(),
       goToMarker: () => this.goToMarker(),
       removeMarker: () => this.removeMarker(),
@@ -253,7 +260,8 @@ class App {
         post({ type: 'saveDrawings', drawings: [drawing] });
         this.undoStack.record({ kind: 'createDrawing', drawing }, drawLabel(drawing.tool));
       },
-      erased: (drawings) => this.eraseDrawings(drawings),
+      erased: (drawings, highlights) => this.eraseAnnotations(drawings, highlights),
+      rubbed: (removed, added) => this.rubDrawings(removed, added),
       moved: (before, after) => {
         post({ type: 'saveDrawings', drawings: [after] });
         this.undoStack.record({ kind: 'updateDrawing', before, after }, isTextDrawing(after) ? 'Move text box' : 'Move drawing');
@@ -288,6 +296,8 @@ class App {
         if (text) post({ type: 'copyText', text });
       },
       saveNote: (id, note) => this.changeHighlight(id, { note }, note ? 'Edit note' : 'Delete note'),
+      // The highlight whose popover is open is the selected one (Delete deletes it).
+      shown: (id) => this.highlights.setSelected(id),
     });
     this.markerPopover = new MarkerPopover({
       move: () => this.marker.startPlacing(),
@@ -375,6 +385,7 @@ class App {
         if (init.drawStyle) this.setDrawStyle(init.drawStyle, false);
         this.drawHint = init.drawHint === true;
         this.textHint = init.textHint === true;
+        this.eraseHint = init.eraseHint === true;
         this.textStyle = { ...DEFAULT_TEXT_STYLE, ...(init.textStyle ?? {}) };
         this.drawings.setTextStyle(this.textStyle);
         this.toolbar.setTextColor(this.textStyle.color);
@@ -446,6 +457,9 @@ class App {
       case 'toggleText':
         this.setMode(this.drawings.textActive ? 'off' : 'text');
         break;
+      case 'toggleEraser':
+        this.setMode(this.drawings.erasing ? 'off' : 'erase');
+        break;
       case 'fullView':
         this.toolbar.setFullView(msg.full);
         break;
@@ -463,9 +477,7 @@ class App {
         break;
       case 'undo':
       case 'redo':
-        if (isTextField(document.activeElement)) document.execCommand(msg.type);
-        else if (msg.type === 'undo') void this.undo();
-        else void this.redo();
+        this.undoOrRedo(msg.type === 'undo');
         break;
       case 'deleteAll':
         this.deleteAll();
@@ -643,6 +655,24 @@ class App {
     else this.highlights.reveal(id);
   }
 
+  /**
+   * Undo (or redo), wherever the keyboard is: while typing in a text box, its typing; in another
+   * text field (a note, a hex color), that field's own; anywhere else, the last change to the
+   * highlights, notes, reading marker, drawings and text boxes.
+   */
+  private undoOrRedo(undo: boolean): void {
+    if (this.drawings.editorFocused) {
+      if (undo) this.drawings.editorUndo();
+      else this.drawings.editorRedo();
+    } else if (isTextField(document.activeElement)) {
+      document.execCommand(undo ? 'undo' : 'redo');
+    } else if (undo) {
+      void this.undo();
+    } else {
+      void this.redo();
+    }
+  }
+
   private async undo(): Promise<void> {
     this.drawings.cancelGesture();
     // Typing in a text box ends first (so the undo can take back the typing too).
@@ -717,8 +747,8 @@ class App {
   private changeDrawing(id: string, changes: Partial<Pick<InkDrawing, 'color' | 'width'>> | Partial<TextStyle>, label: string, from?: Drawing): void {
     const before = from ?? this.drawings.get(id);
     if (!before) return;
-    let after = { ...before, ...changes } as Drawing;
-    if (isTextDrawing(after)) after = this.drawings.fitText(after);
+    // (Bold, italic and underline of a text box go to all of its text.)
+    const after: Drawing = isTextDrawing(before) ? this.drawings.fitText(applyTextStyle(before, changes as Partial<TextStyle>)) : ({ ...before, ...changes } as Drawing);
     const { updatedAt: _a, ...a } = after;
     const { updatedAt: _b, ...b } = before;
     if (JSON.stringify(a) === JSON.stringify(b)) return;
@@ -787,12 +817,16 @@ class App {
     this.drawings.startEditing(id, clientX, clientY);
   }
 
-  /** The style the text bar works on: the box being typed in, else the selected box (in text mode), else the one new boxes get. */
+  /**
+   * The style the text bar shows and works on: of the box being typed in (bold, italic and
+   * underline: at the caret, or of the selected text), else of the selected box (in text mode),
+   * else the one new boxes get.
+   */
   private currentTextStyle(): TextStyle {
     const editing = this.drawings.editing;
-    if (editing) return editing;
+    if (editing) return { size: editing.size, align: editing.align, color: editing.color, ...(this.drawings.editingCharStyle ?? PLAIN) };
     const selected = this.selectedText();
-    return selected ?? this.textStyle;
+    return selected ? textStyleOf(selected) : this.textStyle;
   }
 
   private selectedText(): TextDrawing | undefined {
@@ -806,36 +840,69 @@ class App {
   }
 
   /**
-   * The text bar (or Ctrl+B/I/U) changed the style: of the box being typed in, or else of the
-   * selected box; either way new boxes get it too. `final` is false while a color is being picked.
+   * The text bar (or Ctrl+B/I/U) changed the style. While typing: size, alignment and color are
+   * the box's; bold, italic and underline go to the selected text, or, with just a caret, to
+   * what is typed next. Otherwise the selected box gets it (bold and so on: all of its text).
+   * New boxes get the style too, except for bold and so on put on part of a text. `final` is
+   * false while a color is being picked.
    */
   private changeTextStyle(patch: Partial<TextStyle>, final = true, session?: { base?: TextDrawing }): void {
-    this.textStyle = { ...this.textStyle, ...patch };
-    this.drawings.setTextStyle(this.textStyle);
-    this.toolbar.setTextColor(this.textStyle.color);
-    if (final) post({ type: 'textStyleChanged', style: patch });
+    /** What new text boxes take over. */
+    const sticky: Partial<TextStyle> = {};
     if (this.drawings.editing) {
-      this.drawings.setEditingStyle(patch);
+      const box: Partial<TextBoxStyle> = {};
+      if (patch.size !== undefined) box.size = patch.size;
+      if (patch.align !== undefined) box.align = patch.align;
+      if (patch.color !== undefined) box.color = patch.color;
+      Object.assign(sticky, box);
+      if (Object.keys(box).length > 0) this.drawings.setEditingStyle(box);
+      for (const name of CHAR_STYLES) {
+        if (patch[name] === undefined) continue;
+        const partial = this.drawings.editingSelection;
+        const on = this.drawings.toggleEditingStyle(name);
+        if (!partial && on !== undefined) sticky[name] = on;
+      }
       this.drawings.focusEditor();
     } else {
+      Object.assign(sticky, patch);
       const selected = this.selectedText();
       const from = session?.base ?? selected;
       if (selected && from && final) {
         this.changeDrawing(selected.id, patch, formatLabel(patch), from);
         if (session) session.base = this.selectedText();
       } else if (selected && from) {
-        this.drawings.put({ ...from, ...patch });
+        this.drawings.put(applyTextStyle(from, patch));
       }
+    }
+    if (Object.keys(sticky).length > 0) {
+      this.textStyle = { ...this.textStyle, ...sticky };
+      this.drawings.setTextStyle(this.textStyle);
+      this.toolbar.setTextColor(this.textStyle.color);
+      if (final) post({ type: 'textStyleChanged', style: sticky });
     }
     this.showTextStyle();
   }
 
-  /** One eraser gesture: one undo step. */
-  private eraseDrawings(drawings: Drawing[]): void {
-    const op: EditOp =
-      drawings.length === 1 ? { kind: 'deleteDrawing', drawing: drawings[0] } : { kind: 'batch', ops: drawings.map((drawing): EditOp => ({ kind: 'deleteDrawing', drawing })) };
+  /** One gesture of the eraser (drawings, text boxes and highlights it went over): one undo step. */
+  private eraseAnnotations(drawings: Drawing[], highlightIds: string[]): void {
+    const highlights = highlightIds.map((id) => this.highlights.snapshot(id)).filter((h): h is Highlight => h !== undefined);
+    const ops: EditOp[] = [...drawings.map((drawing): EditOp => ({ kind: 'deleteDrawing', drawing })), ...highlights.map((highlight): EditOp => ({ kind: 'delete', highlight }))];
+    if (ops.length === 0) return;
+    const op: EditOp = ops.length === 1 ? ops[0] : { kind: 'batch', ops };
     void this.apply(op);
-    this.undoStack.record(op, drawings.length === 1 ? 'Erase drawing' : `Erase ${drawings.length} drawings`);
+    const one = drawings[0] ? (isTextDrawing(drawings[0]) ? 'text box' : 'drawing') : 'highlight';
+    this.undoStack.record(op, ops.length === 1 ? `Erase ${one}` : `Erase ${ops.length} annotations`);
+    // A note goes with its highlight: say so, with the way back.
+    const notes = highlights.filter((h) => h.note).length;
+    if (notes > 0) this.toast.show(notes === 1 ? 'Erased a highlight and its note.' : `Erased ${notes} highlights and their notes.`, { action: this.undoAction() });
+  }
+
+  /** One gesture of the drawing eraser (already shown): the drawings it touched are replaced by what is left of them. One undo step. */
+  private rubDrawings(removed: InkDrawing[], added: InkDrawing[]): void {
+    post({ type: 'deleteDrawings', ids: removed.map((d) => d.id) });
+    if (added.length > 0) post({ type: 'saveDrawings', drawings: added });
+    const ops: EditOp[] = [...removed.map((drawing): EditOp => ({ kind: 'deleteDrawing', drawing })), ...added.map((drawing): EditOp => ({ kind: 'createDrawing', drawing }))];
+    this.undoStack.record({ kind: 'batch', ops }, removed.length === 1 ? 'Erase part of a drawing' : 'Erase parts of drawings');
   }
 
   /** Every drawing ('ink') or every text box ('text'). The host already asked the reader to confirm. */
@@ -960,10 +1027,15 @@ class App {
     const bars = [this.drawingBar.element, this.textBar.element];
     const barFocused = bars.some((bar) => bar.contains(document.activeElement));
     this.drawings.setMode(mode);
+    // A bar that opens or closes moves the pages down or up: scroll by as much, so they stay where they were on screen.
+    const top = this.container.getBoundingClientRect().top;
     this.drawingBar.visible = mode === 'draw';
     this.textBar.visible = mode === 'text';
+    const moved = this.container.getBoundingClientRect().top - top;
+    if (moved !== 0) this.container.scrollTop += moved;
     this.toolbar.setDrawing(mode === 'draw');
     this.toolbar.setText(mode === 'text');
+    this.toolbar.setEraser(mode === 'erase');
     this.showTextStyle();
     if (barFocused && !bars.some((bar) => !bar.hidden && bar.contains(document.activeElement))) this.container.focus({ preventScroll: true });
     if (mode === 'draw' && this.drawHint) {
@@ -975,6 +1047,11 @@ class App {
       this.textHint = false;
       post({ type: 'textHintShown' });
       this.toast.show('Click on the page to type, or drag to set the width first. Esc stops adding text.', { durationMs: 7000 });
+    }
+    if (mode === 'erase' && this.eraseHint) {
+      this.eraseHint = false;
+      post({ type: 'eraseHintShown' });
+      this.toast.show('Click a highlight, drawing or text box to delete it, or drag over several. Esc stops erasing.', { durationMs: 7000 });
     }
   }
 
@@ -1193,23 +1270,18 @@ class App {
           e.preventDefault();
           e.stopImmediatePropagation();
           const prop = format[formatKey as keyof typeof format];
-          const editing = this.drawings.editing;
-          if (editing && !e.repeat) this.changeTextStyle({ [prop]: !editing[prop] });
+          if (!e.repeat) this.changeTextStyle({ [prop]: !this.currentTextStyle()[prop] });
           return;
         }
         const undo = key === 'z' && !e.shiftKey;
         const redo = (key === 'z' && e.shiftKey) || (!isMac && key === 'y' && !e.shiftKey);
         if (!undo && !redo) return;
-        if (isTextField(document.activeElement)) {
-          // Undo the typing in the note box: keep the key from VS Code (which would route it to
-          // its own undo and cancel the browser's), and let the browser handle it.
-          e.stopImmediatePropagation();
-          return;
-        }
-        e.preventDefault();
+        // Handled here in every case, so VS Code never routes the key to its own undo.
         e.stopImmediatePropagation();
-        if (undo) void this.undo();
-        else void this.redo();
+        // A note box or the hex field: the browser undoes the typing there.
+        if (isTextField(document.activeElement) && !this.drawings.editorFocused) return;
+        e.preventDefault();
+        this.undoOrRedo(undo);
       },
       true,
     );
@@ -1226,30 +1298,43 @@ class App {
       this.hideFloating();
       if (this.toolbar.element.contains(document.activeElement)) this.container.focus();
     });
-    // Tool keys while drawing; Delete and Backspace remove the selected drawing or text box, Enter
-    // types in the selected text box. Only when the viewer itself has the keyboard (not a text
-    // field, a popover's controls, the color picker or the sounds panel).
+    // Tool keys while drawing. Delete and Backspace delete what is selected, whatever it is: the
+    // selected drawing or text box, the highlight whose popover is open, the reading marker whose
+    // popover is open. Enter edits it: types in the text box, writes the highlight's note. Only
+    // when the viewer itself has the keyboard (not a text field, a menu, the color picker or the
+    // sounds panel).
     document.addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
       const focused = document.activeElement;
-      if (isTextField(focused) || focused?.closest('.mpv-sounds, .mpv-hl-popover, .mpv-menu, .mpv-status, .mpv-color-picker, select')) return;
-      if (this.drawings.active) {
-        const tool = TOOL_KEYS[e.key.toLowerCase()];
-        if (!tool) return;
+      if (isTextField(focused) || focused?.closest('.mpv-sounds, .mpv-menu, .mpv-status, .mpv-color-picker, select')) return;
+      const tool = this.drawings.active ? TOOL_KEYS[e.key.toLowerCase()] : undefined;
+      if (tool) {
         e.preventDefault();
         if (!e.repeat) this.setDrawStyle({ tool });
         return;
       }
       const selected = this.drawings.selectedId;
-      if (!selected) return;
+      const highlight = this.popover.visible && !this.popover.editing ? this.popover.highlightId : undefined;
       if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selected) {
+          this.drawingPopover.hide();
+          this.textPopover.hide();
+          this.removeDrawing(selected);
+        } else if (highlight) {
+          this.popover.hide(false);
+          this.removeHighlight(highlight);
+        } else if (this.markerPopover.visible) {
+          this.markerPopover.hide();
+          this.removeMarker();
+        } else {
+          return;
+        }
         e.preventDefault();
-        this.drawingPopover.hide();
-        this.textPopover.hide();
-        this.removeDrawing(selected);
-      } else if (e.key === 'Enter' && !focused?.closest('button') && this.drawings.get(selected)?.tool === 'text') {
+      } else if (e.key === 'Enter' && !focused?.closest('button, [role="button"]')) {
+        if (selected && this.drawings.get(selected)?.tool === 'text') this.editText(selected);
+        else if (highlight) this.popover.editNote();
+        else return;
         e.preventDefault();
-        this.editText(selected);
       }
     });
   }

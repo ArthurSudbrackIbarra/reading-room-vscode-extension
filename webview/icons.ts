@@ -63,7 +63,7 @@ export function textIcon(): SVGSVGElement {
 }
 
 const TOOL_ICONS: Record<DrawingTool, SvgPart[]> = {
-  pen: [['path', { ...STROKE, d: 'M1.8 10.4c1.5-5.2 3.3-5.2 4.3-1.7s2.4 4.2 3.8.1 2.8-4.4 4.3-1.3' }]],
+  pen: [['path', { ...STROKE, d: 'M1.8 9.9c1.5-5.2 3.3-5.2 4.3-1.7s2.4 4.2 3.8.1 2.8-4.4 4.3-1.3' }]],
   line: [['path', { ...STROKE, 'stroke-width': '1.5', d: 'M3.2 12.8 12.8 3.2' }]],
   arrow: [['path', { ...STROKE, 'stroke-width': '1.4', d: 'M3.2 12.8 12.6 3.4M7.6 3.2h5.2v5.2' }]],
   rect: [['rect', { ...STROKE, x: '1.9', y: '4.1', width: '12.2', height: '7.8', rx: '1' }]],
@@ -74,12 +74,33 @@ export function toolIcon(tool: DrawingTool): SVGSVGElement {
   return icon16(TOOL_ICONS[tool]);
 }
 
-/** The eraser: a block at 45° on a line. */
+/** The eraser of the toolbar (it deletes whole things): a block at 45° on a line. */
 export function eraserIcon(): SVGSVGElement {
   return icon16([
-    ['path', { ...STROKE, d: 'M5.8 13.6 2.1 9.9 8.6 3.4 12.3 7.1Z' }],
-    ['path', { ...STROKE, d: 'M4.7 7.3 8.4 11M5.8 13.6h8.1' }],
+    ['path', { ...STROKE, d: 'M5.8 13.1 2.1 9.4 8.6 2.9 12.3 6.6Z' }],
+    ['path', { ...STROKE, d: 'M4.7 6.8 8.4 10.5M5.8 13.1h8.1' }],
   ]);
+}
+
+/** The eraser of the drawing bar (it rubs out part of a drawing): the block, on a pen stroke with a gap. */
+export function rubberIcon(): SVGSVGElement {
+  return icon16([
+    ['path', { ...STROKE, d: 'M6.6 11.3 2.9 7.6 8.6 1.9 12.3 5.6Z' }],
+    ['path', { ...STROKE, d: 'M5.1 5.4 8.8 9.1' }],
+    ['path', { ...STROKE, d: 'M1.5 13.6c.8-.9 1.6-.9 2.4-.1M10.3 13.4c.9.8 1.7.9 2.5.1s1.3-.9 1.9-.4' }],
+  ]);
+}
+
+/** The names of the mode bars, as icons: a pencil for the drawing tools, a T for the text tools. */
+export function pencilIcon(): SVGSVGElement {
+  return icon16([
+    ['path', { ...STROKE, d: 'M11.1 2.4 13.1 4.4 5.4 12.1 2.4 13.1 3.4 10.1Z' }],
+    ['path', { ...STROKE, d: 'M9.6 3.9 11.6 5.9' }],
+  ]);
+}
+
+export function letterIcon(): SVGSVGElement {
+  return icon16([['path', { ...STROKE, 'stroke-width': '1.5', d: 'M3.3 3.4h9.4M8 3.4v9.4' }]]);
 }
 
 const WIDTH_PX: Record<InkWidth, string> = { thin: '1', medium: '2', thick: '4' };

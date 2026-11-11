@@ -77,6 +77,8 @@ export interface PanelHost {
   drawHint(shown?: boolean): boolean;
   /** The same for the "how to add text" tip. */
   textHint(shown?: boolean): boolean;
+  /** The same for the eraser. */
+  eraseHint(shown?: boolean): boolean;
   /**
    * Asks the reader to confirm, then deletes every drawing ('ink') or every text box ('text') of the
    * panel's file (through its viewer, so it can be undone).
@@ -347,6 +349,9 @@ export class PreviewPanel implements vscode.Disposable {
       case 'textHintShown':
         this.host.textHint(true);
         break;
+      case 'eraseHintShown':
+        this.host.eraseHint(true);
+        break;
       case 'recentColorsChanged': {
         const colors = (Array.isArray(msg.colors) ? msg.colors : []).map(normalizeHex).filter((c): c is HexColor => c !== undefined);
         this.host.updateUiState({ recentColors: [...new Set(colors)].slice(0, MAX_RECENT_COLORS) });
@@ -463,6 +468,7 @@ export class PreviewPanel implements vscode.Disposable {
         drawHint: this.host.drawHint(),
         textStyle: ui.textStyle,
         textHint: this.host.textHint(),
+        eraseHint: this.host.eraseHint(),
         recentColors: ui.recentColors,
         fullView: this.kind !== 'pdf' && this.isFullView(),
         marginsPt: margins,
@@ -729,6 +735,10 @@ export class PreviewPanel implements vscode.Disposable {
 
   toggleDrawing(): void {
     this.post({ type: 'toggleDrawing' });
+  }
+
+  toggleEraser(): void {
+    this.post({ type: 'toggleEraser' });
   }
 
   toggleText(): void {

@@ -71,9 +71,9 @@ describe('wrapping text like the viewer', () => {
   it('accepts the viewer lines only when they are exactly the text', () => {
     const text = `alpha beta gamma${NL}delta`;
     expect(matchLines(text, ['alpha beta ', 'gamma', 'delta'])).toEqual([
-      { line: 'alpha beta ', last: false },
-      { line: 'gamma', last: true },
-      { line: 'delta', last: true },
+      { line: 'alpha beta ', start: 0, last: false },
+      { line: 'gamma', start: 11, last: true },
+      { line: 'delta', start: 17, last: true },
     ]);
     expect(matchLines(text, ['alpha beta gamma'])).toBeUndefined();
     expect(matchLines(text, ['alpha', 'beta gamma', 'delta'])).toBeUndefined();
@@ -83,7 +83,7 @@ describe('wrapping text like the viewer', () => {
 describe('downloads with text boxes', () => {
   it('add a /FreeText annotation per text box with its text, size and color', async () => {
     const plain = makeText({ id: 'plain', text: `Hello there${NL}second line`, color: '#1F77B4', size: 14 });
-    const bold = makeText({ id: 'bold', text: 'Bold text', bold: true, italic: true, pageIndex: 1, color: 'red' });
+    const bold = makeText({ id: 'bold', text: 'Bold text', spans: [{ start: 0, end: 9, bold: true, italic: true }], pageIndex: 1, color: 'red' });
     const away = makeText({ id: 'away', pageIndex: 9 });
     const { pdf, replacedChars } = await annotate(await pdfWithPages([0, 0]), { highlights: [], drawings: [plain, bold, away] });
     expect(replacedChars).toBe(0);
@@ -101,19 +101,19 @@ describe('downloads with text boxes', () => {
     expect(a.rect[3] - a.rect[1]).toBeCloseTo(height, 1);
     expect(a.rect[2] - a.rect[0]).toBeCloseTo(textWidth('second line', { size: 14, bold: false, italic: false }) + 2 * TEXT_PAD_X, 1);
     const doc = await PDFDocument.load(pdf);
-    expect(appearanceOf(doc, 1)[0]).toMatch(/\/F0 12 Tf/);
+    expect(appearanceOf(doc, 1)[0]).toMatch(/\/F3 12 Tf/);
     const fonts = doc.context.enumerateIndirectObjects().map(([, o]) => o.toString()).filter((o) => o.includes('/BaseFont'));
     expect(fonts.join()).toContain('/Helvetica-BoldOblique');
   });
 
   it('draw the lines the viewer showed, on its baselines, aligned and justified the same way', async () => {
-    const text = makeText({ id: 'just', text: 'aa bb cc dd ee ff', align: 'justify', underline: true, boxWidth: 80 });
+    const text = makeText({ id: 'just', text: 'aa bb cc dd ee ff', align: 'justify', spans: [{ start: 0, end: 17, underline: true }], boxWidth: 80 });
     const layout: TextLayout = { id: 'just', lines: ['aa bb cc ', 'dd ee ff'], width: 80, height: 0 };
     const page = pageGeometry([0, 0, 612, 792]);
     const { ops, lines } = textBoxAppearance(text, page, layout);
     expect(lines).toEqual(['aa bb cc ', 'dd ee ff']);
     const inner = 80 - 2 * TEXT_PAD_X;
-    const natural = textWidth('aa bb cc', text);
+    const natural = textWidth('aa bb cc', { size: 12 });
     // The first line is justified (word spacing fills the line), the last one is not.
     const tw = ops.match(/(-?[\d.]+) Tw/g)?.map((m) => parseFloat(m));
     expect(tw?.[0]).toBeCloseTo((inner - natural) / 2, 2);
@@ -153,7 +153,7 @@ describe('downloads with text boxes', () => {
     const { pdf } = await annotate(await pdfWithPages([90]), { highlights: [], drawings: [text] });
     const [{ annotations, viewport }] = await annotationsOf(pdf);
     const appearance = textBoxAppearance(text, page);
-    const width = textWidth('Turned page', text) + 2 * TEXT_PAD_X;
+    const width = textWidth('Turned page', { size: 12 }) + 2 * TEXT_PAD_X;
     const height = 12 * TEXT_LINE_HEIGHT + 2 * TEXT_PAD_Y;
     // pdf.js's own viewport maps the box's corners (page space) to the PDF rectangle.
     const [px, py] = [page.transform[0] * anchorPdf[0] + page.transform[2] * anchorPdf[1] + page.transform[4], page.transform[1] * anchorPdf[0] + page.transform[3] * anchorPdf[1] + page.transform[5]];
@@ -167,6 +167,50 @@ describe('downloads with text boxes', () => {
     expect(appearance.rect[3] - appearance.rect[1]).toBeCloseTo(width, 1);
     // The appearance turns the text with the page (a rotation in its matrix).
     expect(appearance.ops.split(NL)[1]).toMatch(/^0 1 -1 0 /);
+  });
+
+  it('switch faces inside a line for bold and italic parts, and underline only what is underlined', async () => {
+    const text = makeText({
+      id: 'mix',
+      text: 'plain bold both under',
+      spans: [
+        { start: 6, end: 10, bold: true },
+        { start: 11, end: 15, bold: true, italic: true },
+        { start: 16, end: 21, underline: true },
+      ],
+    });
+    const { ops, fonts, rect } = textBoxAppearance(text, pageGeometry([0, 0, 612, 792]));
+    expect(fonts).toEqual(['Helvetica', 'Helvetica-Bold', 'Helvetica-BoldOblique']);
+    expect([...ops.matchAll(/\/(F\d) 12 Tf/g)].map((m) => m[1])).toEqual(['F0', 'F1', 'F0', 'F3', 'F0']);
+    // One line: one position, then the runs follow each other.
+    expect(ops.match(/ Tm/g)).toHaveLength(1);
+    const before =
+      textWidth('plain ', { size: 12 }) + textWidth('bold', { size: 12, bold: true }) + textWidth(' ', { size: 12 }) + textWidth('both', { size: 12, bold: true, italic: true }) + textWidth(' ', { size: 12 });
+    const underline = ops.match(/([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) re f/)!;
+    expect(ops.match(/ re f/g)).toHaveLength(1);
+    expect(parseFloat(underline[1])).toBeCloseTo(TEXT_PAD_X + before, 2);
+    expect(parseFloat(underline[3])).toBeCloseTo(textWidth('under', { size: 12 }), 2);
+    // The box is as wide as the runs together: bold text is wider than plain text.
+    expect(rect[2] - rect[0]).toBeCloseTo(before + textWidth('under', { size: 12 }) + 2 * TEXT_PAD_X, 1);
+    expect(rect[2] - rect[0]).toBeGreaterThan(textWidth(text.text, { size: 12 }) + 2 * TEXT_PAD_X);
+    // The download has the three faces, each once, and pdf.js reads the text back whole.
+    const { pdf } = await annotate(await pdfWithPages([0]), { highlights: [], drawings: [text, makeText({ id: 'mix2', text: 'more bold', spans: [{ start: 5, end: 9, bold: true }] })] });
+    const doc = await PDFDocument.load(pdf);
+    const faces = doc.context.enumerateIndirectObjects().map(([, o]) => o.toString()).filter((o) => o.includes('/BaseFont'));
+    expect(faces).toHaveLength(3);
+    const [{ annotations }] = await annotationsOf(pdf);
+    expect(annotations[0].textContent?.join('')).toBe(text.text);
+  });
+
+  it('wrap bold text by its own widths when the viewer sent no lines', () => {
+    const words = 'aaaa bbbb cccc';
+    const plain = textWidth('aaaa bbbb', { size: 12 });
+    const bold = [{ start: 0, end: words.length, bold: true as const }];
+    // Wide enough for two plain words, not for two bold ones.
+    expect(wrapText(words, { size: 12, spans: [] }, plain + 0.5)).toEqual(['aaaa bbbb ', 'cccc']);
+    expect(wrapText(words, { size: 12, spans: bold }, plain + 0.5)).toEqual(['aaaa ', 'bbbb ', 'cccc']);
+    // A width narrower than one letter still ends (one letter per line).
+    expect(wrapText('abc', { size: 12 }, 1)).toEqual(['a', 'b', 'c']);
   });
 
   it('count characters the standard font cannot show (they become "?")', async () => {

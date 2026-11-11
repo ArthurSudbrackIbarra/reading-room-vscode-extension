@@ -3,7 +3,7 @@
 // picked, stored as #RRGGBB and drawn lighter on dark pages when it is too dark to see there.
 // Downloads always have light pages, so they use the light shade. No runtime dependencies.
 
-export const INK_PRESETS = ['black', 'gray', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'] as const;
+export const INK_PRESETS = ['black', 'gray', 'white', 'brown', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'] as const;
 export type InkPreset = (typeof INK_PRESETS)[number];
 /** A color the reader picked, always written as #RRGGBB (upper case). */
 export type HexColor = `#${string}`;
@@ -15,6 +15,9 @@ export const DEFAULT_INK: Ink = 'red';
 export const INK_PRESET_SHADES: Record<InkPreset, { light: string; dark: string }> = {
   black: { light: '#1F2328', dark: '#E6EDF3' },
   gray: { light: '#6E7781', dark: '#9BA3AC' },
+  // White is white on any page (on a white page it covers what is under it).
+  white: { light: '#FFFFFF', dark: '#FFFFFF' },
+  brown: { light: '#8A5A2B', dark: '#C99A6B' },
   red: { light: '#D1242F', dark: '#FF7B72' },
   orange: { light: '#BC4C00', dark: '#F0883E' },
   yellow: { light: '#C99A06', dark: '#F2CC60' },
@@ -28,6 +31,8 @@ export const INK_PRESET_SHADES: Record<InkPreset, { light: string; dark: string 
 export const INK_PRESET_NAMES: Record<InkPreset, string> = {
   black: 'Black',
   gray: 'Gray',
+  white: 'White',
+  brown: 'Brown',
   red: 'Red',
   orange: 'Orange',
   yellow: 'Yellow',
@@ -39,7 +44,7 @@ export const INK_PRESET_NAMES: Record<InkPreset, string> = {
 };
 
 /** Most custom colors remembered as "recent" in the color picker. */
-export const MAX_RECENT_COLORS = 5;
+export const MAX_RECENT_COLORS = 6;
 
 export function isInkPreset(value: unknown): value is InkPreset {
   return typeof value === 'string' && (INK_PRESETS as readonly string[]).includes(value);

@@ -100,6 +100,8 @@ export interface Shape {
   points: PdfPoint[];
   /** Stroke width in PDF units (sizes the arrowhead). */
   widthPt: number;
+  /** Pen only: straight lines through the points instead of a smooth curve. */
+  polyline?: boolean;
 }
 
 const KAPPA = 0.5522847498307936;
@@ -191,7 +193,7 @@ export function shapePath(shape: Shape): PathCommand[] {
   if (points.length === 0) return [];
   switch (shape.tool) {
     case 'pen':
-      return smoothStroke(points);
+      return shape.polyline && points.length > 1 ? points.map((p, i): PathCommand => ({ op: i === 0 ? 'M' : 'L', p })) : smoothStroke(points);
     case 'line':
       return [
         { op: 'M', p: points[0] },

@@ -53,8 +53,9 @@ body[data-page-theme='dark'] .mpv-ink {
 /* ---------- Toolbar and mode bars ---------- */
 
 /* One grid for both rows: every control is --mpv-control tall, buttons are square, groups are
-   --mpv-group-gap apart (in the toolbar with a divider in the middle of that space, in the mode
-   bars without), and the rows share their padding, so things line up from row to row. */
+   --mpv-group-gap apart with a divider in the middle of that space, and the rows share their
+   padding. A mode bar starts with a label as wide as a button, so its first divider is right
+   under the toolbar's first one. */
 :root {
   --mpv-control: 26px;
   --mpv-input: 24px;
@@ -105,27 +106,14 @@ body[data-page-theme='dark'] .mpv-ink {
   min-width: var(--mpv-group-gap);
 }
 
-.mpv-modebar {
-  column-gap: var(--mpv-group-gap);
-}
-
-.mpv-modebar .mpv-spacer {
-  flex-basis: 0;
-  min-width: 0;
-}
-
-/* "DRAW", "TEXT": the same width in every bar, so their controls start at the same place, and
-   left-aligned with the icons of the toolbar above. */
+/* What a mode bar is for: the mode's icon, in a box the size of a button (it is not one). */
 .mpv-modebar-label {
+  display: inline-flex;
   flex: 0 0 auto;
-  box-sizing: border-box;
-  width: 40px;
-  padding-left: 5px;
-  font-size: 10.5px;
-  font-weight: 600;
-  line-height: var(--mpv-control);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  align-items: center;
+  justify-content: center;
+  width: var(--mpv-control);
+  height: var(--mpv-control);
   color: var(--vscode-descriptionForeground, var(--vscode-foreground));
 }
 
@@ -210,11 +198,13 @@ body[data-page-theme='dark'] .mpv-ink {
   font: inherit;
 }
 
+/* (The text of a field or menu is centered as a line, which leaves it a pixel low: see the
+   labels above. Two pixels of padding below raise it by one.) */
 .mpv-page-input {
   width: auto;
   min-width: 2.2em;
   max-width: 4.5em;
-  padding: 0 5px;
+  padding: 0 5px 2px;
   text-align: right;
 }
 
@@ -224,7 +214,7 @@ body[data-page-theme='dark'] .mpv-ink {
 
 .mpv-zoom-select,
 .mpv-select {
-  padding: 0 2px 0 4px;
+  padding: 0 2px 2px 4px;
   background: var(--vscode-dropdown-background);
   color: var(--vscode-dropdown-foreground);
   cursor: pointer;
@@ -341,6 +331,22 @@ body[data-page-theme='dark'] .mpv-ink {
   cursor: pointer;
 }
 
+/* A label next to an icon, or alone in a button: centered by its capital letters. A line of
+   text is taller above its letters than below them, so centering the line leaves the letters
+   about a pixel low; this trims the line to the letters before it is centered. */
+.mpv-done > span,
+.mpv-button,
+.mpv-button > span:not(.codicon),
+.mpv-link-button,
+.mpv-page-count,
+.mpv-sidebar-title,
+.mpv-menu-item > span:not(.codicon),
+.mpv-toast-text,
+.mpv-banner-text,
+.mpv-hint {
+  text-box: trim-both cap alphabetic;
+}
+
 .mpv-done:hover {
   background: var(--vscode-button-hoverBackground);
 }
@@ -404,9 +410,17 @@ body[data-page-theme='dark'] .mpv-ink {
   border-bottom-color: var(--vscode-inputValidation-infoBorder, rgba(0, 120, 212, 0.5));
 }
 
+/* The icon is a box of its own, so it is centered like the text and the buttons. */
+.mpv-banner-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
 .mpv-banner-text {
   flex: 1 1 auto;
-  overflow: hidden;
+  /* Cut at the right edge only: the line is trimmed to its capitals, and letters reach beyond them. */
+  overflow: clip;
+  overflow-clip-margin: 5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -417,7 +431,7 @@ body[data-page-theme='dark'] .mpv-ink {
 }
 
 .mpv-link-button {
-  padding: 0;
+  padding: 4px 0;
   border: none;
   background: none;
   color: var(--vscode-textLink-foreground);
@@ -635,6 +649,22 @@ body[data-page-theme='dark'] .mpv-hl {
   mix-blend-mode: normal;
 }
 
+/* The highlight whose popover is open (Delete deletes it). */
+.mpv-hl.mpv-selected,
+body[data-page-theme='dark'] .mpv-hl.mpv-selected {
+  opacity: 0.66;
+}
+
+/* What the eraser would delete (under it now, or touched by this drag). */
+.mpv-hl.mpv-erasing,
+body[data-page-theme='dark'] .mpv-hl.mpv-erasing {
+  opacity: 0.12;
+}
+
+.mpv-note-badge.mpv-erasing {
+  opacity: 0.3;
+}
+
 .mpv-link-layer {
   position: absolute;
   inset: 0;
@@ -778,12 +808,14 @@ body.mpv-tool-active .textLayer span {
   }
 }
 
-/* Drawings are not clickable while drawing or adding text (the capture surface is on top) or placing the marker. */
+/* Drawings are not clickable while drawing, adding text or erasing (the capture surface is on top) or placing the marker. */
 .mpv-drawing-preview .mpv-drawing-ink,
 body.mpv-draw-mode .mpv-drawing-ink,
 body.mpv-draw-mode .mpv-drawing-hit,
 body.mpv-text-mode .mpv-drawing-ink,
 body.mpv-text-mode .mpv-drawing-hit,
+body.mpv-erase-mode .mpv-drawing-ink,
+body.mpv-erase-mode .mpv-drawing-hit,
 body.mpv-placing-marker .mpv-drawing-ink,
 body.mpv-placing-marker .mpv-drawing-hit {
   pointer-events: none;
@@ -807,11 +839,26 @@ body.mpv-draw-mode .pdfViewer .page {
   touch-action: none;
 }
 
+/* The eraser of draw mode rubs out what is under this circle (8px radius, see RUBBER_PX). */
 body.mpv-draw-mode[data-draw-tool='eraser'] .mpv-draw-capture {
   cursor:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 18 18'%3E%3Ccircle cx='9' cy='9' r='8' fill='none' stroke='white' stroke-opacity='0.85' stroke-width='1.2'/%3E%3Ccircle cx='9' cy='9' r='7' fill='rgba(255,255,255,0.45)' stroke='%23333' stroke-width='1.2'/%3E%3C/svg%3E")
-      9 9,
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='8.9' fill='none' stroke='white' stroke-opacity='0.9' stroke-width='1.2'/%3E%3Ccircle cx='10' cy='10' r='7.7' fill='rgba(255,255,255,0.4)' stroke='%23333' stroke-width='1.2'/%3E%3C/svg%3E")
+      10 10,
     cell;
+}
+
+/* Erase mode: the surface takes the pointer; the cursor is an eraser whose lower corner points. */
+body.mpv-erase-mode .mpv-draw-capture {
+  pointer-events: auto;
+  touch-action: none;
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M9.2 20.5 3.5 14.8 13.4 4.9 19.1 10.6Z' fill='white' stroke='%23222' stroke-width='1.4' stroke-linejoin='round'/%3E%3Cpath d='M7.6 10.7 13.3 16.4' stroke='%23222' stroke-width='1.4'/%3E%3Cpath d='M9.2 20.5H20' fill='none' stroke='%23222' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E")
+      6 18,
+    cell;
+}
+
+body.mpv-erase-mode .pdfViewer .page {
+  touch-action: none;
 }
 
 /* Drawings in the list: a thumbnail on a chip in the page color. */
@@ -914,7 +961,9 @@ body.mpv-draw-mode[data-draw-tool='eraser'] .mpv-draw-capture {
   display: flex;
   align-items: center;
   gap: 8px;
+  box-sizing: border-box;
   width: 100%;
+  min-height: 27px;
   padding: 5px 8px;
   border: none;
   border-radius: 3px;
@@ -985,7 +1034,9 @@ body.mpv-draw-mode[data-draw-tool='eraser'] .mpv-draw-capture {
 }
 
 .mpv-button {
-  padding: 4px 14px;
+  box-sizing: border-box;
+  min-height: 27px;
+  padding: 0 14px;
   border: 1px solid var(--vscode-button-border, transparent);
   border-radius: 2px;
   background: var(--vscode-button-background);
@@ -1010,10 +1061,15 @@ body.mpv-draw-mode[data-draw-tool='eraser'] .mpv-draw-capture {
 }
 
 .mpv-button-small {
+  min-height: 23px;
+  padding: 0 10px;
+}
+
+/* An icon and a label. */
+.mpv-button:has(> .codicon) {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 10px;
 }
 
 .mpv-button-small .codicon {
@@ -1366,8 +1422,10 @@ body.mpv-placing-marker .mpv-viewer-container .annotationLayer * {
   display: flex;
   align-items: center;
   gap: 14px;
+  box-sizing: border-box;
+  min-height: 34px;
   max-width: min(560px, calc(100% - 32px));
-  padding: 7px 12px;
+  padding: 10px 12px;
   transform: translateX(-50%);
   border: 1px solid var(--vscode-notifications-border, var(--mpv-border));
   border-radius: 6px;
@@ -1379,6 +1437,7 @@ body.mpv-placing-marker .mpv-viewer-container .annotationLayer * {
 
 .mpv-toast-text {
   overflow-wrap: anywhere;
+  line-height: 1.45;
 }
 
 .mpv-toast .mpv-link-button {
@@ -1842,7 +1901,8 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
   flex-direction: column;
   gap: 8px;
   box-sizing: border-box;
-  width: 200px;
+  /* Six swatches of 24px, 8px apart (the same as between the two rows), inside 10px of padding and a 1px border. */
+  width: 206px;
   padding: 10px;
 }
 
@@ -1857,7 +1917,7 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
 
 .mpv-cp-swatches {
   display: grid;
-  grid-template-columns: repeat(5, 24px);
+  grid-template-columns: repeat(6, 24px);
   justify-content: space-between;
   row-gap: 8px;
 }
@@ -1997,6 +2057,9 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
   border: 0;
   padding: 1px 2px;
   font-family: Helvetica, Arial, 'Liberation Sans', 'Nimbus Sans', 'Nimbus Sans L', sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  text-decoration: none;
   line-height: 1.25;
   letter-spacing: 0;
   word-spacing: 0;
@@ -2018,6 +2081,20 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
   text-decoration-skip-ink: none;
   color: var(--ink);
   background: transparent;
+}
+
+/* The bold, italic and underlined parts of a text. */
+.mpv-text-body .mpv-t-b {
+  font-weight: 700;
+}
+
+.mpv-text-body .mpv-t-i {
+  font-style: italic;
+}
+
+.mpv-text-body .mpv-t-u {
+  text-decoration-line: underline;
+  text-decoration-thickness: 0.05em;
 }
 
 .mpv-text-measure {
@@ -2094,6 +2171,8 @@ body.mpv-draw-mode .mpv-text-hit,
 body.mpv-draw-mode .mpv-text-handle,
 body.mpv-text-mode .mpv-text-hit,
 body.mpv-text-mode .mpv-text-handle,
+body.mpv-erase-mode .mpv-text-hit,
+body.mpv-erase-mode .mpv-text-handle,
 body.mpv-placing-marker .mpv-text-hit,
 body.mpv-placing-marker .mpv-text-handle {
   pointer-events: none;
@@ -2110,18 +2189,23 @@ body.mpv-text-mode .pdfViewer .page {
   touch-action: none;
 }
 
-/* The box being typed in: a textarea laid out in points, scaled to the zoom. */
+/* The box being typed in: an editable element laid out in points, scaled to the zoom. It is as
+   big as its text (at least one line, and room for the caret). */
 .mpv-text-editor {
   position: absolute;
   z-index: 100005;
-  min-height: 0;
+  min-height: calc(1.25em + 2px);
   transform-origin: 0 0;
-  resize: none;
-  overflow: hidden;
   outline: calc(1.25px * var(--mpv-unscale, 1)) dashed var(--vscode-focusBorder, #0078d4);
   outline-offset: 0;
   caret-color: var(--ink);
-  appearance: none;
+  cursor: text;
+  user-select: text;
+}
+
+.mpv-text-editor::selection,
+.mpv-text-editor ::selection {
+  background: color-mix(in srgb, var(--vscode-focusBorder, #0078d4) 35%, transparent);
 }
 
 .mpv-text-editor:focus {

@@ -34,6 +34,8 @@ export interface ViewerInit {
   textStyle: TextStyle;
   /** Show how adding text works when text mode first turns on (once per VS Code session). */
   textHint: boolean;
+  /** Show how the eraser works when it first turns on (once per VS Code session). */
+  eraseHint: boolean;
   /** Custom colors picked lately, newest first (shared by all files). */
   recentColors: HexColor[];
   fullView: boolean;
@@ -70,6 +72,7 @@ export type HostToViewer =
   | { type: 'toggleTool' }
   | { type: 'toggleDrawing' }
   | { type: 'toggleText' }
+  | { type: 'toggleEraser' }
   | { type: 'fullView'; full: boolean }
   | { type: 'theme'; theme: PageTheme }
   | { type: 'document'; fileName: string; uri: string }
@@ -135,6 +138,7 @@ export type ViewerToHost =
   | { type: 'drawHintShown' }
   | { type: 'textStyleChanged'; style: Partial<TextStyle> }
   | { type: 'textHintShown' }
+  | { type: 'eraseHintShown' }
   | { type: 'recentColorsChanged'; colors: HexColor[] }
   | { type: 'anchorsResolved'; renderId: number; results: AnchorResult[] }
   | { type: 'viewChanged'; zoom: ZoomValue }

@@ -208,9 +208,9 @@ export class ColorPicker {
     return button;
   }
 
-  /** Arrow keys move between the swatches of the picker (five per row). */
+  /** Arrow keys move between the swatches of the picker (six per row). */
   private moveFocus(e: KeyboardEvent, from: HTMLButtonElement): void {
-    const steps: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 5, ArrowUp: -5 };
+    const steps: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 6, ArrowUp: -6 };
     const step = steps[e.key];
     if (step === undefined) return;
     const all = [...this.element.querySelectorAll<HTMLButtonElement>('.mpv-cp-swatch')];
