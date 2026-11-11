@@ -3,6 +3,9 @@
 // every page layer), typing text, selecting, moving and resizing, and hit-testing. Two erasers:
 // the one of draw mode rubs out the part of a drawing it goes over; erase mode deletes whole
 // things, highlights included. The App records undo steps and talks to the host.
+import type { AnchorState } from '../src/anchoring/anchor';
+import type { BindingFlag, DrawingBinding } from '../src/anchoring/binding';
+import type { DrawingInput, DrawingResult } from '../src/anchoring/runs';
 import { inkShades, type Ink } from '../src/shared/colors';
 import {
   clampMove,
@@ -263,8 +266,40 @@ function sameText(a: TextDrawing, b: TextDrawing): boolean {
   );
 }
 
+/** Binds a drawing to what it covers in the document shown (see AnchoringController). */
+export interface DrawingBinder {
+  bind(drawing: Drawing, prefer?: 'text' | 'image' | 'page'): Promise<DrawingBinding | undefined>;
+  /** Hash of the text of the document shown. */
+  hash(): string | undefined;
+}
+
+function withoutAnchoring<T extends Drawing>(drawing: T): T {
+  const { binding: _binding, anchorStates: _states, ...rest } = drawing;
+  return rest as T;
+}
+
+/** Whether two versions of a drawing are at the same place with the same shape (their look may differ). */
+function sameGeometry(a: Drawing, b: Drawing): boolean {
+  if (a.pageIndex !== b.pageIndex || a.points.length !== b.points.length) return false;
+  if (isTextDrawing(a) && isTextDrawing(b) && (a.boxWidth ?? -1) !== (b.boxWidth ?? -1)) return false;
+  return a.points.every((p, i) => Math.abs(p[0] - b.points[i][0]) <= 0.011 && Math.abs(p[1] - b.points[i][1]) <= 0.011);
+}
+
 export class DrawingController {
+  /**
+   * The drawings as they are shown: where their content is in the document on screen. Everything
+   * the reader does with the pointer works on these.
+   */
   private readonly drawings = new Map<string, Drawing>();
+  /** The drawings as the reader placed them, with what they are bound to: what is stored. */
+  private readonly stored = new Map<string, Drawing>();
+  /** What the last resolving run showed, to tell a move from a change of color. */
+  private readonly resolvedShown = new Map<string, Drawing>();
+  private readonly results = new Map<string, DrawingResult>();
+  /** Anchor states from a render of unsaved text: used for the next run, never stored. */
+  private readonly liveStates = new Map<string, (AnchorState | undefined)[]>();
+  private binder?: DrawingBinder;
+  private idleWaiters: (() => void)[] = [];
   private readonly outlines = new Map<string, Outline>();
   private readonly geometries = new WeakMap<object, PageGeometry>();
   private readonly measurer = new TextMeasurer();
@@ -323,16 +358,202 @@ export class DrawingController {
 
   // ---------- Data ----------
 
-  /** Replaces every drawing (initial load, a reload after a rename or Reattach). */
+  /**
+   * Replaces every drawing (initial load, a reload after a rename or Reattach). Nothing is shown
+   * until a resolving run says where each one is in the document on screen.
+   */
   setDrawings(list: Drawing[]): void {
     this.commitEditing();
     this.cancelGesture();
+    this.stored.clear();
+    this.clearShown();
+    for (const d of list) this.stored.set(d.id, structuredClone(d));
+    this.events.changed();
+  }
+
+  private clearShown(): void {
     this.drawings.clear();
+    this.resolvedShown.clear();
+    this.results.clear();
+    this.liveStates.clear();
     this.outlines.clear();
-    for (const d of list) this.drawings.set(d.id, structuredClone(d));
-    if (this.selected && !this.drawings.has(this.selected)) this.select(undefined);
+    if (this.selected) this.select(undefined);
+    this.layers.redraw(LAYER);
+  }
+
+  setBinder(binder: DrawingBinder): void {
+    this.binder = binder;
+  }
+
+  /** What the resolver works on: the drawings as stored, each with its binding. */
+  inputs(): DrawingInput[] {
+    return [...this.stored.values()].map((d) => ({ drawing: withoutAnchoring(d), binding: d.binding, states: this.liveStates.get(d.id) ?? d.anchorStates }));
+  }
+
+  /** Takes over where a resolving run put every drawing (or that it has no place in this version). */
+  applyResults(results: Map<string, DrawingResult>, provisional: boolean): void {
+    const editing = this.edit?.draft.id;
+    for (const [id, stored] of this.stored) {
+      const r = results.get(id);
+      if (!r) continue;
+      this.results.set(id, r);
+      if (r.binding) {
+        stored.binding = r.binding;
+        delete stored.anchorStates;
+      }
+      if (provisional) {
+        this.liveStates.set(id, r.states);
+      } else {
+        this.liveStates.delete(id);
+        if (stored.binding) stored.anchorStates = r.states;
+      }
+      this.outlines.delete(id);
+      if (r.status === 'anchored' && r.shown) {
+        const shown = withoutAnchoring(structuredClone(r.shown));
+        this.resolvedShown.set(id, structuredClone(shown));
+        // A text box being typed in stays as the reader sees it; it is stored when the typing ends.
+        if (id !== editing) this.drawings.set(id, shown);
+      } else {
+        this.resolvedShown.delete(id);
+        if (id !== editing) this.drawings.delete(id);
+        if (this.selected === id) this.select(undefined);
+      }
+    }
     this.layers.redraw(LAYER);
     this.events.changed();
+  }
+
+  /** What the host stores of the last run. */
+  resolvedPayload(): { id: string; states: (AnchorState | undefined)[]; binding?: DrawingBinding }[] {
+    return [...this.results].map(([id, r]) => ({ id, states: r.states, ...(r.binding ? { binding: r.binding } : {}) }));
+  }
+
+  /** A drawing as it is stored (where the reader placed it, with its binding). */
+  storedOf(id: string): Drawing | undefined {
+    const drawing = this.stored.get(id);
+    return drawing ? structuredClone(drawing) : undefined;
+  }
+
+  get allStored(): Drawing[] {
+    return [...this.stored.values()].map((d) => structuredClone(d));
+  }
+
+  /** Drawings and text boxes whose content is not in the document shown: kept, listed, not drawn. */
+  orphans(): { drawing: Drawing; result: DrawingResult }[] {
+    const out: { drawing: Drawing; result: DrawingResult }[] = [];
+    for (const [id, drawing] of this.stored) {
+      const result = this.results.get(id);
+      if (result?.status === 'orphaned') out.push({ drawing: structuredClone(drawing), result });
+    }
+    return out;
+  }
+
+  /** What to tell the reader about a shown drawing: it was pinned, moved back into the page, or bound by guessing. */
+  flagsOf(id: string): BindingFlag[] {
+    return this.results.get(id)?.flags ?? [];
+  }
+
+  bindingOf(id: string): DrawingBinding | undefined {
+    return this.stored.get(id)?.binding;
+  }
+
+  /**
+   * The reader made or changed a drawing (it is shown already): returns what to store for it.
+   * A change of look keeps where the reader placed it and what it is bound to. A new place or
+   * shape is taken as it is shown and bound again to what it covers there (`prefer`: what the
+   * reader asked for from its menu).
+   */
+  async adopt(shown: Drawing, prefer?: 'text' | 'image' | 'page', rebase = false): Promise<Drawing> {
+    const clean = withoutAnchoring(structuredClone(shown));
+    const stored = this.stored.get(clean.id);
+    const base = this.resolvedShown.get(clean.id);
+    let next: Drawing;
+    if (stored && base && !prefer && !rebase && sameGeometry(clean, base)) {
+      next = { ...clean, pageIndex: stored.pageIndex, points: stored.points.map((p): PdfPoint => [p[0], p[1]]) };
+      if (stored.binding) next.binding = { ...stored.binding, for: clean.updatedAt };
+      if (stored.anchorStates) next.anchorStates = stored.anchorStates;
+    } else {
+      const hash = this.binder?.hash();
+      next = hash ? { ...clean, textModelHash: hash } : clean;
+      const kept = stored?.binding?.manual ? (stored.binding.mode === 'block' ? 'image' : stored.binding.mode === 'page' ? 'page' : 'text') : undefined;
+      const binding = await this.binder?.bind(next, prefer ?? kept);
+      if (binding) next.binding = { ...binding, for: next.updatedAt };
+      this.results.set(clean.id, { status: 'anchored', kind: 'exact', flags: [], states: [], shown: clean });
+      this.liveStates.delete(clean.id);
+    }
+    this.stored.set(clean.id, next);
+    this.resolvedShown.set(clean.id, withoutAnchoring(structuredClone(clean)));
+    this.events.changed();
+    return structuredClone(next);
+  }
+
+  /**
+   * An orphaned drawing put on a page again (by the reader): on `pageIndex`, with its top at `top`
+   * (points from the top of the page as shown; default: where it was on its own page), moved
+   * inside the page if needed. Returns it as it would be shown; nothing is stored here.
+   */
+  placedAt(id: string, pageIndex: number, top?: number): Drawing | undefined {
+    const stored = this.stored.get(id);
+    const g = this.geometry(pageIndex);
+    if (!stored || !g) return undefined;
+    // Its shape, in points of the page it was on (or of this page, if that one is unknown).
+    const frame = stored.binding?.frame;
+    const from = stored.binding ? { ...g, transform: frame as PageGeometry['transform'] } : (this.geometry(stored.pageIndex) ?? g);
+    let points = stored.points.map((p) => toPageSpace(from, p));
+    const size = isTextDrawing(stored) ? this.measurer.size(stored) : undefined;
+    const xs = points.map((p) => p[0]);
+    const ys = points.map((p) => p[1]);
+    const box = size ? [points[0][0], points[0][1], points[0][0] + size.width, points[0][1] + size.height] : [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    const fit = (low: number, high: number, limit: number): number => (high - low >= limit ? -low : low < 0 ? -low : high > limit ? limit - high : 0);
+    const dy = top === undefined ? fit(box[1], box[3], g.height) : fit(top, top + box[3] - box[1], g.height) + top - box[1];
+    const dx = fit(box[0], box[2], g.width);
+    points = points.map(([x, y]): PdfPoint => [x + dx, y + dy]);
+    const placed = withoutAnchoring(structuredClone(stored));
+    placed.pageIndex = pageIndex;
+    placed.points = points.map((p): PdfPoint => {
+      const [x, y] = toPdfSpace(g, p);
+      return [round2(x), round2(y)];
+    });
+    if ((placed.tool === 'rect' || placed.tool === 'ellipse') && placed.points.length === 2) {
+      const [[ax, ay], [bx, by]] = placed.points;
+      placed.points = [
+        [Math.min(ax, bx), Math.min(ay, by)],
+        [Math.max(ax, bx), Math.max(ay, by)],
+      ];
+    }
+    placed.updatedAt = new Date().toISOString();
+    this.put(placed);
+    return structuredClone(placed);
+  }
+
+  /** Puts back a stored drawing (undo and redo). It is shown once the next resolving run placed it. */
+  restore(stored: Drawing): void {
+    const before = this.drawings.get(stored.id);
+    this.stored.set(stored.id, structuredClone(stored));
+    this.results.delete(stored.id);
+    this.liveStates.delete(stored.id);
+    this.resolvedShown.delete(stored.id);
+    this.outlines.delete(stored.id);
+    if (before) {
+      this.drawings.delete(stored.id);
+      this.redraw(before.pageIndex);
+    }
+    this.events.changed();
+  }
+
+  /** Resolves when no gesture is in progress (a stroke being drawn is finished first). */
+  idle(): Promise<void> {
+    if (!this.gesture) return Promise.resolve();
+    return new Promise((resolve) => this.idleWaiters.push(resolve));
+  }
+
+  private gestureEnded(): void {
+    for (const resolve of this.idleWaiters.splice(0)) resolve();
+  }
+
+  /** The size of a text box on the page, in points. */
+  textSizeOf(drawing: Drawing): BoxSize | undefined {
+    return isTextDrawing(drawing) ? this.measurer.size(drawing) : undefined;
   }
 
   /** Adds a drawing or replaces it (undo and redo). */
@@ -345,9 +566,17 @@ export class DrawingController {
     this.events.changed();
   }
 
+  /** Removes a drawing: what is shown and what is stored. */
   remove(id: string): void {
+    const had = this.stored.delete(id);
+    this.results.delete(id);
+    this.liveStates.delete(id);
+    this.resolvedShown.delete(id);
     const drawing = this.drawings.get(id);
-    if (!drawing) return;
+    if (!drawing) {
+      if (had) this.events.changed();
+      return;
+    }
     this.drawings.delete(id);
     this.outlines.delete(id);
     if (this.eraseHover?.kind === 'drawing' && this.eraseHover.id === id) this.eraseHover = undefined;
@@ -381,21 +610,33 @@ export class DrawingController {
       .map(({ d }) => d);
   }
 
-  /** Drawings and text boxes for a download: those on pages the PDF has, and how the text boxes are laid out. */
-  exportData(): { drawings: Drawing[]; textLayouts: TextLayout[]; skipped: number } {
+  /**
+   * Drawings and text boxes for a download: as they are shown (where their content is in this
+   * version), and how the text boxes are laid out. `orphaned` counts those left out because their
+   * content is not in this version.
+   */
+  exportData(): { drawings: Drawing[]; textLayouts: TextLayout[]; skipped: number; orphaned: number } {
     this.commitEditing();
     const pages = this.viewer.pagesCount;
     const all = [...this.drawings.values()];
     const drawings = all.filter((d) => d.pageIndex < pages).map((d) => structuredClone(d));
     const textLayouts = drawings.filter(isTextDrawing).map((d) => this.measurer.layout(d));
-    return { drawings, textLayouts, skipped: all.length - drawings.length };
+    return { drawings, textLayouts, skipped: all.length - drawings.length, orphaned: this.orphans().length };
   }
 
-  /** A new PDF was loaded: drawings stay at their page coordinates (those on missing pages are not shown). */
-  documentLoaded(): void {
+  /** Ends what the reader is in the middle of (typing in a text box, a gesture) before the document is replaced. */
+  settle(): void {
     this.commitEditing();
     this.cancelGesture();
-    this.layers.redraw(LAYER);
+  }
+
+  /**
+   * The viewer switched to another PDF: what was shown belonged to the previous one and is
+   * dropped at once. The next resolving run shows every drawing where its content is now.
+   */
+  documentChanged(): void {
+    this.settle();
+    this.clearShown();
     this.events.changed();
   }
 
@@ -1037,6 +1278,7 @@ export class DrawingController {
     if (!g || e.pointerId !== g.pointerId) return;
     this.release(g.pointerId);
     this.gesture = undefined;
+    queueMicrotask(() => this.gestureEnded());
     if (g.kind === 'draw') {
       if (g.tool !== 'pen') g.shift = e.shiftKey;
       this.finishDrawing(g);
@@ -1058,6 +1300,7 @@ export class DrawingController {
     const g = this.gesture;
     if (!g) return false;
     this.gesture = undefined;
+    this.gestureEnded();
     this.release(g.pointerId);
     this.preview = undefined;
     if (g.kind === 'rub') {

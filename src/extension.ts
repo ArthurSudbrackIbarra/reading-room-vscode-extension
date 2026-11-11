@@ -22,6 +22,7 @@ export function activate(context: vscode.ExtensionContext): void {
         `Document Viewer: the stored annotations of ${ref.uri.split('/').pop()} were unreadable. The file was kept as ${movedTo}.`,
       );
     },
+    onReadOnly: (ref) => log.warn(`The annotations of ${ref.uri} were saved by a newer version of the extension: they are shown, and changes are not stored`),
     onSimplified: (ref, count) => {
       void vscode.window.showWarningMessage(
         `Document Viewer: ${count} drawing${count === 1 ? '' : 's'} or text box${count === 1 ? '' : 'es'} of ${ref.uri.split('/').pop()} ${count === 1 ? 'was' : 'were'} larger than allowed (too many points, or too much text) and ${count === 1 ? 'was' : 'were'} shortened to fit.`,

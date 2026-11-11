@@ -11,6 +11,7 @@ import { DEFAULT_COLOR, isHighlightColor, type DocumentKind, type PageTheme } fr
 import type { DocumentRef, HighlightStore } from '../store/HighlightStore';
 import { SoundLibrary, type SoundFile } from '../store/SoundLibrary';
 import { RENDER_SETTINGS, SECTION, readSettings } from '../util/settings';
+import { duplicateOf, hintFor } from './copyHints';
 import { MAX_CACHE_BYTES, PreviewPanel, kindOf, panelTitle, type PanelHost, type UiState } from './PreviewPanel';
 import type { RenderService } from './RenderService';
 import { SoundCoordinator } from './SoundCoordinator';
@@ -107,10 +108,11 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
         if (readSettings().renderOnSave) this.panels.get(doc.uri.toString())?.scheduleRender(300);
       }),
       vscode.workspace.onDidChangeTextDocument((e) => {
+        const panel = this.panels.get(e.document.uri.toString());
+        if (!panel) return;
         // A clean document changed: it was reloaded from disk (git checkout, external editor).
-        if (!e.document.isDirty && e.contentChanges.length > 0 && readSettings().renderOnSave) {
-          this.panels.get(e.document.uri.toString())?.scheduleRender(500);
-        }
+        if (!e.document.isDirty && e.contentChanges.length > 0 && readSettings().renderOnSave) panel.scheduleRender(500);
+        this.noteCopies(panel, e);
       }),
       vscode.workspace.onDidRenameFiles((e) => void this.onRename(e)),
       renderer.onDidFixBrowser(() => {
@@ -121,6 +123,9 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
           for (const panel of this.panels.values()) void panel.requestRender();
         }
         if (e.affectsConfiguration(`${SECTION}.cacheDays`)) this.schedulePrune(2_000);
+        if (e.affectsConfiguration(`${SECTION}.textSnapshots`) && !readSettings().textSnapshots) {
+          void this.store.removeAllSnapshots().catch((err: unknown) => this.log.warn(`Could not delete the text snapshots: ${String(err)}`));
+        }
       }),
     );
     this.schedulePrune(CACHE_PRUNE_DELAY_MS);
@@ -132,6 +137,23 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
 
   get extensionVersion(): string {
     return String((this.context.extension.packageJSON as { version?: string }).version ?? '0');
+  }
+
+  /**
+   * A block duplicated next to itself (Copy Line Up/Down, a paste above or below the original):
+   * tells the viewer which of the two is the copy, from where the cursor is a moment later.
+   */
+  private noteCopies(panel: PreviewPanel, e: vscode.TextDocumentChangeEvent): void {
+    if (e.contentChanges.length !== 1) return;
+    const change = e.contentChanges[0];
+    const duplicate = duplicateOf(e.document.getText(), { offset: change.rangeOffset, text: change.text, removed: change.rangeLength });
+    if (!duplicate) return;
+    const version = e.document.version;
+    setTimeout(() => {
+      if (panel.isDisposed || e.document.version !== version) return;
+      const editor = vscode.window.visibleTextEditors.find((ed) => ed.document === e.document && ed === vscode.window.activeTextEditor) ?? vscode.window.visibleTextEditors.find((ed) => ed.document === e.document);
+      panel.addCopyHint(hintFor(duplicate, editor ? e.document.offsetAt(editor.selection.active) : undefined));
+    }, 40);
   }
 
   refFor(uri: vscode.Uri): DocumentRef {

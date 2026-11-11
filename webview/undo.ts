@@ -14,6 +14,8 @@ export type EditOp =
   | { kind: 'create'; highlight: Highlight }
   | { kind: 'delete'; highlight: Highlight }
   | { kind: 'update'; id: string; before: HighlightChanges; after: HighlightChanges }
+  /** A highlight rebased on its current text (Accept) or attached to other text: the whole highlight before and after. */
+  | { kind: 'replace'; before: Highlight; after: Highlight }
   | { kind: 'marker'; before: ReadingMarker | null; after: ReadingMarker | null }
   | { kind: 'createDrawing'; drawing: Drawing }
   | { kind: 'deleteDrawing'; drawing: Drawing }
@@ -35,6 +37,8 @@ export function inverse(op: EditOp): EditOp {
       return { kind: 'create', highlight: op.highlight };
     case 'update':
       return { kind: 'update', id: op.id, before: op.after, after: op.before };
+    case 'replace':
+      return { kind: 'replace', before: op.after, after: op.before };
     case 'marker':
       return { kind: 'marker', before: op.after, after: op.before };
     case 'createDrawing':

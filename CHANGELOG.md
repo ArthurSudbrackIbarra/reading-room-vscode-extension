@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0 — 2026-11-11
+
+- **Annotations survive changes to the document.** Highlights, notes, the reading marker, drawings and text boxes now follow their content through any change of the file: edits in VS Code, a formatter, `git checkout`, another program, a replaced PDF.
+  - The text of the version an annotation was last found in is compared with the new text, so a highlight moves exactly with its words: across pages, through reflow, and past identical passages elsewhere. Without that text (first time, or the setting off) it is searched for by its words and what surrounds them.
+  - **Words changed inside a highlight**: it stays on the passage, and the list shows *was … / now …* with a ✓ to keep it. **Its start or end deleted**: it shrinks to the rest. **All of it deleted**: it is orphaned with the reason and the page it was on. **Replaced**: one click attaches it to the text that took its place. **Cut and pasted elsewhere**: it moves along. **A copy pasted next to it**: it stays on the original.
+  - **When the text comes back** (undo, `git checkout`, a restored file), everything returns to where it was, by itself, also after a restart. Nothing is ever deleted automatically; *Delete all orphaned* is one undoable step.
+- **Drawings and text boxes are attached to what they cover**: the words of a line (they are fitted to them again), several lines (pinned), two words (an arrow follows both ends), lines beside a margin mark, a picture (they scale with it), or the page (scans). A menu on their small bar shows what they follow and lets you choose. When their content is gone they are listed as not shown, and can be put back on the page.
+- **The reading marker** follows its line; when the line is deleted it stands where the line was, drawn dashed, and returns with the line. What the marker's position is in the current version no longer overwrites where you placed it.
+- **PDF files**: when a PDF is replaced, pages are matched to the pages before (by text; scanned pages by how they look), so drawings and the marker stay on their page when pages are added, removed or reordered. Highlights on pages turned by `/Rotate`, or with a crop box that does not start at zero, are now placed and exported correctly.
+- **Never a wrong picture**: a new version of the PDF is read, and every annotation placed in it, before the viewer switches to it; nothing computed for one version is drawn on another. A download's annotations are computed for the very PDF that is downloaded (a save in the middle of a download is handled). A render of unsaved text shows its results without storing them.
+- **A line at the bottom** tells what a change did to your annotations, and a banner appears when most of them are missing from the current version of the file.
+- **Storage**: what is new is kept in new files (`<hash>.anchors.json`, and compressed copies of the text, `<hash>.text-<id>.gz`); the files of earlier versions keep their format, so going back to an earlier version loses nothing. Data from a newer version is opened read-only instead of being moved aside. The drawings and anchors files are written only when what they hold changed (not when you zoom). New setting `markdownPdfViewer.textSnapshots`.
+- Opening long documents is faster (pages are read in parallel), and re-anchoring 500 highlights after an edit in a 300-page document takes about 30 ms.
+
 ## 0.7.0 — 2026-11-11
 
 - **An eraser for everything**: the new eraser button in the toolbar (or *Toggle Eraser*) deletes highlights, drawings and text boxes. What is under the pointer fades to show what a click would delete; a click deletes it, a drag deletes everything it goes over, and each click or drag is one undo step. Esc during a drag keeps everything.

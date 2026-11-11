@@ -40,7 +40,7 @@ function exactMatches(text: string, quote: string): Candidate[] {
 }
 
 /** Similarity (0..1) of `pattern` to the best-matching substring of `window`. */
-function similarity(window: string, pattern: string): number {
+export function similarity(window: string, pattern: string): number {
   if (pattern.length === 0 || window.length === 0) return 0;
   if (window === pattern) return 1;
   const matches = search(window, pattern, pattern.length);

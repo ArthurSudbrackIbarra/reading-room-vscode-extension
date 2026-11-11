@@ -1,5 +1,7 @@
 // Sidebar (the annotations list), popovers (highlight, note, drawing, reading marker), tooltips,
 // toast, banner and the status overlay.
+import type { OrphanReason, ResolutionKind } from '../src/anchoring/anchor';
+import type { BindingFlag } from '../src/anchoring/binding';
 import { TOOL_NAMES, textStyleOf, type InkDrawing, type InkWidth, type TextDrawing, type TextStyle } from '../src/shared/drawings';
 import { HIGHLIGHT_COLORS, HIGHLIGHT_HEX, MAX_NOTE_LENGTH, type Highlight, type HighlightColor, type ReadingMarker } from '../src/shared/types';
 import { ColorButton } from './colorPicker';
@@ -11,23 +13,70 @@ import { textIcon } from './icons';
 export interface ListEntry {
   data: Highlight;
   page?: number;
+  /** What the last render did to it. */
+  kind?: ResolutionKind;
+  /** Orphans: why its text was not found, and the page it was last on. */
+  reason?: OrphanReason;
+  wasPage?: number;
+  /** The text it is on now, when that differs from what was highlighted. */
+  now?: string;
+  /** Orphans: the text that took the place of its text. */
+  candidate?: string;
 }
 
 export interface MarkerEntry {
   marker: ReadingMarker;
   page: number;
+  /** Set when the marker is not on its own line (the line is gone, or its text is not in this version). */
+  caveat?: string;
+}
+
+/** What is known about a drawing or text box whose content is not in the document shown. */
+export interface OrphanInfo {
+  reason?: OrphanReason;
 }
 
 export interface DrawingEntry {
   data: InkDrawing;
-  /** False when its page is not in the document now (it is kept, but not shown). */
+  /** False when it is not shown: its content (or its page) is not in the document now. It is kept. */
   onPage: boolean;
   thumbnail: SVGSVGElement;
+  orphan?: OrphanInfo;
+  flags?: BindingFlag[];
 }
 
 export interface TextEntry {
   data: TextDrawing;
   onPage: boolean;
+  orphan?: OrphanInfo;
+  flags?: BindingFlag[];
+}
+
+/** Why an annotation is orphaned, as said in the list (also read by screen readers: never color alone). */
+export const REASON_TEXT: Record<OrphanReason, string> = {
+  deleted: 'its text was deleted',
+  replaced: 'its text was replaced',
+  'not-found': 'its text is not in this version of the file',
+  'page-missing': 'its page is gone',
+  invalid: 'its data could not be read',
+};
+
+const DRAWING_REASON_TEXT: Record<OrphanReason, string> = {
+  deleted: 'what it was on was deleted',
+  replaced: 'what it was on was replaced',
+  'not-found': 'what it was on is not in this version of the file',
+  'page-missing': 'its page is gone',
+  invalid: 'its data could not be read',
+};
+
+const FLAG_TEXT: Record<BindingFlag, string> = {
+  reflowed: 'its text wraps differently now',
+  clipped: 'moved back inside the page',
+  'needs-review': 'check its place',
+};
+
+function flagText(flags: BindingFlag[] | undefined): string {
+  return (flags ?? []).map((f) => FLAG_TEXT[f]).join(', ');
 }
 
 export interface SidebarActions {
@@ -37,9 +86,20 @@ export interface SidebarActions {
   editNote(id: string): void;
   goToMarker(): void;
   removeMarker(): void;
+  /** Keeps a highlight on the text it is on now (after an edit or a partial deletion): its quote becomes that text. */
+  accept(id: string): void;
+  /** Puts an orphaned highlight on the selected text, or on the text that replaced its own. */
+  attachSelection(id: string): void;
+  attachCandidate(id: string): void;
+  /** Deletes every orphaned highlight, drawing and text box (one undo step). */
+  removeOrphans(): void;
   /** Drawings and text boxes. */
   revealDrawing(id: string): void;
   removeDrawing(id: string): void;
+  /** Puts an orphaned drawing or text box back on the page (where its content was, or on the page shown). */
+  placeDrawing(id: string): void;
+  /** Keeps a flagged drawing or text box where it is shown now. */
+  acceptDrawing(id: string): void;
   removeAllDrawings(): void;
   removeAllTextBoxes(): void;
   close(): void;
@@ -117,13 +177,19 @@ export class Sidebar {
       );
     }
     for (const entry of anchored) items.push(this.item(entry, false));
+    const lost = orphaned.length + drawings.filter((d) => d.orphan).length + texts.filter((t) => t.orphan).length;
     if (orphaned.length > 0) {
+      const removeAll = iconButton('trash', `Delete all ${lost} orphaned annotations`, { class: 'mpv-btn mpv-item-action' });
+      removeAll.addEventListener('click', () => this.actions.removeOrphans());
       items.push(
         h(
           'div',
-          { class: 'mpv-list-group', title: 'The text of these highlights is no longer in the document. They are kept until you delete them.' },
-          icon('warning'),
-          h('span', { text: `Orphaned (${orphaned.length})` }),
+          {
+            class: 'mpv-list-group mpv-drawings-group',
+            title: 'The text of these highlights is not in the document now. They are kept until you delete them, and come back if the text returns.',
+          },
+          h('span', { class: 'mpv-list-group-label' }, icon('warning'), h('span', { text: `Orphaned (${orphaned.length})` })),
+          removeAll,
         ),
       );
       for (const entry of orphaned) items.push(this.item(entry, true));
@@ -152,19 +218,19 @@ export class Sidebar {
     });
     const thumb = h('span', { class: 'mpv-thumb mpv-text-thumb' }, textIcon());
     setInk(thumb, data.color);
-    const meta = entry.onPage ? `page ${data.pageIndex + 1}` : `page ${data.pageIndex + 1}, which the document no longer has`;
+    const { meta, title, extra } = this.drawingStatus(entry, 'text box');
     const row = h(
       'div',
       {
         class: `mpv-item mpv-drawing-item${entry.onPage ? '' : ' mpv-orphan'}`,
         role: 'listitem',
-        tabindex: entry.onPage ? 0 : undefined,
-        title: entry.onPage ? 'Go to text box' : 'Not shown: its page is not in the document now. It is kept until you delete it.',
+        tabindex: 0,
+        title,
         'data-id': data.id,
       },
       thumb,
       h('div', { class: 'mpv-item-body' }, h('div', { class: 'mpv-item-text', text: excerpt(data.text, 90) }), h('div', { class: 'mpv-item-meta', text: meta })),
-      h('div', { class: 'mpv-item-actions' }, remove),
+      h('div', { class: `mpv-item-actions${extra.length > 0 ? ' mpv-item-actions-over' : ''}` }, ...extra, remove),
     );
     if (entry.onPage) {
       row.addEventListener('click', () => this.actions.revealDrawing(data.id));
@@ -186,19 +252,22 @@ export class Sidebar {
       this.actions.removeDrawing(data.id);
     });
     const thumb = h('span', { class: 'mpv-thumb' }, entry.thumbnail);
-    const meta = entry.onPage ? `page ${data.pageIndex + 1}` : `page ${data.pageIndex + 1}, which the document no longer has`;
+    const { meta, title, extra } = this.drawingStatus(entry, 'drawing');
     const row = h(
       'div',
       {
         class: `mpv-item mpv-drawing-item${entry.onPage ? '' : ' mpv-orphan'}`,
         role: 'listitem',
-        tabindex: entry.onPage ? 0 : undefined,
-        title: entry.onPage ? 'Go to drawing' : 'Not shown: its page is not in the document now. It is kept until you delete it.',
+        tabindex: 0,
+        title,
         'data-id': data.id,
       },
       thumb,
-      h('div', { class: 'mpv-item-body' }, h('div', { class: 'mpv-item-text' }, h('span', { text: TOOL_NAMES[data.tool] }), h('span', { class: 'mpv-item-meta-inline', text: ` · ${meta}` }))),
-      h('div', { class: 'mpv-item-actions' }, remove),
+      // A drawing that is fine is one line; one with something to say gets a second line for it.
+      extra.length === 0
+        ? h('div', { class: 'mpv-item-body' }, h('div', { class: 'mpv-item-text' }, h('span', { text: TOOL_NAMES[data.tool] }), h('span', { class: 'mpv-item-meta-inline', text: ` · ${meta}` })))
+        : h('div', { class: 'mpv-item-body' }, h('div', { class: 'mpv-item-text', text: TOOL_NAMES[data.tool] }), h('div', { class: 'mpv-item-meta', text: meta })),
+      h('div', { class: `mpv-item-actions${extra.length > 0 ? ' mpv-item-actions-over' : ''}` }, ...extra, remove),
     );
     if (entry.onPage) {
       row.addEventListener('click', () => this.actions.revealDrawing(data.id));
@@ -210,6 +279,33 @@ export class Sidebar {
       });
     }
     return row;
+  }
+
+  /** The status line, tooltip and extra actions of a drawing or text box: orphaned (with why), flagged, or fine. */
+  private drawingStatus(entry: DrawingEntry | TextEntry, what: string): { meta: string; title: string; extra: HTMLElement[] } {
+    const id = entry.data.id;
+    const page = `page ${entry.data.pageIndex + 1}`;
+    if (!entry.onPage) {
+      const reason = DRAWING_REASON_TEXT[entry.orphan?.reason ?? 'page-missing'];
+      const place = iconButton('location', `Put this ${what} back on the page`, { class: 'mpv-btn mpv-item-action' });
+      place.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.actions.placeDrawing(id);
+      });
+      return {
+        meta: `not shown: ${reason} · was on ${page}`,
+        title: `Not shown: ${reason}. It is kept until you delete it, and comes back if its content returns.`,
+        extra: [place],
+      };
+    }
+    const flags = flagText(entry.flags);
+    if (!flags) return { meta: page, title: `Go to ${what}`, extra: [] };
+    const accept = iconButton('check', `Keep this ${what} where it is now`, { class: 'mpv-btn mpv-item-action' });
+    accept.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.actions.acceptDrawing(id);
+    });
+    return { meta: `${page} · ${flags}`, title: `Go to ${what} (${flags})`, extra: [accept] };
   }
 
   private markerItem(entry: MarkerEntry): HTMLElement {
@@ -229,7 +325,7 @@ export class Sidebar {
         { class: 'mpv-item-body' },
         h('div', { class: 'mpv-item-text', text: 'Where you stopped reading' }),
         quote ? h('div', { class: 'mpv-item-quote', text: `“${excerpt(quote, 80)}”` }) : undefined,
-        h('div', { class: 'mpv-item-meta', text: [`page ${entry.page + 1}`, date].filter(Boolean).join(' · ') }),
+        h('div', { class: 'mpv-item-meta', text: [`page ${entry.page + 1}`, date, entry.caveat ? 'about here: its line is not in this version' : ''].filter(Boolean).join(' · ') }),
       ),
       h('div', { class: 'mpv-item-actions' }, remove),
     );
@@ -252,38 +348,53 @@ export class Sidebar {
       e.stopPropagation();
       this.actions.remove(entry.data.id);
     });
-    const actions = h('div', { class: 'mpv-item-actions' });
+    // Rows with more to do than "note" and "delete" show their buttons over the text, so the text keeps its width.
+    const actions = h('div', { class: orphaned || (entry.now !== undefined && (entry.kind === 'edited' || entry.kind === 'partial')) ? 'mpv-item-actions mpv-item-actions-over' : 'mpv-item-actions' });
+    const action = (name: string, title: string, run: () => void): void => {
+      const button = iconButton(name, title, { class: 'mpv-btn mpv-item-action' });
+      button.addEventListener('click', (e) => {
+        e.stopPropagation();
+        run();
+      });
+      actions.append(button);
+    };
+    const id = entry.data.id;
+    const changed = !orphaned && entry.now !== undefined && (entry.kind === 'edited' || entry.kind === 'partial');
     if (orphaned) {
-      const copy = iconButton('copy', 'Copy the highlighted text', { class: 'mpv-btn mpv-item-action' });
-      copy.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.actions.copy(quote);
-      });
-      actions.append(copy);
-    } else {
-      const note = iconButton('comment', entry.data.note ? 'Edit the note' : 'Add a note', { class: 'mpv-btn mpv-item-action' });
-      note.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.actions.editNote(entry.data.id);
-      });
-      actions.append(note);
+      if (entry.candidate) action('replace', `Attach to “${excerpt(entry.candidate, 60)}”, the text that replaced it`, () => this.actions.attachCandidate(id));
+      action('link', 'Attach to the text you have selected', () => this.actions.attachSelection(id));
+      action('copy', 'Copy the highlighted text', () => this.actions.copy(quote));
+    } else if (changed) {
+      action('check', 'Keep it on the text as it is now', () => this.actions.accept(id));
     }
+    action('comment', entry.data.note ? 'Edit the note' : 'Add a note', () => this.actions.editNote(id));
     actions.append(remove);
-    const meta = orphaned ? 'not found in the document' : entry.page !== undefined ? `page ${entry.page + 1}` : '';
+    const where = entry.page !== undefined ? `page ${entry.page + 1}` : '';
+    const status = orphaned
+      ? [`orphaned: ${REASON_TEXT[entry.reason ?? 'not-found']}`, entry.wasPage !== undefined ? `was on page ${entry.wasPage + 1}` : '']
+      : [where, entry.kind === 'edited' ? 'its text changed' : entry.kind === 'partial' ? 'part of its text was deleted' : entry.kind === 'moved' ? 'moved with its text' : ''];
+    const meta = status.filter(Boolean).join(' · ');
     const row = h(
       'div',
       {
-        class: `mpv-item${orphaned ? ' mpv-orphan' : ''}`,
+        class: `mpv-item${orphaned ? ' mpv-orphan' : ''}${changed ? ' mpv-changed' : ''}`,
         role: 'listitem',
-        tabindex: orphaned ? undefined : 0,
-        title: orphaned ? 'Orphaned: this text is no longer in the document' : 'Go to highlight',
-        'data-id': entry.data.id,
+        tabindex: 0,
+        title: orphaned ? `Orphaned: ${REASON_TEXT[entry.reason ?? 'not-found']}. It is kept, and comes back if the text returns.` : 'Go to highlight',
+        'data-id': id,
       },
       dot,
       h(
         'div',
         { class: 'mpv-item-body' },
-        h('div', { class: 'mpv-item-text', text: excerpt(quote) }),
+        changed
+          ? h(
+              'div',
+              { class: 'mpv-item-text' },
+              h('div', { class: 'mpv-item-was' }, h('span', { class: 'mpv-item-label', text: 'was ' }), h('span', { text: `“${excerpt(quote, 110)}”` })),
+              h('div', { class: 'mpv-item-now' }, h('span', { class: 'mpv-item-label', text: 'now ' }), h('span', { text: `“${excerpt(entry.now ?? '', 110)}”` })),
+            )
+          : h('div', { class: 'mpv-item-text', text: excerpt(quote) }),
         entry.data.note ? h('div', { class: 'mpv-item-note' }, icon('comment'), h('span', { text: excerpt(entry.data.note, 220) })) : undefined,
         h('div', { class: 'mpv-item-meta', text: meta }),
       ),
@@ -446,10 +557,27 @@ export class HighlightPopover {
   }
 }
 
+/** What a drawing or text box follows when the document changes. */
+export type Attachment = 'text' | 'image' | 'page';
+
+/** The menu of a selected drawing or text box that says what it follows, and lets the reader choose. */
+function attachMenu(onPick: (to: Attachment) => void): { select: HTMLSelectElement; set(to: Attachment): void } {
+  const select = h('select', {
+    class: 'mpv-select mpv-attach-select',
+    title: 'What it follows when the document changes',
+    'aria-label': 'What it follows when the document changes',
+  });
+  select.append(h('option', { value: 'text', text: 'Follows text' }), h('option', { value: 'image', text: 'Follows image' }), h('option', { value: 'page', text: 'Stays on page' }));
+  select.addEventListener('change', () => onPick(select.value as Attachment));
+  return { select, set: (to) => (select.value = to) };
+}
+
 export interface DrawingPopoverActions {
   /** Opens (or closes) the color picker for the drawing's ink, under `anchor`. */
   pickColor(id: string, anchor: HTMLElement): void;
   setWidth(id: string, width: InkWidth): void;
+  /** The reader chose what the drawing follows. */
+  attach(id: string, to: Attachment): void;
   remove(id: string): void;
 }
 
@@ -459,8 +587,17 @@ export class DrawingPopover {
   readonly color: ColorButton;
   private currentId?: string;
   private readonly widths: ReturnType<typeof widthRadios>;
+  private readonly attached: ReturnType<typeof attachMenu>;
+
+  /** Shows what the drawing follows. */
+  setAttached(to: Attachment): void {
+    this.attached.set(to);
+  }
 
   constructor(actions: DrawingPopoverActions) {
+    this.attached = attachMenu((to) => {
+      if (this.currentId) actions.attach(this.currentId, to);
+    });
     this.color = new ColorButton('Ink color', (anchor) => {
       if (this.currentId) actions.pickColor(this.currentId, anchor);
     });
@@ -473,7 +610,8 @@ export class DrawingPopover {
       this.hide();
       if (id) actions.remove(id);
     });
-    const row = h('div', { class: 'mpv-popover-row' }, this.color.element, h('span', { class: 'mpv-popover-sep' }), this.widths.group, h('span', { class: 'mpv-popover-sep' }), remove);
+    const sep = () => h('span', { class: 'mpv-popover-sep' });
+    const row = h('div', { class: 'mpv-popover-row' }, this.color.element, sep(), this.widths.group, sep(), this.attached.select, sep(), remove);
     // Esc reaches the viewer's handler, which deselects the drawing (and so closes this).
     this.element = h('div', { class: 'mpv-popover mpv-drawing-popover', role: 'dialog', 'aria-label': 'Edit drawing', hidden: true }, row);
     document.body.append(this.element);
@@ -508,6 +646,8 @@ export class DrawingPopover {
 
 export interface TextPopoverActions {
   setStyle(id: string, patch: Partial<TextStyle>): void;
+  /** The reader chose what the text box follows. */
+  attach(id: string, to: Attachment): void;
   /** Opens (or closes) the color picker for the text color, under `anchor`. */
   pickColor(id: string, anchor: HTMLElement): void;
   edit(id: string): void;
@@ -520,8 +660,17 @@ export class TextPopover {
   readonly color: ColorButton;
   private currentId?: string;
   private readonly controls: TextStyleControls;
+  private readonly attached: ReturnType<typeof attachMenu>;
+
+  /** Shows what the text box follows. */
+  setAttached(to: Attachment): void {
+    this.attached.set(to);
+  }
 
   constructor(actions: TextPopoverActions) {
+    this.attached = attachMenu((to) => {
+      if (this.currentId) actions.attach(this.currentId, to);
+    });
     this.color = new ColorButton('Text color', (anchor) => {
       if (this.currentId) actions.pickColor(this.currentId, anchor);
     });
@@ -551,6 +700,8 @@ export class TextPopover {
       this.controls.format,
       sep(),
       this.controls.align,
+      sep(),
+      this.attached.select,
       sep(),
       edit,
       remove,

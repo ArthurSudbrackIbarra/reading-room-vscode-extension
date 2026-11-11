@@ -16,7 +16,7 @@
 - **Draw** anywhere on a page: pen strokes, lines, arrows, rectangles and ellipses, in any color and three widths.
 - **Type** anywhere on a page: text boxes in any color and size, aligned left, centered, right or justified, with bold, italic and underline on all of the text or on any part of it.
 - **Erase** any of it: one eraser deletes highlights, drawings and text boxes with a click or a drag; another rubs out just the part of a drawing it goes over.
-- Highlights hold on to the text itself, so they follow your edits to Markdown and text files.
+- **Everything stays on its content when the file changes**: highlights, notes, the reading position, drawings and text boxes follow the text (or the picture) they are on through your edits. If their content is deleted they are kept and listed, and they come back when it does.
 - A side list shows every highlight, note, drawing and text box; click one to jump to it.
 - The same keys for everything: **Delete** deletes what is selected, **Enter** edits it, and `Ctrl+Z` / `Ctrl+Y` **undo and redo** all of it.
 
@@ -37,7 +37,7 @@
 
 - [Install](#install)
 - [Requirements](#requirements)
-- [Using it](#using-it): opening documents, highlights, notes, [drawing](#drawing), [text boxes](#text-boxes), [erasing](#erasing), the reading marker, [reading sounds](#reading-sounds), undo, download
+- [Using it](#using-it): opening documents, highlights, notes, [drawing](#drawing), [text boxes](#text-boxes), [erasing](#erasing), [what happens when the document changes](#when-the-document-changes), the reading marker, [reading sounds](#reading-sounds), undo, download
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Settings](#settings)
 - [Where your data is stored (backup and reset)](#where-your-data-is-stored-backup-and-reset)
@@ -66,7 +66,7 @@ The extension is installed from a `.vsix` file that you build yourself; it is no
 3. Install it:
 
    ```bash
-   code --install-extension markdown-pdf-viewer-0.7.0.vsix --force
+   code --install-extension markdown-pdf-viewer-0.8.0.vsix --force
    ```
 
 Then reload VS Code (**Developer: Reload Window**) or open a new window. Installing a newer `.vsix` replaces the previous version and keeps your highlights. The extension ID is still `local.markdown-pdf-viewer`, from the days it only handled Markdown.
@@ -136,7 +136,9 @@ Zoom also works with **Ctrl + mouse wheel** and **trackpad pinch**. Pages are re
 - **Click a highlight** to change its color, add or edit its note, copy its text, or delete it. While its small bar is open the highlight is the selected one (it shows darker): **Delete** deletes it and **Enter** opens its note.
 - The **☰ list** (*Annotations*) shows your reading position at the top, then all highlights in document order with their notes and page, then your drawings and text boxes. Click one to jump to it.
 
-Highlights are attached to the *text*, not to a position on the page. Each one stores the highlighted words plus some text before and after (a W3C Web Annotation *TextQuoteSelector*), with the page and position as hints. Every time the PDF changes, the extension searches for each highlight again, so highlights follow the text when you edit a Markdown or text file. If the text was rewritten so much that it can't be found, the highlight is kept and listed under **Orphaned**, where you can copy its text or delete it.
+What happens to highlights when the file changes is described in [When the document changes](#when-the-document-changes).
+
+Highlights are attached to the *text*, not to a position on the page. Each one stores the highlighted words plus some text before and after (a W3C Web Annotation *TextQuoteSelector*), with the page and position as hints. Every time the PDF changes, the extension finds each highlight again, so highlights follow the text when you edit a Markdown or text file.
 
 ### Notes
 
@@ -209,6 +211,40 @@ The eraser in the toolbar (or **Document Viewer: Toggle Eraser**) deletes whole 
 
 The reading marker is not erased (remove it from its own menu, or click it and press **Delete**). To take away only part of a drawing, use the eraser of the [drawing bar](#drawing) instead.
 
+### When the document changes
+
+Markdown and text files change while you read them: you edit them, a formatter rewraps them, `git checkout` swaps them, another program rewrites them. PDF files get replaced by new versions. Everything you added stays on its content:
+
+| What changed | What happens |
+|---|---|
+| Text added or removed elsewhere, lines rewrapped, another page size, page numbers, dark pages | Everything stays on the same words, wherever they are now (also on another page) |
+| Bold, links, heading levels and other formatting | Nothing changes |
+| Words changed inside a highlight | It stays on the passage. The list shows **was … / now …**; ✓ keeps it on the text as it is now |
+| The start or the end of a highlight deleted | It shrinks to what is left |
+| All of its text deleted | It becomes **orphaned**: kept with its note and listed with the reason and the page it was on, not shown on the page |
+| Its text replaced by other text | Orphaned, with a button to attach it to the text that took its place |
+| The passage cut and pasted elsewhere, or its section moved | Everything moves with it |
+| A copy of the passage pasted above or below | Everything stays on the original |
+| The file emptied, or replaced by another text | Everything is orphaned, nothing is deleted, and a banner says so |
+| The text comes back (undo, `git checkout`, a restored file) | Everything returns to where it was, by itself, also after VS Code was restarted |
+
+- **Nothing is ever deleted automatically.** Orphaned highlights, drawings and text boxes stay in the list until you delete them (one by one, or all at once with the 🗑 next to **Orphaned**, which `Ctrl+Z` undoes).
+- **Orphaned highlights** offer: attach to the text you have selected (🔗), attach to the text that replaced it, copy its text, edit its note, delete.
+- **Drawings and text boxes** are attached to what they cover when you make, move or resize them:
+  - on words of one line (a circle, an underline): they are fitted to those words again, also when a word in them gets longer
+  - over several lines, and every text box: pinned to the first words under them
+  - a line or an arrow from one word to another: both ends follow their word
+  - a tall mark in the margin beside some lines: it follows those lines and grows or shrinks with them
+  - anywhere else near text: they move up and down with the nearest line
+  - on a picture: they scale with the picture
+  - on a page without text (a scan): they stay on that page, also when pages are added or removed in front of it
+- The small bar of a selected drawing or text box has a menu that says what it follows (**Follows text**, **Follows image**, **Stays on page**) and lets you choose.
+- When a drawing cannot be fitted the same way (its words wrap onto two lines now, or it would leave the page), it is kept on the first part or moved back inside, and the list says so; ✓ keeps it where it is. When its content is gone it is listed as not shown, with a button to put it back on the page.
+- **The reading marker** follows its line. When the line is deleted the marker stands where the line was, with a dashed line and "You stopped about here"; when the line comes back, so does the marker.
+- **A message at the bottom** says what a change did ("2 annotations moved with their text; 1 orphaned: its text was deleted"), only when something changed.
+- **Refresh with unsaved edits** shows where everything would be, but stores nothing of it until you save.
+- **PDF files**: when a PDF is replaced by a new version, its pages are matched to the pages before (by their text, or by how they look for scanned pages), so what was on a page stays on that page.
+
 ### Where you stopped reading
 
 The reading marker is a red line with a bookmark tab, at the line where you stopped. There is one per document.
@@ -216,7 +252,7 @@ The reading marker is a red line with a bookmark tab, at the line where you stop
 - **Place it**: click 🔖 in the toolbar, then click a line. A dashed guide follows the mouse; **Esc** cancels. Or select some text and click 🔖 in the selection bar.
 - **Next time you open the document**, the viewer scrolls straight to the marker and briefly says where you were.
 - **Move or remove it**: click its tab, use the 🔖 ▾ menu, or use the ☰ list.
-- In Markdown and text files the marker follows the text of the marked line through your edits, like highlights do.
+- In Markdown and text files the marker follows the text of the marked line through your edits, like highlights do (see [When the document changes](#when-the-document-changes)).
 
 ### Reading sounds
 
@@ -257,6 +293,7 @@ Under **Custom**, **Add sound files…** (or the command **Document Viewer: Add 
 - adding, typing in, moving, resizing, restyling and deleting text boxes
 - everything one click or drag of the eraser deleted
 - placing, moving and removing the marker
+- keeping a highlight on its changed text, attaching an orphaned highlight to other text, putting an orphaned drawing back on the page, choosing what a drawing follows, and **Delete all orphaned**
 - **Delete All Highlights**, **Delete All Drawings** and **Delete All Text Boxes**
 
 The viewer scrolls to the change and tells you what was undone. After deleting something, a message at the bottom also offers **Undo**. While you are typing a note or in a text box, `Ctrl+Z` undoes the typing instead (in a text box: also the bold, italic and underline you put on parts of it); once you are done typing, the whole of it is one step. The history lasts while the viewer is open.
@@ -330,6 +367,7 @@ All settings are user/machine settings. Workspace settings cannot change them, s
 | `markdownPdfViewer.renderOnSave` | `true` | Convert again when a Markdown or text file is saved |
 | `markdownPdfViewer.allowRemoteImages` | `true` | Download `http(s)` images and embed them in the PDF |
 | `markdownPdfViewer.cacheDays` | `7` | Days a converted PDF is kept after it was last opened. `0` turns the cache off and deletes it |
+| `markdownPdfViewer.textSnapshots` | `true` | Keep a compressed copy of the text of the versions your annotations were last found in, so they can be followed exactly (see below). `false` deletes the copies; annotations are then found again by searching |
 | `markdownPdfViewer.chromiumPath` | *(empty)* | Path to a Chrome/Edge/Chromium executable; empty means detect automatically |
 | `markdownPdfViewer.chromiumDownload` | `ask` | `ask`: offer to download Chromium when none is found; `never`: show an error instead |
 
@@ -393,6 +431,13 @@ A document's drawings and text boxes are in a second file next to it, `<same has
 ```
 
 Keeping drawings in their own file means going back to version 0.4, which rewrites the first file with only the fields it knows, cannot erase them. (Version 0.5 does not know text boxes or picked colors: if you go back to it, it drops those when it saves the file. Version 0.6 shows a text with bold parts as plain text and smooths what the drawing eraser left, and forgets both when it saves the file.)
+
+Two more kinds of files sit next to them since version 0.8:
+
+- **`<hash>.anchors.json`**: what each highlight, the marker and each drawing or text box is attached to (the words with more text around them, or the picture or page), and where that was last found. Earlier versions never read this file, and the two files above keep the format they had, so going back to an earlier version loses nothing: it shows your annotations the way it always did.
+- **`<hash>.text-<id>.gz`**: a compressed copy of the document's text, for the versions in which annotations were last found (usually one, at most twelve). With it, an annotation is followed through a change by comparing the old text with the new one, also when the file changed while VS Code was closed. **These files hold the text of documents you annotated**, like the PDF cache holds their pages. They are deleted with the annotations, follow a rename, and `markdownPdfViewer.textSnapshots` turns them off.
+
+Data written by a newer version of the extension than the one you run is shown but not changed (you get a message), and is never treated as damaged.
 
 - **Back up**: copy the `highlights` folder. To restore, copy the files back while VS Code is closed.
 - **Reset one file**: run **Document Viewer: Delete All Highlights for This File**, **Delete All Drawings for This File** or **Delete All Text Boxes for This File** from its viewer (you can undo them with `Ctrl+Z`), or delete its JSON files.
@@ -464,7 +509,7 @@ npm run build
 |---|---|
 | `npm run build` / `npm run watch` | Bundles `dist/extension.js` (CommonJS), `dist/converter/` (lazy-loaded ESM) and `dist/webview/`, and copies assets |
 | `npm test` | Unit tests: highlight store, drawings (geometry and page rotation checked against pdf.js, checks on load, storage with a round trip through the 0.4.0 store code, annotations read back with pdf.js), colors (shades on dark pages, conversions), text boxes (checks on load, wrapping, free text annotations read back with pdf.js, rotated pages), notes and marker, PDF cache, undo stack, reading sounds (coordination, your own sounds, loudness), text conversion, anchoring, text model, write guard |
-| `npm run test:converter` | Renders the feature test and a text file with the installed browser and checks the PDFs with pdf.js |
+| `npm run test:converter` | Renders the feature test and a text file with the installed browser and checks the PDFs with pdf.js; renders `test/fixtures/anchoring/base.md`, edits it and checks that annotations follow (`reanchor.test.ts`) |
 | `npm run typecheck` | TypeScript type check |
 | `npm run sounds` | Rebuilds the built-in reading sounds in `media/sounds/` from their Freesound recordings: cuts the loops, all at −16 LUFS. Only needed to change them, since the loops are in the repository. Needs ffmpeg with libvorbis; downloads are cached in the temp folder. `npm run sounds -- --force` rebuilds, and sound ids (`-- --force rain-roof-window`) limit it to those |
 | `npm run package` | Builds the `.vsix`. The README pictures in it point to the GitHub repository, because VS Code's extension page only loads `https:` images |
@@ -479,11 +524,12 @@ Source layout:
 | `src/preview/` | Viewers (preview panels and the PDF custom editor), commands, rendering, downloads |
 | `src/store/` | Highlight, note, drawing, text box and marker storage; your own reading sounds |
 | `src/cache/` | The disk cache of converted PDFs |
-| `src/anchoring/` | Text model and quote matching, shared with the viewer |
+| `src/anchoring/` | Keeping annotations on their content, shared with the viewer and free of `vscode` and DOM: the text model, the diff between two versions (`diff.ts`), finding an anchor again (`resolve.ts`), what drawings are bound to (`layout.ts`, `binding.ts`), matching PDF pages (`pageAlign.ts`), and resolving everything for one render (`runs.ts`) |
 | `src/shared/` | Types, messages, colors, and the drawing and text box model and geometry, shared by the extension and the viewer |
-| `src/export/` | PDF annotations (text boxes in `textBox.ts`), the Downloads folder |
+| `src/export/` | PDF annotations (text boxes in `textBox.ts`), the Downloads folder, a download made from one version of the document (`pin.ts`), the message after it (`summary.ts`) |
 | `webview/` | The PDF.js-based viewer: highlights, notes, drawings, text boxes, the color picker, reading marker, undo stack, dark pages, reading sounds |
-| `test/fixtures/store-0.4.0/` | The 0.4.0 store code, for the downgrade test |
+| `test/fixtures/store-0.4.0/`, `store-0.7.0/` | The store code of 0.4.0 (the same as 0.3) and 0.7.0, for the downgrade tests |
+| `test/unit/anchoring/` | Tests of the anchoring engine: scenarios on a laid-out document (`scenario.ts` has the helpers), a seeded property test (`ANCHORING_PROPERTY_CASES=5000 npm test` runs it longer), performance, real PDFs |
 | `media/sounds/` | The built-in reading sound loops |
 | `scripts/` | `fetch-sounds.mjs`, which makes the reading sound loops |
 | `docs/` | The pictures in this README |
@@ -499,7 +545,12 @@ The loops are Ogg Vorbis because VS Code's built-in Chromium cannot play Opus or
 - Annotations already inside a PDF are displayed but are not editable as highlights.
 - Dark pages for PDF files are a color inversion. Diagrams that the PDF stores as pictures keep their light background.
 - Renames done outside VS Code are not detected automatically (use *Reattach Highlights*).
-- Drawings and text boxes keep their place on the page: when an edit moves the text of a Markdown or text file, they do not follow it (highlights and the marker do). There is no pressure sensitivity, and a drawing or text box cannot span two pages.
+- There is no pressure sensitivity, and a drawing or text box cannot span two pages (when the words it is on end up on two pages, it stays with the first part).
+- Where a drawing is attached is worked out from the PDF's text positions, which are exact for a line and approximate inside it: after its words changed, a circle can sit a couple of points off them.
+- Two identical passages cannot be told apart by their text. When you duplicate an annotated line or paragraph inside VS Code (Copy Line Up/Down, a paste right above or below), the extension uses your edit to tell the copy from the original, and the annotations stay on the original. It cannot when the cursor is at the very start of the line, or when the copy was made outside VS Code: the annotations may then be on the copy, and editing the copy changes them. A duplicated paragraph that is later moved around can swap annotations with its twin for the same reason.
+- Drawings on a formula or on a diagram follow the nearest line of ordinary text (or the box of the diagram they are on), not single symbols: the browser does not always write those to the PDF in the same order.
+- On PDF pages whose text runs sideways as the page is shown, drawings stay on the page and do not follow single words.
+- Very short highlights (one or two short words) whose surroundings were rewritten completely are not searched for approximately: they would be found in the wrong place too often. They are orphaned and come back with their text.
 - A text box has one font, one size, one color and one alignment for all its text (bold, italic and underline can be on any part of it). In downloads, characters that Helvetica's standard character set lacks (most symbols outside Western European languages, and emoji) appear as "?"; the download's message says how many. The annotation's comment keeps the real text.
 - The drawing eraser turns what it leaves of a shape into plain strokes: the rest of a rectangle is not a rectangle any more, here (it is listed as *Freehand*) and in other PDF programs.
 - If you go back to version 0.4 and rename a file there, its drawings stay under the old name; *Reattach Highlights* in this version brings them back.

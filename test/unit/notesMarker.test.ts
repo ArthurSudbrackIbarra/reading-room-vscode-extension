@@ -83,8 +83,9 @@ describe('reading marker', () => {
     expect(sanitizeMarker({ pageIndex: 2, y: 'top' })).toBeUndefined();
     expect(sanitizeMarker({ pageIndex: 2, y: 1.7, createdAt: 'x' })).toMatchObject({ pageIndex: 2, y: 1 });
     expect(sanitizeMarker({ pageIndex: 0, y: 0.1, selector: [{ type: 'nope' }] })).toBeUndefined();
-    const clean = sanitizeMarker({ ...marker(), extra: 'dropped' });
-    expect(clean).toEqual(marker());
+    // Fields a newer version may have added are carried along; known ones are checked.
+    const clean = sanitizeMarker({ ...marker(), label: 'kept', anchor: { exact: '' }, state: { status: 'anchored' } });
+    expect(clean).toEqual({ ...marker(), label: 'kept', state: { status: 'anchored' } });
   });
 
   it('moves with the file on rename', async () => {

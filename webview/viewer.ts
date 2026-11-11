@@ -32,6 +32,17 @@ export interface PageViewLike {
   imageCoordinates?: ArrayLike<number> | null;
 }
 
+/** A PDF that was opened and is not shown yet: the viewer keeps showing the previous one meanwhile. */
+export interface OpenedPdf {
+  doc: PDFDocumentProxy;
+  /** A newer PDF was opened since: this one will not be shown. */
+  stale(): boolean;
+  /** Switches the view to this PDF, keeping the zoom and the reading position. False if a newer one took over. */
+  show(restore?: ViewLocation): Promise<boolean>;
+  /** Frees it without showing it. */
+  discard(): void;
+}
+
 /** Asks the reader for the password of an encrypted PDF; undefined cancels. */
 export type PasswordPrompt = (incorrect: boolean) => Promise<string | undefined>;
 
@@ -115,10 +126,20 @@ export class Viewer {
 
   // ---------- Loading ----------
 
-  /** Loads a new PDF, keeping the zoom and the reading position of the previous one. */
+  /** Loads a new PDF and shows it, keeping the zoom and the reading position of the previous one. */
   async load(data: Uint8Array, restore?: ViewLocation): Promise<PDFDocumentProxy | undefined> {
+    const opened = await this.open(data);
+    if (!opened) return undefined;
+    return (await opened.show(restore)) ? opened.doc : undefined;
+  }
+
+  /**
+   * Opens a new PDF without showing it: the previous one stays on screen, with everything drawn
+   * on it, until `show` is called. So the new one can be read and its annotations placed first,
+   * and nothing computed for one PDF is ever drawn on the other.
+   */
+  async open(data: Uint8Array): Promise<OpenedPdf | undefined> {
     const seq = ++this.loadSeq;
-    const location = this.doc ? this.captureLocation() : restore;
     const task = pdfjsLib.getDocument({
       data,
       cMapUrl: this.assets.cmaps,
@@ -158,19 +179,35 @@ export class Viewer {
       void task.destroy();
       return undefined;
     }
-    const previousTask = this.task;
-    this.task = task;
-    this.doc = doc;
-    const pagesInit = new Promise<void>((resolve) => this.eventBus.on('pagesinit', () => resolve(), { once: true }));
-    this.pdfViewer.setDocument(doc);
-    this.linkService.setDocument(doc);
-    await pagesInit;
-    if (seq !== this.loadSeq) return undefined;
-    this.applyZoom(this.zoom);
-    if (location) this.restoreLocation(location);
-    this.onPageChange?.(this.pdfViewer.currentPageNumber, this.pdfViewer.pagesCount);
-    if (previousTask) void previousTask.destroy();
-    return doc;
+    let shown = false;
+    return {
+      doc,
+      stale: () => seq !== this.loadSeq,
+      discard: () => {
+        if (!shown) void task.destroy();
+      },
+      show: async (restore?: ViewLocation) => {
+        if (seq !== this.loadSeq) {
+          void task.destroy();
+          return false;
+        }
+        shown = true;
+        const location = this.doc ? this.captureLocation() : restore;
+        const previousTask = this.task;
+        this.task = task;
+        this.doc = doc;
+        const pagesInit = new Promise<void>((resolve) => this.eventBus.on('pagesinit', () => resolve(), { once: true }));
+        this.pdfViewer.setDocument(doc);
+        this.linkService.setDocument(doc);
+        await pagesInit;
+        if (previousTask) void previousTask.destroy();
+        if (seq !== this.loadSeq) return false;
+        this.applyZoom(this.zoom);
+        if (location) this.restoreLocation(location);
+        this.onPageChange?.(this.pdfViewer.currentPageNumber, this.pdfViewer.pagesCount);
+        return true;
+      },
+    };
   }
 
   captureLocation(): ViewLocation | undefined {

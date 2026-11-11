@@ -68,6 +68,12 @@ export async function renameWithRetry(from: string, to: string, attempts = 6): P
   }
 }
 
+/** Moves a file within the storage folder (snapshots follow a renamed document). */
+export async function moveFile(from: string, to: string): Promise<void> {
+  await ensureDir(dirname(to));
+  await renameWithRetry(from, to);
+}
+
 /** Moves a file aside (used for corrupt records). */
 export async function moveAside(from: string, to: string): Promise<void> {
   await renameWithRetry(from, to);

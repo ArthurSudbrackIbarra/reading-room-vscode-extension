@@ -13,6 +13,8 @@ export interface Settings {
   chromiumDownload: 'ask' | 'never';
   /** Days a converted PDF stays in the disk cache after its last use; 0 turns the cache off. */
   cacheDays: number;
+  /** Keep the text of the versions annotations were last found in, to follow them through edits. */
+  textSnapshots: boolean;
 }
 
 /**
@@ -31,6 +33,7 @@ export function readSettings(): Settings {
     chromiumPath: (c.get<string>('chromiumPath') ?? '').trim(),
     chromiumDownload: c.get<string>('chromiumDownload') === 'never' ? 'never' : 'ask',
     cacheDays: Number.isFinite(cacheDays) ? Math.min(365, Math.max(0, Math.floor(cacheDays))) : 7,
+    textSnapshots: c.get<boolean>('textSnapshots') !== false,
   };
 }
 

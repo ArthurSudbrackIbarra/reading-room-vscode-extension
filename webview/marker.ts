@@ -1,16 +1,18 @@
 // The reading marker: one "I stopped reading here" line per document, placed by the reader.
 // It is anchored to the text at the start of the marked line, so it follows edits of converted
 // documents; the page position is the fallback (and the only anchor on pages without text).
-import { anchorQuote, createSelectors } from '../src/anchoring/match';
+// What the reader placed (page, position, text) is never changed here: where the marker is in
+// the current version of the document is derived by each resolving run.
+import type { AnchorState } from '../src/anchoring/anchor';
+import type { DocumentLayout } from '../src/anchoring/layout';
+import { createSelectors } from '../src/anchoring/match';
+import { markerAnchor, type MarkerInput, type MarkerResult } from '../src/anchoring/runs';
 import type { ReadingMarker } from '../src/shared/types';
 import type { HighlightController } from './highlights';
 import type { PageLayers } from './pageLayers';
 import type { Viewer } from './viewer';
 
 const LAYER = 'mpv-marker-layer';
-/** Characters of text stored with the marker (plus context, see createSelectors). */
-const QUOTE_LENGTH = 48;
-
 export interface MarkerEvents {
   /** The reader picked a line while placing the marker. */
   placed(marker: ReadingMarker): void;
@@ -18,9 +20,16 @@ export interface MarkerEvents {
   tabClicked(x: number, y: number): void;
   /** Placement mode started or ended. */
   placingChanged(placing: boolean): void;
-  /** The position was re-computed after the document changed; store it quietly. */
-  resolved(marker: ReadingMarker): void;
+  /** The marker was set or replaced: it has to be found in the document. */
+  needsResolve(): void;
   changed(): void;
+}
+
+export interface MarkerOptions {
+  /** The layout of the document shown (undefined while none is). */
+  layout(): DocumentLayout | undefined;
+  /** A converted document (Markdown, text): a mark on a spot without text follows the text before it. */
+  converted: boolean;
 }
 
 function formatDate(iso: string): string {
@@ -35,12 +44,17 @@ export class ReadingMarkerController {
   private placingMode = false;
   private ghost?: { pageIndex: number; y: number };
   private resolveSeq = 0;
+  /** What the last resolving run found. */
+  private result?: MarkerResult;
+  /** The state from a render of unsaved text: used for the next run, never stored. */
+  private liveState?: AnchorState;
 
   constructor(
     private readonly viewer: Viewer,
     private readonly layers: PageLayers,
     private readonly highlights: HighlightController,
     private readonly events: MarkerEvents,
+    private readonly options: MarkerOptions,
   ) {
     layers.register({ className: LAYER, placement: 'top', fill: (layer, i) => this.fill(layer, i) });
     const container = viewer.container;
@@ -68,52 +82,77 @@ export class ReadingMarkerController {
     return date ? `You stopped reading here (${date})` : 'You stopped reading here';
   }
 
-  /** Replaces the marker (initial load, undo/redo, placement) and draws it. */
-  async set(marker: ReadingMarker | null): Promise<void> {
-    this.marker = marker ? structuredClone(marker) : null;
-    this.position = marker ? { pageIndex: marker.pageIndex, y: marker.y } : undefined;
-    this.redraw();
-    this.events.changed();
-    if (marker) await this.resolve(false);
+  /** What to tell the reader when the marker is not on its own line, or undefined when it is. */
+  get caveat(): string | undefined {
+    const r = this.result;
+    if (!r) return undefined;
+    if (r.approximate) return 'The line you marked is not in this version of the file. The marker stands where it was.';
+    if (r.stored && r.status === 'orphaned') return 'The text you marked is not in this version of the file. The marker stands at the place it had on the page.';
+    return undefined;
   }
 
-  /** Re-computes the position from the marker's text (after the document loaded or changed). */
-  async resolve(report = true): Promise<void> {
-    const marker = this.marker;
-    if (!marker) return;
-    const seq = ++this.resolveSeq;
-    const lastPage = Math.max(0, this.viewer.pagesCount - 1);
-    let position = { pageIndex: Math.min(marker.pageIndex, lastPage), y: marker.y };
-    let start: number | undefined;
-    const model = this.highlights.textModel;
-    if (marker.selector && model) {
-      const [quote, stored] = marker.selector;
-      const match = anchorQuote(model.text, quote, stored);
-      if (match) {
-        const pages = await this.highlights.rangeRects(match.start, Math.min(match.end, match.start + 1));
-        if (seq !== this.resolveSeq || this.marker !== marker) return;
-        const first = pages[0];
-        if (first && first.rects.length > 0) {
-          position = { pageIndex: first.pageIndex, y: Math.min(...first.rects.map((r) => r[1])) };
-          start = match.start;
-        }
-      }
-    }
-    this.position = position;
+  /**
+   * Replaces the marker (initial load, undo/redo, placement). A marker the reader just placed
+   * (`placed`) is drawn where they put it; any other waits for the resolving run to say where it
+   * is in the document shown.
+   */
+  set(marker: ReadingMarker | null, placed = false): void {
+    this.resolveSeq++;
+    this.marker = marker ? structuredClone(marker) : null;
+    this.result = undefined;
+    this.liveState = undefined;
+    this.position = marker && placed ? { pageIndex: marker.pageIndex, y: marker.y } : undefined;
     this.redraw();
     this.events.changed();
-    const moved =
-      position.pageIndex !== marker.pageIndex ||
-      Math.abs(position.y - marker.y) > 0.002 ||
-      (start !== undefined && marker.selector !== undefined && start !== marker.selector[1].start);
-    if (report && moved) {
-      const updated: ReadingMarker = { ...marker, pageIndex: position.pageIndex, y: position.y };
-      if (start !== undefined && updated.selector) {
-        updated.selector = [updated.selector[0], { type: 'TextPositionSelector', start, end: start + updated.selector[0].exact.length }];
-      }
-      this.marker = updated;
-      this.events.resolved(structuredClone(updated));
+    if (marker) this.events.needsResolve();
+  }
+
+  /** The viewer switched to another PDF: the position computed for the previous one is dropped. */
+  documentChanged(): void {
+    this.resolveSeq++;
+    this.position = undefined;
+    this.result = undefined;
+    this.redraw();
+  }
+
+  /** What the resolver works on. */
+  input(): MarkerInput | undefined {
+    const m = this.marker;
+    if (!m) return undefined;
+    return { page: m.pageIndex, y: m.y, ...(m.anchor ? { anchor: m.anchor } : {}), ...(m.rel ? { rel: m.rel } : {}), state: this.liveState ?? m.state };
+  }
+
+  /** The state the last saved render left, for the host. */
+  get resolvedState(): AnchorState | undefined {
+    return this.result?.state;
+  }
+
+  /**
+   * Takes over where a resolving run found the marker. On a rendered page the top of the line is
+   * measured in the text layer, like when the reader placed it.
+   */
+  async applyResult(result: MarkerResult | undefined, provisional: boolean): Promise<void> {
+    const marker = this.marker;
+    if (!marker || !result) return;
+    const seq = ++this.resolveSeq;
+    this.result = result;
+    if (provisional) {
+      this.liveState = result.state;
+    } else {
+      this.liveState = undefined;
+      if (result.state) marker.state = result.state;
     }
+    this.position = { pageIndex: result.page, y: result.y };
+    this.redraw();
+    this.events.changed();
+    if (result.offset === undefined || marker.rel) return;
+    const pages = await this.highlights.rangeRects(result.offset, result.offset + 1);
+    if (seq !== this.resolveSeq || this.marker !== marker) return;
+    const first = pages[0];
+    if (!first || first.rects.length === 0) return;
+    this.position = { pageIndex: first.pageIndex, y: Math.min(...first.rects.map((r) => r[1])) };
+    this.redraw();
+    this.events.changed();
   }
 
   /** Scrolls the marker a quarter of the way down the visible area and makes it pulse. */
@@ -184,12 +223,26 @@ export class ReadingMarkerController {
   private build(pageIndex: number, y: number, index?: number): ReadingMarker {
     const marker: ReadingMarker = { pageIndex, y: Math.min(1, Math.max(0, y)), createdAt: new Date().toISOString() };
     const model = this.highlights.textModel;
+    const layout = this.options.layout();
     if (model && index !== undefined && index < model.text.length) {
-      let end = Math.min(model.text.length, index + QUOTE_LENGTH);
-      // End on a word boundary when there is one nearby.
-      const space = model.text.lastIndexOf(' ', end);
-      if (space > index + 12) end = space;
-      if (end > index) marker.selector = createSelectors(model.text, index, end);
+      // The start of the marked line, and only text of that line.
+      const anchor = markerAnchor(model, index, layout?.lineOf(index)?.line.end);
+      const start = anchor?.createdIn?.start;
+      if (anchor && start !== undefined) {
+        marker.anchor = anchor;
+        marker.selector = createSelectors(model.text, start, start + anchor.exact.length);
+      }
+    } else if (model && layout && this.options.converted) {
+      // A spot without text (a picture, the space under a heading): it follows the line before it.
+      const height = layout.pageSize(pageIndex)?.[1] ?? 0;
+      for (let page = pageIndex; page >= Math.max(0, pageIndex - 3) && !marker.anchor; page--) {
+        const lines = layout.lines(page).filter((l) => page < pageIndex || l.box[1] <= marker.y * height);
+        const line = lines[lines.length - 1];
+        const anchor = line ? markerAnchor(model, line.start, line.end) : undefined;
+        if (!line || !anchor) continue;
+        marker.anchor = anchor;
+        marker.rel = { pages: pageIndex - page, dy: page === pageIndex ? Math.round((marker.y * height - line.box[1]) * 100) / 100 : 0 };
+      }
     }
     return marker;
   }
@@ -239,15 +292,16 @@ export class ReadingMarkerController {
 
   private markerElement(marker: ReadingMarker, y: number): HTMLElement {
     const el = document.createElement('div');
-    el.className = 'mpv-marker';
+    const caveat = this.caveat;
+    el.className = caveat ? 'mpv-marker mpv-marker-approximate' : 'mpv-marker';
     el.style.top = `${(y * 100).toFixed(4)}%`;
     const line = document.createElement('div');
     line.className = 'mpv-marker-line';
     const tab = document.createElement('button');
     tab.type = 'button';
     tab.className = 'mpv-marker-tab';
-    tab.title = `${ReadingMarkerController.describe(marker)}. Click for options.`;
-    tab.setAttribute('aria-label', ReadingMarkerController.describe(marker));
+    tab.title = `${ReadingMarkerController.describe(marker)}. ${caveat ? `${caveat} ` : ''}Click for options.`;
+    tab.setAttribute('aria-label', caveat ? `${ReadingMarkerController.describe(marker)}. ${caveat}` : ReadingMarkerController.describe(marker));
     const glyph = document.createElement('span');
     glyph.className = 'codicon codicon-bookmark';
     glyph.setAttribute('aria-hidden', 'true');
@@ -259,7 +313,7 @@ export class ReadingMarkerController {
     });
     const label = document.createElement('span');
     label.className = 'mpv-marker-label';
-    label.textContent = 'You stopped here';
+    label.textContent = caveat ? 'You stopped about here' : 'You stopped here';
     el.append(line, tab, label);
     return el;
   }

@@ -6,7 +6,11 @@ import { createHash } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { PdfCache } from '../cache/PdfCache';
 import { downloadsFolder, writeDownloadedPdf } from '../export/downloads';
-import type { AnchorResult, CustomSoundView, ExportHighlight, HostToViewer, ViewerToHost } from '../shared/messages';
+import { pinnedExport } from '../export/pin';
+import { count, downloadMessage } from '../export/summary';
+import type { CopyHint } from '../anchoring/diff';
+import { hashText } from '../anchoring/textModel';
+import type { CustomSoundView, ExportHighlight, HostToViewer, ViewerToHost } from '../shared/messages';
 import { MAX_RECENT_COLORS, normalizeHex, sanitizeInk, type HexColor, type Ink } from '../shared/colors';
 import {
   MAX_DRAWINGS,
@@ -34,8 +38,10 @@ import {
   type Highlight,
   type HighlightColor,
   type PageTheme,
+  type StoredRecord,
 } from '../shared/types';
-import { normalizeKeyPath, sanitizeHighlight, sanitizeMarker, type DocumentRef, type HighlightStore } from '../store/HighlightStore';
+import { MAX_SNAPSHOT_CHARS, normalizeKeyPath, sanitizeHighlight, sanitizeMarker, type DocumentRef, type HighlightStore } from '../store/HighlightStore';
+import { applyResolved, prepareRecord } from '../store/resolutions';
 import type { SoundRequest, SoundState } from '../shared/sounds';
 import type { SoundLibrary } from '../store/SoundLibrary';
 import { readSettings } from '../util/settings';
@@ -97,9 +103,28 @@ interface ShownPdf {
   warnings: string[];
 }
 
+/** What the viewer shows, and what it was made from. */
+interface Shown extends ShownPdf {
+  renderId: number;
+  theme: PageTheme;
+  /** Made from unsaved text: what it does to the annotations is not stored. */
+  provisional: boolean;
+  /** Identifies the light render of the same text and settings (what a download is made of). */
+  lightKey: string;
+  hints: CopyHint[];
+}
+
+/** Most earlier versions of the text sent to a viewer for one render. */
+const MAX_SNAPSHOTS_PER_REQUEST = 8;
+const MAX_COPY_HINTS = 8;
+
 type ExportReply = {
+  renderId: number;
+  hash: string;
   highlights: ExportHighlight[];
   orphaned: number;
+  orphanedNotes?: number;
+  orphanedDrawings?: number;
   drawings: Drawing[];
   textLayouts?: TextLayout[];
   skippedDrawings: number;
@@ -115,15 +140,6 @@ function sanitizeTextLayout(value: unknown): TextLayout | undefined {
   if (typeof l.id !== 'string' || !Array.isArray(l.lines) || l.lines.length > MAX_TEXT_LENGTH || !finite(l.width) || !finite(l.height)) return undefined;
   if (!l.lines.every((line): line is string => typeof line === 'string')) return undefined;
   return { id: l.id, lines: l.lines.slice(), width: l.width, height: l.height };
-}
-
-function count(n: number, noun: string, plural = `${noun}s`): string {
-  return `${n} ${n === 1 ? noun : plural}`;
-}
-
-/** "a", "a and b", "a, b and c". */
-function listOf(parts: string[]): string {
-  return parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 }
 
 export const MARKDOWN_EXT = /\.(md|markdown|mdown|mkd|mkdn|mdwn|mdtxt|mdtext|rmd|qmd)$/i;
@@ -174,7 +190,10 @@ export class PreviewPanel implements vscode.Disposable {
   private renderTimer?: ReturnType<typeof setTimeout>;
   private renderSeq = 0;
   /** What the viewer currently shows. */
-  private shown?: ShownPdf & { renderId: number; theme: PageTheme };
+  private shown?: Shown;
+  /** Which of two identical neighboring blocks is the copy, collected from the editor until the next saved render. */
+  private copyHints: CopyHint[] = [];
+  private readOnlyTold = false;
   /** Converted PDFs by page theme (Markdown and text only). */
   private readonly cache = new Map<PageTheme, ShownPdf>();
   private theme: PageTheme;
@@ -287,6 +306,18 @@ export class PreviewPanel implements vscode.Disposable {
         });
         break;
       }
+      case 'replaceHighlight': {
+        // The reader rebased a highlight on its current text (Accept) or attached it to other text.
+        const highlight = sanitizeHighlight(structuredClone(msg.highlight));
+        if (!highlight) return;
+        await this.host.store.update(this.ref, (r) => {
+          const index = r.highlights.findIndex((h) => h.id === highlight.id);
+          if (index < 0) return false;
+          r.highlights[index] = { ...highlight, createdAt: r.highlights[index].createdAt, updatedAt: new Date().toISOString() };
+          return true;
+        });
+        break;
+      }
       case 'updateHighlight': {
         const color = msg.color !== undefined && isHighlightColor(msg.color) ? msg.color : undefined;
         const note = typeof msg.note === 'string' ? msg.note.slice(0, MAX_NOTE_LENGTH) : undefined;
@@ -357,8 +388,14 @@ export class PreviewPanel implements vscode.Disposable {
         this.host.updateUiState({ recentColors: [...new Set(colors)].slice(0, MAX_RECENT_COLORS) });
         break;
       }
-      case 'anchorsResolved':
-        await this.applyAnchors(msg.renderId, msg.results);
+      case 'resolved':
+        await this.applyResolved(msg);
+        break;
+      case 'requestSnapshots':
+        await this.sendSnapshots(msg.requestId, msg.hashes);
+        break;
+      case 'saveSnapshot':
+        await this.saveSnapshot(msg.renderId, msg.hash, msg.text);
         break;
       case 'viewChanged':
         if (!isZoomValue(msg.zoom)) return;
@@ -415,6 +452,8 @@ export class PreviewPanel implements vscode.Disposable {
     await this.host.store.update(this.ref, (r) => {
       const index = new Map(r.drawings.map((d, i) => [d.id, i]));
       for (const drawing of drawings) {
+        // The binding belongs to this version of the drawing, which is stamped here.
+        if (drawing.binding) drawing.binding.for = now;
         const i = index.get(drawing.id);
         if (i !== undefined) {
           r.drawings[i] = { ...drawing, createdAt: r.drawings[i].createdAt, updatedAt: now };
@@ -442,10 +481,30 @@ export class PreviewPanel implements vscode.Disposable {
     }
   }
 
+  /**
+   * The record as the viewer gets it: annotations of earlier versions get their anchors first
+   * (stored with the next write; nothing is written for a file without annotations).
+   */
+  private async recordForViewer(reload = false): Promise<{ record: StoredRecord; readOnly: boolean }> {
+    const store = this.host.store;
+    let record = reload ? await store.reload(this.ref) : await store.get(this.ref);
+    const readOnly = await store.isReadOnly(this.ref);
+    const needsAnchors = record.highlights.some((h) => !h.anchor) || (record.marker?.selector !== undefined && !record.marker.anchor);
+    if (needsAnchors && !readOnly) record = await store.update(this.ref, (r) => prepareRecord(r));
+    else if (needsAnchors) prepareRecord(record);
+    if (readOnly && !this.readOnlyTold) {
+      this.readOnlyTold = true;
+      void vscode.window.showWarningMessage(
+        `Document Viewer: the annotations of ${this.fileName} were saved by a newer version of this extension. They are shown, but changes you make here are not stored. Update the extension to edit them.`,
+      );
+    }
+    return { record, readOnly };
+  }
+
   private async onReady(): Promise<void> {
     this.ready = true;
     this.host.sounds.pageLoaded(this);
-    const record = await this.host.store.get(this.ref);
+    const { record, readOnly } = await this.recordForViewer();
     const ui = this.host.uiState();
     const margins = isConvertedKind(this.kind)
       ? { top: PAGE_MARGINS_MM.top * MM_TO_PT, bottom: PAGE_MARGINS_MM.bottom * MM_TO_PT }
@@ -474,14 +533,16 @@ export class PreviewPanel implements vscode.Disposable {
         marginsPt: margins,
         sound: this.host.sounds.stateFor(this),
         customSounds: this.customSoundViews(),
+        readOnly,
+        keepSnapshots: readSettings().textSnapshots,
+        pages: record.pages,
       },
     } satisfies HostToViewer);
     const queued = this.outbox.splice(0);
     for (const message of queued) void this.panel.webview.postMessage(message);
     if (this.shown) {
       // The webview was reloaded (e.g. restored): show what we have, then refresh.
-      const { pdf, renderId, theme, warnings } = this.shown;
-      this.post({ type: 'pdf', data: pdf, renderId, theme, warnings: warnings.map((message) => ({ message })) });
+      await this.postPdf(this.shown);
     } else if (!this.renderLoop) {
       void this.requestRender();
     }
@@ -489,11 +550,22 @@ export class PreviewPanel implements vscode.Disposable {
 
   // ---------- Producing the PDF ----------
 
-  private async readText(): Promise<string> {
+  /** The text to convert: the editor's when the file is open there (`dirty`: with unsaved edits), else the file's. */
+  private async readSource(): Promise<{ text: string; dirty: boolean }> {
     const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === this.uri.toString());
-    if (open) return open.getText();
+    if (open) return { text: open.getText(), dirty: open.isDirty };
     // Same decoding as the editor (files.encoding, auto-guessing).
-    return vscode.workspace.decode(await vscode.workspace.fs.readFile(this.uri), { uri: this.uri });
+    return { text: await vscode.workspace.decode(await vscode.workspace.fs.readFile(this.uri), { uri: this.uri }), dirty: false };
+  }
+
+  private async readText(): Promise<string> {
+    return (await this.readSource()).text;
+  }
+
+  /** A hint from the editor about which of two identical blocks is the copy (see copyHints.ts). */
+  addCopyHint(hint: CopyHint): void {
+    this.copyHints.push(hint);
+    if (this.copyHints.length > MAX_COPY_HINTS) this.copyHints.shift();
   }
 
   /** Identifies a conversion: same hash, same PDF. */
@@ -566,25 +638,31 @@ export class PreviewPanel implements vscode.Disposable {
       return;
     }
     if (this.disposed) return;
-    this.show({ key, pdf: bytes, warnings: [], renderId: ++this.renderSeq, theme: this.theme });
+    await this.show({ key, pdf: bytes, warnings: [] }, ++this.renderSeq, this.theme, false, key);
     this.host.log.info(`Opened ${this.uri.fsPath || this.uri.toString()} (${bytes.byteLength} bytes)`);
   }
 
   private async renderOnce(force: boolean): Promise<void> {
     if (this.disposed || !isConvertedKind(this.kind)) return;
     let text: string;
+    let provisional: boolean;
     try {
-      text = await this.readText();
+      ({ text, dirty: provisional } = await this.readSource());
     } catch (err) {
       this.post({ type: 'renderError', message: `Could not read ${this.uri.fsPath || this.uri.toString()}: ${String(err)}`, firstRender: !this.shown });
       return;
     }
     const theme = this.theme;
     const key = this.sourceHash(text, theme);
-    if (!force && this.shown?.key === key && this.shown.theme === theme) return;
+    const lightKey = this.sourceHash(text, 'light');
+    if (!force && this.shown?.key === key && this.shown.theme === theme) {
+      // The same PDF: it only stopped being unsaved text (the file was saved as it is shown).
+      if (this.shown.provisional && !provisional) await this.show(this.shown, ++this.renderSeq, theme, false, lightKey);
+      return;
+    }
     const cached = this.cache.get(theme);
     if (!force && cached?.key === key) {
-      this.show({ ...cached, renderId: ++this.renderSeq, theme });
+      await this.show(cached, ++this.renderSeq, theme, provisional, lightKey);
       return;
     }
     const settings = readSettings();
@@ -598,7 +676,7 @@ export class PreviewPanel implements vscode.Disposable {
       if (hit) {
         const entry: ShownPdf = { key, pdf: hit.pdf, warnings: hit.warnings };
         this.cache.set(theme, entry);
-        this.show({ ...entry, renderId: ++this.renderSeq, theme });
+        await this.show(entry, ++this.renderSeq, theme, provisional, lightKey);
         this.host.log.info(`Opened ${this.uri.fsPath || this.uri.toString()} (${theme}) from the cache in ${Date.now() - started} ms`);
         return;
       }
@@ -611,7 +689,7 @@ export class PreviewPanel implements vscode.Disposable {
       const rendered: ShownPdf = { key, pdf: result.pdf, warnings: result.warnings };
       this.cache.set(theme, rendered);
       for (const [t, entry] of this.cache) if (entry.key !== key && t !== theme) this.cache.delete(t);
-      this.show({ ...rendered, renderId, theme });
+      await this.show(rendered, renderId, theme, provisional, lightKey);
       const timings = Object.entries(result.timings)
         .map(([k, v]) => `${k} ${v} ms`)
         .join(', ');
@@ -643,15 +721,26 @@ export class PreviewPanel implements vscode.Disposable {
     }
   }
 
-  private show(rendered: ShownPdf & { renderId: number; theme: PageTheme }): void {
-    rendered.pdf = plainBytes(rendered.pdf);
-    this.shown = rendered;
+  private async show(pdf: ShownPdf, renderId: number, theme: PageTheme, provisional: boolean, lightKey: string): Promise<void> {
+    const shown: Shown = { key: pdf.key, pdf: plainBytes(pdf.pdf), warnings: pdf.warnings, renderId, theme, provisional, lightKey, hints: [...this.copyHints] };
+    // The hints are about the edits since the last saved render: this one uses them up.
+    if (!provisional) this.copyHints = [];
+    this.shown = shown;
+    await this.postPdf(shown);
+  }
+
+  private async postPdf(shown: Shown): Promise<void> {
+    const snapshots = readSettings().textSnapshots ? await this.host.store.snapshotHashes(this.ref).catch(() => []) : [];
+    if (this.shown !== shown || this.disposed) return;
     this.post({
       type: 'pdf',
-      data: rendered.pdf,
-      renderId: rendered.renderId,
-      theme: rendered.theme,
-      warnings: rendered.warnings.map((message) => ({ message })),
+      data: shown.pdf,
+      renderId: shown.renderId,
+      theme: shown.theme,
+      warnings: shown.warnings.map((message) => ({ message })),
+      provisional: shown.provisional,
+      hints: shown.hints,
+      snapshots,
     });
   }
 
@@ -682,33 +771,35 @@ export class PreviewPanel implements vscode.Disposable {
     }
   }
 
-  private async applyAnchors(renderId: number, results: AnchorResult[]): Promise<void> {
-    if (this.shown?.renderId !== renderId) return;
-    const byId = new Map(results.map((r) => [r.id, r]));
+  /**
+   * Stores where a viewer found everything, in one update. Only for the render that is shown
+   * (results for an older one are stale) and only when it was made from saved text: what an
+   * unsaved edit does to the annotations may never be saved.
+   */
+  private async applyResolved(msg: Extract<ViewerToHost, { type: 'resolved' }>): Promise<void> {
+    if (this.shown?.renderId !== msg.renderId || this.shown.provisional) return;
     const record = await this.host.store.get(this.ref);
-    const changed = record.highlights.some((h) => {
-      const r = byId.get(h.id);
-      if (!r) return false;
-      const pos = h.target.selector[1];
-      return (
-        r.status !== h.status ||
-        (r.start !== undefined && (r.start !== pos.start || r.end !== pos.end)) ||
-        (r.pages !== undefined && JSON.stringify(r.pages) !== JSON.stringify(h.target.hints.pages))
-      );
-    });
-    if (!changed) return;
-    await this.host.store.update(this.ref, (rec) => {
-      for (const h of rec.highlights) {
-        const r = byId.get(h.id);
-        if (!r) continue;
-        h.status = r.status;
-        if (r.status === 'anchored' && r.start !== undefined && r.end !== undefined) {
-          h.target.selector[1] = { type: 'TextPositionSelector', start: r.start, end: r.end };
-        }
-        if (r.pages) h.target.hints.pages = r.pages;
-        if (r.textModelHash) h.target.hints.textModelHash = r.textModelHash;
+    if (record.highlights.length === 0 && record.drawings.length === 0 && !record.marker) return;
+    await this.host.store.update(this.ref, (r) => applyResolved(r, msg));
+  }
+
+  /** Sends the kept texts of earlier versions a viewer asked for. */
+  private async sendSnapshots(requestId: number, hashes: unknown): Promise<void> {
+    const texts: Record<string, string> = {};
+    if (readSettings().textSnapshots && Array.isArray(hashes)) {
+      for (const hash of hashes.filter((h): h is string => typeof h === 'string').slice(0, MAX_SNAPSHOTS_PER_REQUEST)) {
+        const text = await this.host.store.readSnapshot(this.ref, hash).catch(() => undefined);
+        if (text !== undefined) texts[hash] = text;
       }
-    });
+    }
+    this.post({ type: 'snapshots', requestId, texts });
+  }
+
+  /** Keeps the text of a saved render in which annotations were found. */
+  private async saveSnapshot(renderId: number, hash: unknown, text: unknown): Promise<void> {
+    if (!readSettings().textSnapshots || this.shown?.renderId !== renderId || this.shown.provisional) return;
+    if (typeof hash !== 'string' || typeof text !== 'string' || text.length > MAX_SNAPSHOT_CHARS || hashText(text) !== hash) return;
+    await this.host.store.saveSnapshot(this.ref, hash, text).catch((err: unknown) => this.host.log.warn(`Could not keep the text of ${this.fileName}: ${String(err)}`));
   }
 
   // ---------- Commands ----------
@@ -768,8 +859,8 @@ export class PreviewPanel implements vscode.Disposable {
   }
 
   async reloadHighlights(): Promise<void> {
-    const record = await this.host.store.reload(this.ref);
-    this.post({ type: 'highlights', highlights: record.highlights, marker: record.marker ?? null, drawings: record.drawings });
+    const { record, readOnly } = await this.recordForViewer(true);
+    this.post({ type: 'highlights', highlights: record.highlights, marker: record.marker ?? null, drawings: record.drawings, readOnly, pages: record.pages });
   }
 
   reveal(preserveFocus = false): void {
@@ -952,13 +1043,26 @@ export class PreviewPanel implements vscode.Disposable {
     return `${base}.pdf`;
   }
 
-  /** The PDF to download, before highlights are added: the file itself, or the light render. */
-  private async downloadBytes(): Promise<Uint8Array> {
-    if (this.kind === 'pdf') return vscode.workspace.fs.readFile(this.uri);
+  /**
+   * The PDF to download, before annotations are added (the file itself, or the light render), and
+   * what identifies the text and settings it was made from. The viewer is brought up to date
+   * first, so the positions it reports are for these very bytes.
+   */
+  private async downloadSource(): Promise<{ bytes: Uint8Array; pin: string }> {
+    if (this.kind === 'pdf') {
+      const pinOf = async () => {
+        const stat = await vscode.workspace.fs.stat(this.uri);
+        return `${stat.mtime}:${stat.size}`;
+      };
+      const pin = await pinOf();
+      if (this.shown?.lightKey !== pin) await this.requestRender();
+      const bytes = await vscode.workspace.fs.readFile(this.uri);
+      // Written to while it was read: the caller sees a pin that matches nothing and tries again.
+      return { bytes, pin: (await pinOf()) === pin ? pin : `${pin}:changed` };
+    }
     const text = await this.readText();
-    // Bring the viewer up to date first, so highlight positions match the exported PDF.
-    if (this.shown?.key !== this.sourceHash(text, this.theme)) await this.requestRender();
     const key = this.sourceHash(text, 'light');
+    if (this.shown?.lightKey !== key) await this.requestRender();
     let light = this.cache.get('light');
     if (!light || light.key !== key) {
       const hit =
@@ -973,7 +1077,7 @@ export class PreviewPanel implements vscode.Disposable {
       }
       this.cache.set('light', light);
     }
-    return light.pdf;
+    return { bytes: light.pdf, pin: key };
   }
 
   /** Downloads the PDF, by default with highlights, notes, drawings and text boxes as PDF annotations. */
@@ -992,6 +1096,8 @@ export class PreviewPanel implements vscode.Disposable {
       return;
     }
     let skipped = 0;
+    let skippedNotes = 0;
+    let orphanedDrawings = 0;
     let included = 0;
     let drawn = 0;
     let texts = 0;
@@ -1002,11 +1108,24 @@ export class PreviewPanel implements vscode.Disposable {
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: 'Document Viewer: preparing the PDF…' },
         async () => {
-          let bytes = await this.downloadBytes();
+          let bytes: Uint8Array;
+          let data: ExportReply | undefined;
           if (withAnnotations) {
-            const data = await this.requestExportData();
-            if (data.error) throw new Error(data.error);
+            // The annotations must have been computed for the bytes being downloaded: the viewer
+            // answers for the render it shows, which must be the one made from the same text.
+            ({ bytes, data } = await pinnedExport<ExportReply>({
+              source: () => this.downloadSource(),
+              shown: () => (this.shown ? { renderId: this.shown.renderId, pin: this.shown.lightKey } : undefined),
+              requestExport: () => this.requestExportData(),
+              rerender: () => this.requestRender(),
+            }));
+          } else {
+            bytes = (await this.downloadSource()).bytes;
+          }
+          if (data) {
             skipped = data.orphaned;
+            skippedNotes = Number(data.orphanedNotes) || 0;
+            orphanedDrawings = Number(data.orphanedDrawings) || 0;
             included = data.highlights.length;
             const drawings = (Array.isArray(data.drawings) ? data.drawings : []).map((d) => sanitizeDrawing(d)).filter((d): d is Drawing => d !== undefined);
             const textLayouts = (Array.isArray(data.textLayouts) ? data.textLayouts : []).map(sanitizeTextLayout).filter((l): l is TextLayout => l !== undefined);
@@ -1032,17 +1151,19 @@ export class PreviewPanel implements vscode.Disposable {
       return;
     }
     const name = target.path.split('/').pop();
-    const included_ = [count(included, 'highlight'), count(drawn, 'drawing'), texts > 0 ? count(texts, 'text box', 'text boxes') : ''].filter(Boolean);
-    const notes = [
-      withAnnotations ? `${listOf(included_)} included` : 'without annotations',
-      skipped > 0 ? `${skipped} orphaned highlight${skipped === 1 ? ' was' : 's were'} left out` : '',
-      skippedDrawings > 0 ? `${count(skippedDrawings, 'drawing')} on pages the document no longer has ${skippedDrawings === 1 ? 'was' : 'were'} left out` : '',
-      replacedChars > 0
-        ? `${count(replacedChars, 'character')} in text boxes ${replacedChars === 1 ? 'is' : 'are'} not in the PDF's standard font and ${replacedChars === 1 ? 'shows' : 'show'} as "?"`
-        : '',
-      decrypted ? 'the copy is not password-protected' : '',
-    ].filter(Boolean);
-    const choice = await vscode.window.showInformationMessage(`Saved ${name} (${notes.join('; ')}).`, 'Open PDF', 'Show in Folder');
+    const message = downloadMessage(name ?? '', {
+      withAnnotations,
+      highlights: included,
+      drawings: drawn,
+      textBoxes: texts,
+      orphanedHighlights: skipped,
+      orphanedNotes: skippedNotes,
+      orphanedDrawings,
+      drawingsWithoutPage: skippedDrawings,
+      replacedChars,
+      decrypted,
+    });
+    const choice = await vscode.window.showInformationMessage(message, 'Open PDF', 'Show in Folder');
     if (choice === 'Open PDF') await vscode.env.openExternal(target);
     if (choice === 'Show in Folder') await vscode.commands.executeCommand('revealFileInOS', target);
   }
@@ -1053,7 +1174,7 @@ export class PreviewPanel implements vscode.Disposable {
     if (this.disposed) return;
     this.disposed = true;
     clearTimeout(this.renderTimer);
-    for (const waiter of this.exportWaiters.values()) waiter({ highlights: [], orphaned: 0, drawings: [], skippedDrawings: 0, error: 'The viewer was closed.' });
+    for (const waiter of this.exportWaiters.values()) waiter({ renderId: -1, hash: '', highlights: [], orphaned: 0, drawings: [], skippedDrawings: 0, error: 'The viewer was closed.' });
     this.exportWaiters.clear();
     this.watcher?.dispose();
     this.host.disposed(this);

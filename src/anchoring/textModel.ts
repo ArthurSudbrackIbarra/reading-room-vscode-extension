@@ -5,11 +5,20 @@
 // in `text`. Whitespace runs (spaces, line ends, page breaks) collapse to one space, which keeps
 // quotes stable when lines re-wrap after an edit. Header/footer text (page numbers) is excluded.
 
+/**
+ * Bump whenever text extraction or normalization changes. Hashes, offsets and snapshots made with
+ * another version are hints only: they are never trusted as positions.
+ */
+export const TEXT_MODEL_VERSION = 1;
+
 export interface TextItemInput {
   str: string;
   hasEOL: boolean;
   /** PDF transform [a, b, c, d, e, f]; `f` is the baseline y in PDF units (origin bottom-left). */
   transform: number[];
+  /** Advance width and height of the item in PDF units (PDF.js gives them); used for geometry only. */
+  width?: number;
+  height?: number;
 }
 
 export interface PageInput {
@@ -17,6 +26,9 @@ export interface PageInput {
   items: TextItemInput[];
   /** Page box [x0, y0, x1, y1] in PDF units. */
   view: number[];
+  /** The page's /Rotate (0, 90, 180, 270). */
+  rotate?: number;
+  userUnit?: number;
 }
 
 export interface TextModelOptions {
@@ -164,6 +176,19 @@ export class TextModel {
 
   itemLength(page: number, item: number): number {
     return this.itemLengths[page]?.[item] ?? 0;
+  }
+
+  /** The normalized range an item's characters map to, or undefined for excluded items. */
+  itemRange(page: number, item: number): [number, number] | undefined {
+    const map = this.rawToNorm[page]?.[item];
+    if (!map) return undefined;
+    return [Math.min(map[0], this.text.length), Math.min(map[map.length - 1], this.text.length)];
+  }
+
+  /** Where a normalized character comes from: its page, item and offset in the item. */
+  source(index: number): { page: number; item: number; offset: number } | undefined {
+    if (index < 0 || index >= this.text.length) return undefined;
+    return { page: this.srcPage[index], item: this.srcItem[index], offset: this.srcOffset[index] };
   }
 
   /**

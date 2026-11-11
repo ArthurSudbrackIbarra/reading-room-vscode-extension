@@ -110,3 +110,34 @@ describe('drawing operations', () => {
     expect(redoDrawing?.op.kind === 'createDrawing' && redoDrawing.op.drawing.color).toBe('red');
   });
 });
+
+describe('rebased highlights and bound drawings', () => {
+  it('a highlight rebased on other text (Accept, Attach) is one step that swaps the whole highlight', () => {
+    const before = makeHighlight('quick brown fox');
+    const after = { ...before, target: { ...before.target, selector: [{ ...before.target.selector[0], exact: 'quick red fox' }, before.target.selector[1]] as typeof before.target.selector }, anchor: { exact: 'quick red fox', prefix: 'the ', suffix: ' jumps' } };
+    const op: EditOp = { kind: 'replace', before, after };
+    expect(inverse(op)).toEqual({ kind: 'replace', before: after, after: before });
+    const stack = new UndoStack();
+    stack.record(op, 'Keep highlight on changed text');
+    expect(stack.undo()).toEqual({ op: { kind: 'replace', before: after, after: before }, label: 'Keep highlight on changed text' });
+    expect(stack.redo()).toEqual({ op, label: 'Keep highlight on changed text' });
+  });
+
+  it('D3: drawings keep their binding through undo and redo, so they are resolved again where their content is', () => {
+    const binding = { mode: 'page' as const, anchors: [], ref: [], page: 0, pageSize: [612, 792] as [number, number], frame: [1, 0, 0, -1, 0, 792] as [number, number, number, number, number, number], for: '2026-11-10T10:00:00.000Z' };
+    const stored = { ...makeDrawing(), binding };
+    const moved = { ...stored, points: [[20, 30], [120, 230]] as [number, number][], binding: { ...binding, mode: 'line' as const } };
+    const stack = new UndoStack();
+    stack.record({ kind: 'createDrawing', drawing: stored }, 'Line');
+    stack.record({ kind: 'updateDrawing', before: stored, after: moved }, 'Move drawing');
+    stack.record({ kind: 'batch', ops: [{ kind: 'deleteDrawing', drawing: moved }] }, 'Delete orphaned annotations');
+    expect(stack.undo()!.op).toEqual({ kind: 'batch', ops: [{ kind: 'createDrawing', drawing: moved }] });
+    expect(stack.undo()!.op).toEqual({ kind: 'updateDrawing', before: moved, after: stored });
+    expect(stack.undo()!.op).toEqual({ kind: 'deleteDrawing', drawing: stored });
+    expect(stack.redo()!.op).toEqual({ kind: 'createDrawing', drawing: stored });
+    // What the stack hands out is a copy: changing it does not change the history.
+    const again = stack.redo()!.op as Extract<EditOp, { kind: 'updateDrawing' }>;
+    again.after.points[0][0] = 999;
+    expect((stack.undo()!.op as Extract<EditOp, { kind: 'updateDrawing' }>).before.points[0][0]).toBe(20);
+  });
+});

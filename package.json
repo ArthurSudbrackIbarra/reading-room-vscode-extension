@@ -2,7 +2,7 @@
   "name": "markdown-pdf-viewer",
   "displayName": "Document Viewer & Highlighter",
   "description": "Read Markdown, text and PDF files as PDFs inside VS Code. Highlight in five colors, add notes, draw, type and erase on the page, mark where you stopped reading, play relaxing rain, fireplace or your own sounds, undo with Ctrl+Z, and download with all of it as PDF annotations.",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "local",
   "license": "MIT",
   "repository": {
@@ -479,6 +479,12 @@
           "maximum": 365,
           "scope": "application",
           "description": "How many days a converted PDF is kept after it was last opened, so reopening an unchanged Markdown or text file shows it instantly instead of converting it again. The cache lives in VS Code's storage for this extension, never in your folders. 0 turns the cache off and deletes it."
+        },
+        "markdownPdfViewer.textSnapshots": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Keep a compressed copy of a document's text for the versions its highlights, marker and drawings were last found in, so they can follow their text exactly when the file changes (also while VS Code was closed). The copies live in VS Code's storage for this extension, never in your folders, and only for files you annotated. Turning this off deletes them; annotations are then found again by searching for their text."
         }
       }
     },

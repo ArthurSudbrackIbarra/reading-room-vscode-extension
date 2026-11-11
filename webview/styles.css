@@ -2226,3 +2226,59 @@ body.mpv-text-mode .pdfViewer .page {
   fill: var(--ink);
   stroke: none;
 }
+
+/* ---------- Annotations whose content changed or is gone ---------- */
+
+.mpv-list-group-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--vscode-editorWarning-foreground, var(--vscode-foreground));
+}
+
+/* "was … / now …": both lines in full, the old text dimmed and struck through. */
+.mpv-item.mpv-changed .mpv-item-text {
+  display: block;
+  overflow: visible;
+}
+
+.mpv-item-was,
+.mpv-item-now {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mpv-item-was > span:last-child {
+  opacity: 0.65;
+  text-decoration: line-through;
+}
+
+.mpv-item-label {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* The marker stands where its line was: a dashed line, like a guess. */
+.mpv-marker-approximate .mpv-marker-line {
+  border-top-style: dashed;
+}
+
+/* Rows with several actions: the buttons float over the end of the row instead of taking a column. */
+.mpv-item-actions-over {
+  position: absolute;
+  /* With the 1px of padding, the buttons stand exactly where a row's own buttons do. */
+  top: 5px;
+  right: 7px;
+  padding: 1px;
+  border-radius: 4px;
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  box-shadow: 0 0 0 1px var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
+}
+
+/* What a drawing or text box follows (in its popover). */
+.mpv-attach-select {
+  width: auto;
+  max-width: 124px;
+}

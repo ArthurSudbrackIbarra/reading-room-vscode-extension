@@ -5,9 +5,12 @@ import { makeDrawing as make, makeText } from './helpers';
 const makeDrawing: typeof make = (overrides = {}) => make({ id: 'd-1', ...overrides });
 
 describe('sanitizeDrawing', () => {
-  it('keeps a valid drawing, built from the known fields only', () => {
-    const raw = { ...makeDrawing({ textModelHash: 'abc' }), extra: 'dropped', style: { evil: true } };
-    expect(sanitizeDrawing(raw)).toEqual(makeDrawing({ textModelHash: 'abc' }));
+  it('keeps a valid drawing: known fields checked, fields of a newer version carried along untouched', () => {
+    const raw = { ...makeDrawing({ textModelHash: 'abc' }), layer: 'front', future: { a: 1 } };
+    expect(sanitizeDrawing(raw)).toEqual({ ...makeDrawing({ textModelHash: 'abc' }), layer: 'front', future: { a: 1 } });
+    // A known field with a bad value is still refused or cleaned.
+    expect(sanitizeDrawing({ ...raw, width: 'huge' })).toBeUndefined();
+    expect(sanitizeDrawing({ ...raw, binding: { mode: 'nonsense' } })).not.toHaveProperty('binding');
   });
 
   it('accepts every tool, ink and width', () => {
@@ -95,9 +98,9 @@ describe('sanitizeDrawing', () => {
 });
 
 describe('text boxes', () => {
-  it('keep a valid text box, built from the known fields only', () => {
+  it('keep a valid text box: known fields checked, fields of a newer version carried along', () => {
     const text = makeText({ id: 't-1', color: '#336699', size: 18, align: 'justify', boxWidth: 200, textModelHash: 'h', spans: [{ start: 2, end: 6, bold: true }] });
-    expect(sanitizeDrawing({ ...text, width: 'thick', extra: 1 })).toEqual(text);
+    expect(sanitizeDrawing({ ...text, width: 'thick', extra: 1 })).toEqual({ ...text, extra: 1 });
   });
 
   it('keep the bold, italic and underlined parts: inside the text, in order, merged', () => {

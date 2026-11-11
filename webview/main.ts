@@ -3,6 +3,8 @@ import { startWorker } from './pdfjs';
 import { Viewer, type ViewLocation } from './viewer';
 import { HighlightController } from './highlights';
 import { ReadingMarkerController } from './marker';
+import { AnchoringController, type PreparedDocument } from './anchoring';
+import { massOrphanMessage, summaryMessage, type RunResult } from '../src/anchoring/runs';
 import { DarkPages } from './darkPages';
 import { PageLayers } from './pageLayers';
 import { FileLinkLayer } from './fileLinks';
@@ -128,6 +130,12 @@ class App {
   private passwordCancelled = false;
   private loading: Promise<void> = Promise.resolve();
   private initialized = false;
+  private readonly anchoring: AnchoringController;
+  /** Storing drawings is asynchronous (they are bound to what they cover): one after the other. */
+  private drawingCommits: Promise<void> = Promise.resolve();
+  /** The banner on screen says that most annotations are missing from this version. */
+  private orphanBanner = false;
+  private readOnly = false;
   private readonly early: HostToViewer[] = [];
 
   constructor(
@@ -189,11 +197,23 @@ class App {
       editNote: (id) => this.editNoteOf(id),
       goToMarker: () => this.goToMarker(),
       removeMarker: () => this.removeMarker(),
+      accept: (id) => this.rebaseHighlight(id, undefined, 'Keep highlight on changed text'),
+      attachSelection: (id) => this.attachToSelection(id),
+      attachCandidate: (id) => {
+        const candidate = this.highlights.candidateOf(id);
+        if (candidate) this.rebaseHighlight(id, [candidate.start, candidate.end], 'Attach highlight');
+      },
+      removeOrphans: () => this.removeOrphans(),
       revealDrawing: (id) => {
         if (narrowPanel()) this.setListOpen(false, false);
         this.drawings.reveal(id);
       },
       removeDrawing: (id) => this.removeDrawing(id),
+      placeDrawing: (id) => this.placeDrawing(id),
+      acceptDrawing: (id) => {
+        const shown = this.drawings.get(id);
+        if (shown) void this.commitDrawings(isTextDrawing(shown) ? 'Keep text box here' : 'Keep drawing here', [{ ...shown, updatedAt: new Date().toISOString() }], [], { rebase: true });
+      },
       removeAllDrawings: () => this.command('deleteAllDrawings'),
       removeAllTextBoxes: () => this.command('deleteAllTextBoxes'),
       close: () => this.setListOpen(false, true),
@@ -241,35 +261,32 @@ class App {
         this.undoStack.record({ kind: 'create', highlight }, 'Highlight');
       },
       changed: () => this.renderList(),
-      anchored: (results) => post({ type: 'anchorsResolved', renderId: this.highlights.currentRenderId, results }),
+      needsResolve: () => this.anchoring?.requestRun(),
     });
-    this.marker = new ReadingMarkerController(this.viewer, this.layers, this.highlights, {
-      placed: (marker) => this.setMarker(marker, 'Mark reading position'),
-      tabClicked: (x, y) => this.showMarkerPopover(x, y),
-      placingChanged: (placing) => this.onPlacingChanged(placing),
-      resolved: (marker) => post({ type: 'setMarker', marker }),
-      changed: () => {
-        this.toolbar.setMarkerState(this.marker.value !== null, this.marker.placing);
-        this.renderList();
+    this.marker = new ReadingMarkerController(
+      this.viewer,
+      this.layers,
+      this.highlights,
+      {
+        placed: (marker) => this.setMarker(marker, 'Mark reading position'),
+        tabClicked: (x, y) => this.showMarkerPopover(x, y),
+        placingChanged: (placing) => this.onPlacingChanged(placing),
+        needsResolve: () => this.anchoring?.requestRun(),
+        changed: () => {
+          this.toolbar.setMarkerState(this.marker.value !== null, this.marker.placing);
+          this.renderList();
+        },
       },
-    });
+      { layout: () => this.anchoring?.layout, converted: this.kind !== 'pdf' },
+    );
     // Registered after the highlights and the marker: drawings sit above links, below note badges
     // and the marker (by z-index), and the capture surface of draw and text mode above everything.
     this.drawings = new DrawingController(this.viewer, this.layers, this.highlights, {
-      drawn: (drawing) => {
-        post({ type: 'saveDrawings', drawings: [drawing] });
-        this.undoStack.record({ kind: 'createDrawing', drawing }, drawLabel(drawing.tool));
-      },
+      drawn: (drawing) => void this.commitDrawings(drawLabel(drawing.tool), [drawing]),
       erased: (drawings, highlights) => this.eraseAnnotations(drawings, highlights),
-      rubbed: (removed, added) => this.rubDrawings(removed, added),
-      moved: (before, after) => {
-        post({ type: 'saveDrawings', drawings: [after] });
-        this.undoStack.record({ kind: 'updateDrawing', before, after }, isTextDrawing(after) ? 'Move text box' : 'Move drawing');
-      },
-      resized: (before, after) => {
-        post({ type: 'saveDrawings', drawings: [after] });
-        this.undoStack.record({ kind: 'updateDrawing', before, after }, 'Resize text box');
-      },
+      rubbed: (removed, added) => void this.commitDrawings(removed.length === 1 ? 'Erase part of a drawing' : 'Erase parts of drawings', added, removed),
+      moved: (_before, after) => void this.commitDrawings(isTextDrawing(after) ? 'Move text box' : 'Move drawing', [after]),
+      resized: (_before, after) => void this.commitDrawings('Resize text box', [after]),
       textCommitted: (before, after) => this.onTextCommitted(before, after),
       editingChanged: () => this.showTextStyle(),
       editRequested: (id, x, y) => this.editText(id, x, y),
@@ -277,13 +294,21 @@ class App {
       changed: () => this.renderList(),
       notice: (message) => this.toast.show(message, { durationMs: 6000 }),
     });
+    this.anchoring = new AnchoringController(this.highlights, this.marker, this.drawings, {
+      kind: this.kind,
+      post: (message) => post(message),
+      log: (level, message) => log(level, message),
+      report: (result) => this.reportRun(result),
+    });
     this.drawingPopover = new DrawingPopover({
       pickColor: (id, anchor) => this.pickDrawingColor(id, anchor),
       setWidth: (id, width) => this.changeDrawing(id, { width }, 'Change drawing width'),
+      attach: (id, to) => this.attachDrawing(id, to),
       remove: (id) => this.removeDrawing(id),
     });
     this.textPopover = new TextPopover({
       setStyle: (id, patch) => this.changeDrawing(id, patch, formatLabel(patch)),
+      attach: (id, to) => this.attachDrawing(id, to),
       pickColor: (id, anchor) => this.pickDrawingColor(id, anchor),
       edit: (id) => this.editText(id),
       remove: (id) => this.removeDrawing(id),
@@ -377,8 +402,11 @@ class App {
         this.viewer.setInitialZoom(init.zoom);
         this.highlights.setMargins(init.marginsPt);
         this.highlights.setHighlights(init.highlights);
-        void this.marker.set(init.marker);
+        this.marker.set(init.marker);
         this.drawings.setDrawings(init.drawings ?? []);
+        this.anchoring.keepSnapshots = init.keepSnapshots !== false;
+        this.anchoring.setStoredPages(init.pages);
+        this.setReadOnly(init.readOnly === true);
         this.toolbar.setColor(init.color);
         this.toolbar.setFullView(init.fullView);
         this.setTool(init.toolActive, false);
@@ -441,9 +469,17 @@ class App {
         else this.viewer.resetZoom();
         break;
       case 'highlights':
+        // Other annotations (a rename, Reattach): everything is resolved again against the document shown.
         this.highlights.setHighlights(msg.highlights);
-        void this.marker.set(msg.marker);
+        this.marker.set(msg.marker);
         this.drawings.setDrawings(msg.drawings ?? []);
+        this.anchoring.setStoredPages(msg.pages);
+        this.setReadOnly(msg.readOnly === true);
+        this.undoStack.clear();
+        this.anchoring.requestRun();
+        break;
+      case 'snapshots':
+        this.anchoring.onSnapshots(msg.requestId, msg.texts);
         break;
       case 'toggleList':
         this.setListOpen(!this.sidebar.open, true);
@@ -527,49 +563,113 @@ class App {
     const restore: ViewLocation | undefined =
       !this.hasDocument && saved?.pageNumber ? { pageNumber: saved.pageNumber, fraction: saved.fraction ?? 0 } : undefined;
     if (restore) this.restoredLocation = true;
-    this.hideFloating();
+    // The new PDF is opened and read, and every annotation is placed in it, before anything on
+    // screen changes: the previous PDF stays, with its annotations, under the progress bar.
+    const opened = await this.viewer.open(data);
+    if (!opened) return;
+    let prepared: PreparedDocument | undefined;
+    try {
+      prepared = await this.anchoring.prepare(opened, {
+        renderId: msg.renderId,
+        provisional: msg.provisional === true,
+        hints: msg.hints ?? [],
+        snapshots: msg.snapshots ?? [],
+      });
+    } catch (err) {
+      opened.discard();
+      throw err;
+    }
+    if (!prepared) {
+      opened.discard();
+      return;
+    }
+    // A stroke being drawn is finished first. What the reader is in the middle of (typing in a
+    // text box) is stored against the document it was made on.
+    await Promise.race([this.drawings.idle(), new Promise((resolve) => setTimeout(resolve, 15_000))]);
+    this.drawings.settle();
+    await this.drawingCommits;
+    if (opened.stale()) {
+      opened.discard();
+      return;
+    }
+    // A note being typed stays open (it is saved on its highlight whatever happens to that).
+    this.hideFloating(true);
+    this.drawings.select(undefined);
     this.layers.reset();
-    const doc = await this.viewer.load(data, restore);
-    if (!doc) return;
-    // Drawings stay at their page coordinates; those on pages the new PDF lacks are kept, not shown.
-    this.drawings.documentLoaded();
+    if (!(await opened.show(restore))) return;
     const firstLoad = !this.hasDocument;
     this.hasDocument = true;
     this.status.hide();
     this.progress.hidden = true;
     document.body.dataset.pageTheme = this.kind === 'pdf' ? this.theme : msg.theme;
+    this.orphanBanner = false;
     if (msg.warnings.length > 0) {
       const first = msg.warnings[0].message;
       const more = msg.warnings.length > 1 ? ` (and ${msg.warnings.length - 1} more)` : '';
       this.banner.show('warning', `${first}${more}`, [{ label: 'Show Log', run: () => this.command('showLog') }]);
+    } else if (this.readOnly) {
+      this.showReadOnly();
     } else {
       this.banner.hide();
     }
-    await this.highlights.documentLoaded(doc, msg.renderId);
-    await this.marker.resolve();
+    // The switch: what was computed for the previous PDF is dropped, the prepared results are shown.
+    this.anchoring.commit(prepared);
     // Opening a document (not restoring a panel): continue where the reader stopped.
     if (firstLoad && !this.restoredLocation && this.marker.value && this.marker.goTo()) {
       this.toast.show(`Continuing where you stopped reading (page ${(this.marker.pageIndex ?? 0) + 1}).`);
     }
   }
 
+  private setReadOnly(readOnly: boolean): void {
+    this.readOnly = readOnly;
+    if (readOnly) this.showReadOnly();
+  }
+
+  private showReadOnly(): void {
+    this.banner.show('info', 'These annotations were saved by a newer version of the extension. They are shown, but changes you make here are not stored.');
+  }
+
+  /** A resolving run finished: one line about what changed, and a banner when most annotations are missing. */
+  private reportRun(result: RunResult): void {
+    const message = summaryMessage(result.summary);
+    if (result.summary.massOrphan) {
+      this.orphanBanner = true;
+      this.banner.show('warning', massOrphanMessage(result.summary), [{ label: 'Show List', run: () => this.setListOpen(true, true) }]);
+    } else {
+      if (this.orphanBanner && result.summary.orphanedNow * 2 <= result.summary.total) {
+        this.orphanBanner = false;
+        if (this.readOnly) this.showReadOnly();
+        else this.banner.hide();
+      }
+      if (message) this.toast.show(message, { durationMs: 8000, action: { label: 'Show List', run: () => this.setListOpen(true, true) } });
+    }
+    this.renderList();
+  }
+
   private async answerExport(requestId: number): Promise<void> {
     try {
       await this.loading;
+      this.drawings.settle();
+      await this.drawingCommits;
       const data = await this.highlights.exportData();
       const drawn = this.drawings.exportData();
+      // The host checks that these positions were computed for the PDF it downloads.
       post({
         type: 'exportData',
         requestId,
+        renderId: this.anchoring.renderId,
+        hash: this.anchoring.hash() ?? '',
         highlights: data.highlights,
         orphaned: data.orphaned,
+        orphanedNotes: data.orphanedNotes,
+        orphanedDrawings: drawn.orphaned,
         drawings: drawn.drawings,
         textLayouts: drawn.textLayouts,
         skippedDrawings: drawn.skipped,
         password: this.viewer.password,
       });
     } catch (err) {
-      post({ type: 'exportData', requestId, highlights: [], orphaned: 0, drawings: [], skippedDrawings: 0, error: String(err) });
+      post({ type: 'exportData', requestId, renderId: -1, hash: '', highlights: [], orphaned: 0, drawings: [], skippedDrawings: 0, error: String(err) });
     }
   }
 
@@ -587,6 +687,7 @@ class App {
   private async apply(op: EditOp): Promise<void> {
     const saved: Drawing[] = [];
     const deleted: string[] = [];
+    let resolve = false;
     const flush = () => {
       if (saved.length > 0) post({ type: 'saveDrawings', drawings: saved.splice(0) });
       if (deleted.length > 0) post({ type: 'deleteDrawings', ids: deleted.splice(0) });
@@ -595,7 +696,12 @@ class App {
       switch (o.kind) {
         case 'create':
           post({ type: 'createHighlight', highlight: o.highlight });
-          await this.highlights.add(o.highlight);
+          this.highlights.add(o.highlight);
+          break;
+        case 'replace':
+          if (this.popover.highlightId === o.after.id) this.popover.hide(false);
+          post({ type: 'replaceHighlight', highlight: o.after });
+          this.highlights.replace(o.after);
           break;
         case 'delete':
           if (this.popover.highlightId === o.highlight.id) this.popover.hide(false);
@@ -609,16 +715,16 @@ class App {
           break;
         case 'marker':
           post({ type: 'setMarker', marker: o.after });
-          await this.marker.set(o.after);
+          this.marker.set(o.after);
           break;
         case 'createDrawing':
         case 'updateDrawing': {
+          // Undo and redo work on drawings as they are stored; where they are shown is resolved again.
           const drawing = o.kind === 'createDrawing' ? o.drawing : o.after;
           if (deleted.length > 0) flush();
-          this.drawings.put(drawing);
-          if (isTextDrawing(drawing)) this.textPopover.update(drawing);
-          else this.drawingPopover.update(drawing);
+          this.drawings.restore(drawing);
           saved.push(drawing);
+          resolve = true;
           break;
         }
         case 'deleteDrawing':
@@ -633,6 +739,109 @@ class App {
     };
     await run(op);
     flush();
+    if (resolve) this.anchoring.requestRun();
+  }
+
+  /**
+   * The reader made, changed or removed drawings or text boxes (the page shows it already):
+   * stores them and records one undo step. A new place or shape is bound again to what it covers.
+   */
+  private commitDrawings(label: string, changed: Drawing[], removed: Drawing[] = [], options: { prefer?: 'text' | 'image' | 'page'; rebase?: boolean } = {}): Promise<void> {
+    const task = this.drawingCommits
+      .then(async () => {
+        const ops: EditOp[] = [];
+        const gone: string[] = [];
+        for (const shown of removed) {
+          const stored = this.drawings.storedOf(shown.id);
+          this.drawings.remove(shown.id);
+          if (!stored) continue;
+          ops.push({ kind: 'deleteDrawing', drawing: stored });
+          gone.push(shown.id);
+        }
+        const saved: Drawing[] = [];
+        for (const shown of changed) {
+          const before = this.drawings.storedOf(shown.id);
+          const after = await this.drawings.adopt(shown, options.prefer, options.rebase);
+          saved.push(after);
+          ops.push(before ? { kind: 'updateDrawing', before, after } : { kind: 'createDrawing', drawing: after });
+        }
+        if (gone.length > 0) post({ type: 'deleteDrawings', ids: gone });
+        if (saved.length > 0) post({ type: 'saveDrawings', drawings: saved });
+        if (ops.length > 0) this.undoStack.record(ops.length === 1 ? ops[0] : { kind: 'batch', ops }, label);
+      })
+      .catch((err: unknown) => log('error', `Storing a drawing failed: ${String(err)}`));
+    this.drawingCommits = task;
+    return task;
+  }
+
+  // ---------- Annotations whose text changed or is gone ----------
+
+  /** Puts a highlight on the text it is on now (after an edit), or on another range (an orphan). One undo step. */
+  private rebaseHighlight(id: string, range: [number, number] | undefined, label: string): void {
+    const change = this.highlights.rebase(id, range);
+    if (!change) return;
+    const op: EditOp = { kind: 'replace', before: change.before, after: change.after };
+    void this.apply(op);
+    this.undoStack.record(op, label);
+    this.toast.show(range ? 'Highlight attached.' : 'The highlight now keeps this text.', { action: this.undoAction() });
+  }
+
+  private attachToSelection(id: string): void {
+    const range = this.highlights.selectionRange();
+    if (!range) {
+      this.toast.show('Select the text to attach the highlight to first, then click Attach again.');
+      return;
+    }
+    window.getSelection()?.removeAllRanges();
+    this.selectionBar.hide();
+    this.rebaseHighlight(id, range, 'Attach highlight');
+  }
+
+  /** Deletes every orphaned highlight, drawing and text box as one undo step. */
+  private removeOrphans(): void {
+    void this.drawingCommits.then(() => {
+      const highlights = this.highlights.all.filter((h) => h.status === 'orphaned');
+      const drawings = this.drawings.orphans().map((o) => o.drawing);
+      const ops: EditOp[] = [...highlights.map((highlight): EditOp => ({ kind: 'delete', highlight })), ...drawings.map((drawing): EditOp => ({ kind: 'deleteDrawing', drawing }))];
+      if (ops.length === 0) return;
+      const op: EditOp = ops.length === 1 ? ops[0] : { kind: 'batch', ops };
+      void this.apply(op);
+      this.undoStack.record(op, 'Delete orphaned annotations');
+      this.toast.show(`Deleted ${ops.length} orphaned annotation${ops.length === 1 ? '' : 's'}.`, { action: this.undoAction() });
+    });
+  }
+
+  /** What a drawing or text box follows: the text, an image or the page (from its binding). */
+  private attachmentOf(id: string): 'text' | 'image' | 'page' {
+    const mode = this.drawings.bindingOf(id)?.mode;
+    return mode === 'block' ? 'image' : mode === 'page' ? 'page' : 'text';
+  }
+
+  /** The reader chose what a drawing or text box follows (from its menu). One undo step. */
+  private attachDrawing(id: string, to: 'text' | 'image' | 'page'): void {
+    const shown = this.drawings.get(id);
+    if (!shown) return;
+    void this.commitDrawings(isTextDrawing(shown) ? 'Attach text box' : 'Attach drawing', [{ ...shown, updatedAt: new Date().toISOString() }], [], { prefer: to }).then(() => {
+      const now = this.attachmentOf(id);
+      this.drawingPopover.setAttached(now);
+      this.textPopover.setAttached(now);
+      // An image was asked for and there is none under it: say what it follows instead.
+      if (now !== to) this.toast.show(to === 'image' ? 'There is no image here to attach it to. It follows the text.' : 'There is no text here to attach it to. It stays on the page.');
+    });
+  }
+
+  /** Puts an orphaned drawing or text box back: where its content was, else on the page in view. */
+  private placeDrawing(id: string): void {
+    const orphan = this.drawings.orphans().find((o) => o.drawing.id === id);
+    if (!orphan) return;
+    const tombstone = orphan.result.tombstone;
+    const page = tombstone?.page ?? this.viewer.pdfViewer.currentPageNumber - 1;
+    const shown = this.drawings.placedAt(id, page, tombstone?.y);
+    if (!shown) return;
+    void this.commitDrawings(isTextDrawing(shown) ? 'Place text box' : 'Place drawing', [shown]).then(() => {
+      if (narrowPanel()) this.setListOpen(false, false);
+      this.drawings.reveal(id);
+    });
   }
 
   /** Brings an undone/redone change into view if it is off-screen. */
@@ -677,6 +886,7 @@ class App {
     this.drawings.cancelGesture();
     // Typing in a text box ends first (so the undo can take back the typing too).
     this.drawings.commitEditing();
+    await this.drawingCommits;
     const step = this.undoStack.undo();
     if (!step) {
       this.toast.show('Nothing to undo.');
@@ -691,6 +901,7 @@ class App {
   private async redo(): Promise<void> {
     this.drawings.cancelGesture();
     this.drawings.commitEditing();
+    await this.drawingCommits;
     const step = this.undoStack.redo();
     if (!step) {
       this.toast.show('Nothing to redo.');
@@ -753,18 +964,18 @@ class App {
     const { updatedAt: _b, ...b } = before;
     if (JSON.stringify(a) === JSON.stringify(b)) return;
     after.updatedAt = new Date().toISOString();
-    const op: EditOp = { kind: 'updateDrawing', before, after };
-    void this.apply(op);
-    this.undoStack.record(op, label);
+    this.drawings.put(after);
+    if (isTextDrawing(after)) this.textPopover.update(after);
+    else this.drawingPopover.update(after);
+    void this.commitDrawings(label, [after]);
   }
 
   private removeDrawing(id: string): void {
-    const drawing = this.drawings.get(id);
+    // One that is not shown (its content is gone) is deleted too.
+    const drawing = this.drawings.get(id) ?? this.drawings.storedOf(id);
     if (!drawing) return;
-    const op: EditOp = { kind: 'deleteDrawing', drawing };
-    void this.apply(op);
     const text = isTextDrawing(drawing);
-    this.undoStack.record(op, text ? 'Delete text box' : 'Delete drawing');
+    void this.commitDrawings(text ? 'Delete text box' : 'Delete drawing', [], [drawing]);
     this.toast.show(text ? 'Text box deleted.' : 'Drawing deleted.', { action: this.undoAction() });
   }
 
@@ -798,15 +1009,10 @@ class App {
 
   /** Typing in a text box ended: a new box, a changed one, or one emptied (deleted). */
   private onTextCommitted(before: TextDrawing | undefined, after: TextDrawing | undefined): void {
-    if (after && !before) {
-      post({ type: 'saveDrawings', drawings: [after] });
-      this.undoStack.record({ kind: 'createDrawing', drawing: after }, 'Add text box');
-    } else if (after && before) {
-      post({ type: 'saveDrawings', drawings: [after] });
-      this.undoStack.record({ kind: 'updateDrawing', before, after }, 'Edit text box');
+    if (after) {
+      void this.commitDrawings(before ? 'Edit text box' : 'Add text box', [after]);
     } else if (before) {
-      post({ type: 'deleteDrawings', ids: [before.id] });
-      this.undoStack.record({ kind: 'deleteDrawing', drawing: before }, 'Delete text box');
+      void this.commitDrawings('Delete text box', [], [before]);
       this.toast.show('Text box deleted (its text was empty).', { action: this.undoAction() });
     }
   }
@@ -886,41 +1092,41 @@ class App {
   /** One gesture of the eraser (drawings, text boxes and highlights it went over): one undo step. */
   private eraseAnnotations(drawings: Drawing[], highlightIds: string[]): void {
     const highlights = highlightIds.map((id) => this.highlights.snapshot(id)).filter((h): h is Highlight => h !== undefined);
-    const ops: EditOp[] = [...drawings.map((drawing): EditOp => ({ kind: 'deleteDrawing', drawing })), ...highlights.map((highlight): EditOp => ({ kind: 'delete', highlight }))];
-    if (ops.length === 0) return;
-    const op: EditOp = ops.length === 1 ? ops[0] : { kind: 'batch', ops };
-    void this.apply(op);
-    const one = drawings[0] ? (isTextDrawing(drawings[0]) ? 'text box' : 'drawing') : 'highlight';
-    this.undoStack.record(op, ops.length === 1 ? `Erase ${one}` : `Erase ${ops.length} annotations`);
+    if (drawings.length + highlights.length === 0) return;
+    // After any drawing still being stored, so what was just drawn can be erased too.
+    this.drawingCommits = this.drawingCommits.then(() => {
+      const ops: EditOp[] = [];
+      for (const shown of drawings) ops.push({ kind: 'deleteDrawing', drawing: this.drawings.storedOf(shown.id) ?? shown });
+      for (const highlight of highlights) ops.push({ kind: 'delete', highlight });
+      const op: EditOp = ops.length === 1 ? ops[0] : { kind: 'batch', ops };
+      void this.apply(op);
+      const one = drawings[0] ? (isTextDrawing(drawings[0]) ? 'text box' : 'drawing') : 'highlight';
+      this.undoStack.record(op, ops.length === 1 ? `Erase ${one}` : `Erase ${ops.length} annotations`);
+    });
     // A note goes with its highlight: say so, with the way back.
     const notes = highlights.filter((h) => h.note).length;
     if (notes > 0) this.toast.show(notes === 1 ? 'Erased a highlight and its note.' : `Erased ${notes} highlights and their notes.`, { action: this.undoAction() });
   }
 
-  /** One gesture of the drawing eraser (already shown): the drawings it touched are replaced by what is left of them. One undo step. */
-  private rubDrawings(removed: InkDrawing[], added: InkDrawing[]): void {
-    post({ type: 'deleteDrawings', ids: removed.map((d) => d.id) });
-    if (added.length > 0) post({ type: 'saveDrawings', drawings: added });
-    const ops: EditOp[] = [...removed.map((drawing): EditOp => ({ kind: 'deleteDrawing', drawing })), ...added.map((drawing): EditOp => ({ kind: 'createDrawing', drawing }))];
-    this.undoStack.record({ kind: 'batch', ops }, removed.length === 1 ? 'Erase part of a drawing' : 'Erase parts of drawings');
-  }
-
   /** Every drawing ('ink') or every text box ('text'). The host already asked the reader to confirm. */
   private deleteAllDrawings(kind: 'ink' | 'text'): void {
     this.drawings.commitEditing();
-    const ops: EditOp[] = this.drawings.all.filter((d) => isTextDrawing(d) === (kind === 'text')).map((drawing) => ({ kind: 'deleteDrawing', drawing }));
-    if (ops.length === 0) return;
-    const op: EditOp = { kind: 'batch', ops };
-    void this.apply(op);
-    const one = kind === 'text' ? 'text box' : 'drawing';
-    const many = kind === 'text' ? 'text boxes' : 'drawings';
-    this.undoStack.record(op, `Delete all ${many}`);
-    this.toast.show(`Deleted ${ops.length} ${ops.length === 1 ? one : many}.`, { action: this.undoAction() });
+    void this.drawingCommits.then(() => {
+      // Those that are not shown (their content is gone) too.
+      const all = this.drawings.allStored.filter((d) => isTextDrawing(d) === (kind === 'text'));
+      if (all.length === 0) return;
+      const one = kind === 'text' ? 'text box' : 'drawing';
+      const many = kind === 'text' ? 'text boxes' : 'drawings';
+      void this.commitDrawings(`Delete all ${many}`, [], all);
+      this.toast.show(`Deleted ${all.length} ${all.length === 1 ? one : many}.`, { action: this.undoAction() });
+    });
   }
 
   private setMarker(marker: ReadingMarker | null, label: string): void {
     const op: EditOp = { kind: 'marker', before: this.marker.value, after: marker };
-    void this.apply(op);
+    // Placed just now on the page shown: it is drawn where the reader put it.
+    post({ type: 'setMarker', marker });
+    this.marker.set(marker, true);
     this.undoStack.record(op, label);
     this.toast.show(marker ? 'Reading position saved. The document opens here next time.' : 'Reading marker removed.', { action: this.undoAction() });
   }
@@ -1092,9 +1298,11 @@ class App {
     const x = (r.left + r.right) / 2;
     if (isTextDrawing(drawing)) {
       this.drawingPopover.hide();
+      this.textPopover.setAttached(this.attachmentOf(drawing.id));
       this.textPopover.show(drawing, x, r.bottom);
     } else {
       this.textPopover.hide();
+      this.drawingPopover.setAttached(this.attachmentOf(drawing.id));
       this.drawingPopover.show(drawing, x, r.bottom);
     }
   }
@@ -1118,14 +1326,27 @@ class App {
     const marker = this.marker?.value;
     // Called while the controllers are still being built (their first `changed` events).
     if (!this.drawings) return;
-    const pages = this.viewer.pagesCount;
-    const onPage = (d: Drawing) => !this.hasDocument || d.pageIndex < pages;
-    const listed = this.drawings.list();
+    // Drawings as they are shown, then those whose content is not in this version.
+    const shown = this.drawings.list().map((data) => ({ data, onPage: true, flags: this.drawings.flagsOf(data.id) }));
+    const lost = this.drawings.orphans().map((o) => ({ data: o.drawing, onPage: false, orphan: { reason: o.result.reason } }));
+    const listed = [...shown, ...lost];
     this.sidebar.render(
-      this.highlights.list().map((rt) => ({ data: rt.data, page: this.highlights.firstPageOf(rt.data.id) })),
-      marker ? { marker, page: this.marker.pageIndex ?? marker.pageIndex } : null,
-      listed.filter(isInkDrawing).map((data) => ({ data, onPage: onPage(data), thumbnail: this.drawings.thumbnail(data) })),
-      listed.filter(isTextDrawing).map((data) => ({ data, onPage: onPage(data) })),
+      this.highlights.list().map((rt) => {
+        const r = rt.resolution;
+        const now = this.highlights.currentText(rt.data.id);
+        return {
+          data: rt.data,
+          page: this.highlights.firstPageOf(rt.data.id),
+          kind: r?.kind,
+          reason: r?.reason,
+          wasPage: r?.status === 'orphaned' ? r.state.found?.page : undefined,
+          now: now !== undefined && now !== rt.data.target.selector[0].exact ? now : undefined,
+          candidate: this.highlights.candidateOf(rt.data.id)?.text,
+        };
+      }),
+      marker ? { marker, page: this.marker.pageIndex ?? marker.pageIndex, caveat: this.marker.caveat } : null,
+      listed.filter((e) => isInkDrawing(e.data)).map((e) => ({ ...e, data: e.data as InkDrawing, thumbnail: this.drawings.thumbnail(e.data as InkDrawing) })),
+      listed.filter((e) => isTextDrawing(e.data)).map((e) => ({ ...e, data: e.data as TextDrawing })),
     );
   }
 

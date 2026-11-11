@@ -1,5 +1,6 @@
 // Types shared by the extension host, the converter bundle and the webview.
 // Keep this file free of runtime dependencies so every bundle can import it.
+import type { AnchorState, TextAnchor } from '../anchoring/anchor';
 import type { Drawing } from './drawings';
 
 export const HIGHLIGHT_COLORS = ['yellow', 'pink', 'green', 'blue', 'orange'] as const;
@@ -89,6 +90,14 @@ export interface Highlight {
   target: HighlightTarget;
   /** The reader's comment on the highlight. Shown on hover and click; exported as the annotation text. */
   note?: string;
+  /**
+   * What ties it to the text: the quote with wide context and a fingerprint. Made with the
+   * highlight (or from `target` for highlights of earlier versions); changed only by the reader.
+   * Stored in the anchors file, not in the record.
+   */
+  anchor?: TextAnchor;
+  /** Derived: where the anchor was last found and what happened to it. Stored in the anchors file. */
+  state?: AnchorState;
 }
 
 /**
@@ -103,6 +112,12 @@ export interface ReadingMarker {
   /** Text at the start of the marked line; absent when the line has no text (an image, a scan). */
   selector?: [TextQuoteSelector, TextPositionSelector];
   createdAt: string;
+  /** The text it follows (the marked line, or the nearest line before a spot without text). Stored in the anchors file. */
+  anchor?: TextAnchor;
+  /** For a mark on a spot without text: pages after the anchor's page and points below its line. */
+  rel?: { pages: number; dy: number };
+  /** Derived: where the anchor was last found. Stored in the anchors file; never changes the fields above. */
+  state?: AnchorState;
 }
 
 export function isReadingMarker(value: unknown): value is ReadingMarker {
@@ -134,6 +149,10 @@ export interface StoredRecord {
    * itself: 0.4.x rebuilds records from the fields it knows and would erase them.
    */
   drawings: Drawing[];
+  /** PDF files: signatures of the pages of the last version shown (see anchoring/pageAlign). Stored in the anchors file. */
+  pages?: string[];
+  /** Top-level fields of the record file this version does not know; written back as they were. */
+  extra?: Record<string, unknown>;
 }
 
 /** Page margins used by the converter. The viewer uses them to drop header/footer text from the text model. */

@@ -1,12 +1,25 @@
 // Per-file annotation and view storage in the extension's global storage folder:
-//   <globalStorage>/highlights/<sha256(normalized path)>.json           highlights, marker, zoom
-//   <globalStorage>/highlights/<sha256(normalized path)>.drawings.json  drawings
-// Drawings live in their own file because 0.4.x rebuilds records from the fields it knows and
-// would erase them; it never reads the companion file. Both files are written atomically, through
-// one serialized and coalesced queue per document. No `vscode` import, so it is unit-testable.
+//   <globalStorage>/highlights/<key>.json            highlights, marker, zoom       (format of 0.3)
+//   <globalStorage>/highlights/<key>.drawings.json   drawings and text boxes        (format of 0.6)
+//   <globalStorage>/highlights/<key>.anchors.json    what annotations are anchored to, and where
+//                                                    their content was last found
+//   <globalStorage>/highlights/<key>.text-<hash>.gz  the text of versions annotations were last
+//                                                    found in (so they can be followed by diff)
+// with <key> = sha256(normalized path).
+//
+// Earlier versions rebuild the files they know from the fields they know, so everything newer
+// lives in files they never read: they cannot erase it, and their files keep their format. A file
+// from a newer version than this one is opened read-only instead of being treated as corrupt.
+//
+// All files are written atomically, through one serialized and coalesced queue per document.
+// No `vscode` import, so it is unit-testable.
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { posix, win32 } from 'node:path';
+import { gunzipSync, gzipSync } from 'node:zlib';
+import { sanitizeAnchor, sanitizeState, type AnchorState, type TextAnchor } from '../anchoring/anchor';
+import { sanitizeBinding, type DrawingBinding } from '../anchoring/binding';
+import { TEXT_MODEL_VERSION } from '../anchoring/textModel';
 import { sanitizeDrawing, type Drawing } from '../shared/drawings';
 import {
   MAX_NOTE_LENGTH,
@@ -18,7 +31,7 @@ import {
   type StoredRecord,
   type ViewState,
 } from '../shared/types';
-import { ensureDir, moveAside, removeFile, writeFileAtomic, type AtomicWriteHooks } from './atomicWrite';
+import { ensureDir, moveAside, moveFile, removeFile, writeFileAtomic, type AtomicWriteHooks } from './atomicWrite';
 
 export interface DocumentRef {
   /** `uri.toString()` */
@@ -44,24 +57,45 @@ export interface StoreOptions {
   onCorrupt?: (ref: DocumentRef, movedTo: string) => void;
   /** Called when stored pen strokes had more points than allowed and were simplified to fit. */
   onSimplified?: (ref: DocumentRef, count: number) => void;
+  /** Called when a document's data was written by a newer version: it is shown, and changes are not stored. */
+  onReadOnly?: (ref: DocumentRef) => void;
+}
+
+interface Mtimes {
+  record?: number;
+  drawings?: number;
+  anchors?: number;
 }
 
 interface Entry {
   ref: DocumentRef;
   record: StoredRecord;
-  /** mtime of the record file as last read or written by us; used to merge changes from other windows. */
-  diskMtimeMs?: number;
-  /** The same for the drawings file. */
-  drawingsMtimeMs?: number;
+  /** mtimes of the files as last read or written by us; used to merge changes from other windows. */
+  mtimes: Mtimes;
+  /**
+   * What we last wrote to the drawings and anchors files, without their time stamp: a change that
+   * touches neither (the zoom, a note, a color) does not write them again.
+   */
+  written?: { drawings?: string; anchors?: string };
   deletedIds: Set<string>;
   deletedDrawingIds: Set<string>;
-  /** The reading marker was set or removed here since the last read, so ours wins over other windows. */
-  markerChanged: boolean;
+  /** When the reader last placed or removed the marker here; a marker another window made later wins. */
+  markerActedAt?: string;
   dirty: boolean;
+  /** Written by a newer version: never written by this one. */
+  readOnly: boolean;
+  /** Files moved aside by an older version whose data was taken back in; removed once it is written. */
+  recovered: string[];
 }
 
 const SCHEMA_VERSION = 1;
 const DRAWINGS_SCHEMA_VERSION = 1;
+const ANCHORS_SCHEMA_VERSION = 1;
+/** Most text snapshots kept per document, and their total size on disk (compressed). */
+export const MAX_SNAPSHOTS = 12;
+export const MAX_SNAPSHOT_BYTES = 4 * 1024 * 1024;
+/** Texts longer than this are not kept (anchoring falls back to searching). */
+export const MAX_SNAPSHOT_CHARS = 8_000_000;
 const silentLog: StoreLogger = { info: () => undefined, warn: () => undefined, error: () => undefined };
 
 export function normalizeKeyPath(ref: DocumentRef, platform: NodeJS.Platform = process.platform): string {
@@ -90,6 +124,10 @@ export function emptyRecord(ref: DocumentRef): StoredRecord {
   };
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 function isValidHighlight(value: unknown): value is Highlight {
   if (!value || typeof value !== 'object') return false;
   const h = value as Partial<Highlight>;
@@ -104,7 +142,10 @@ function isValidHighlight(value: unknown): value is Highlight {
   );
 }
 
-/** Cleans a highlight in place (defaults, note length). Returns undefined if it is not a highlight. */
+/**
+ * Cleans a highlight in place (defaults, note length, anchor). Fields this version does not know
+ * stay on the object. Returns undefined if it is not a highlight.
+ */
 export function sanitizeHighlight(value: unknown): Highlight | undefined {
   if (!isValidHighlight(value)) return undefined;
   const h = value;
@@ -121,10 +162,18 @@ export function sanitizeHighlight(value: unknown): Highlight | undefined {
   h.target.selector[0].suffix ??= '';
   if (typeof h.note === 'string' && h.note.trim()) h.note = h.note.slice(0, MAX_NOTE_LENGTH);
   else delete h.note;
+  const anchor = sanitizeAnchor(h.anchor);
+  if (anchor) h.anchor = anchor;
+  else delete h.anchor;
+  const state = h.state === undefined ? undefined : sanitizeState(h.state);
+  if (state) h.state = state;
+  else delete h.state;
   return h;
 }
 
-/** Validates a reading marker and returns a clean copy, or undefined if it is not usable. */
+const MARKER_FIELDS = new Set(['pageIndex', 'y', 'selector', 'createdAt', 'anchor', 'rel', 'state']);
+
+/** Validates a reading marker and returns a clean copy, or undefined if it is not usable. Unknown fields are kept. */
 export function sanitizeMarker(value: unknown): ReadingMarker | undefined {
   if (!isReadingMarker(value)) return undefined;
   const marker: ReadingMarker = {
@@ -139,7 +188,23 @@ export function sanitizeMarker(value: unknown): ReadingMarker | undefined {
       { type: 'TextPositionSelector', start: Number(position.start) || 0, end: Number(position.end) || 0 },
     ];
   }
+  const anchor = sanitizeAnchor(value.anchor);
+  if (anchor) marker.anchor = anchor;
+  const rel = value.rel as { pages?: unknown; dy?: unknown } | undefined;
+  if (anchor && rel && Number.isInteger(rel.pages) && typeof rel.dy === 'number' && Number.isFinite(rel.dy)) {
+    marker.rel = { pages: Math.max(0, Math.min(100_000, rel.pages as number)), dy: Math.max(-1e5, Math.min(1e5, rel.dy)) };
+  }
+  const state = value.state === undefined ? undefined : sanitizeState(value.state);
+  if (state) marker.state = state;
+  for (const [key, extra] of Object.entries(value as unknown as Record<string, unknown>)) {
+    if (!MARKER_FIELDS.has(key) && extra !== undefined) (marker as unknown as Record<string, unknown>)[key] = extra;
+  }
   return marker;
+}
+
+/** What the reader placed: the marker without what the viewer derives. */
+function markerIntent(marker: ReadingMarker | undefined): string {
+  return marker ? JSON.stringify([marker.pageIndex, marker.y, marker.selector ?? null, marker.createdAt]) : 'null';
 }
 
 /** True when a record holds anything worth keeping files for (drawings included, so the record and its drawings stay together). */
@@ -147,22 +212,29 @@ export function hasData(record: StoredRecord): boolean {
   return record.highlights.length > 0 || record.view.zoom !== undefined || record.marker !== undefined || record.drawings.length > 0;
 }
 
+const RECORD_FIELDS = new Set(['schemaVersion', 'uri', 'fsPath', 'view', 'highlights', 'marker', 'updatedAt', 'drawings', 'pages', 'extra']);
+
+/** Whether a parsed file was written with a newer format than this version knows. */
+export function isNewerSchema(raw: unknown, supported = SCHEMA_VERSION): boolean {
+  return isObject(raw) && typeof raw.schemaVersion === 'number' && raw.schemaVersion > supported;
+}
+
 /**
  * Validates a parsed record file and fills in defaults. Throws if it is not a record at all.
- * Drawings are not part of the record file; they are read from the companion file.
+ * A record of a newer format is read as far as this version understands it (the store opens it
+ * read-only). Drawings and anchors are not part of the record file; they come from their own files.
  */
 export function sanitizeRecord(raw: unknown, ref: DocumentRef): StoredRecord {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('not a record object');
+  if (!isObject(raw)) throw new Error('not a record object');
   const r = raw as Partial<StoredRecord>;
-  if (r.schemaVersion !== undefined && r.schemaVersion > SCHEMA_VERSION) {
-    throw new Error(`record schema ${r.schemaVersion} is newer than this extension supports`);
-  }
   const view: ViewState = {};
   if (r.view && isZoomValue(r.view.zoom)) view.zoom = r.view.zoom;
   const highlights = Array.isArray(r.highlights)
     ? r.highlights.map(sanitizeHighlight).filter((h): h is Highlight => h !== undefined)
     : [];
   const marker = sanitizeMarker(r.marker);
+  const extra: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) if (!RECORD_FIELDS.has(key) && value !== undefined) extra[key] = value;
   return {
     schemaVersion: SCHEMA_VERSION,
     uri: typeof r.uri === 'string' ? r.uri : ref.uri,
@@ -172,6 +244,7 @@ export function sanitizeRecord(raw: unknown, ref: DocumentRef): StoredRecord {
     ...(marker ? { marker } : {}),
     updatedAt: typeof r.updatedAt === 'string' ? r.updatedAt : new Date().toISOString(),
     drawings: [],
+    ...(Object.keys(extra).length > 0 ? { extra } : {}),
   };
 }
 
@@ -184,15 +257,12 @@ interface DrawingsFile {
 }
 
 /**
- * Validates a parsed drawings file. Throws if it is not one (or is from a newer version); drops
- * invalid drawings and repeated ids. `onSimplified` counts strokes that were simplified to fit.
+ * Validates a parsed drawings file. Throws if it is not one; drops invalid drawings and repeated
+ * ids. `onSimplified` counts strokes that were simplified to fit.
  */
 export function sanitizeDrawingsFile(raw: unknown, onSimplified?: () => void): DrawingsFile {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('not a drawings object');
+  if (!isObject(raw)) throw new Error('not a drawings object');
   const r = raw as Partial<Record<keyof DrawingsFile, unknown>>;
-  if (typeof r.schemaVersion === 'number' && r.schemaVersion > DRAWINGS_SCHEMA_VERSION) {
-    throw new Error(`drawings schema ${r.schemaVersion} is newer than this extension supports`);
-  }
   const seen = new Set<string>();
   const drawings: Drawing[] = [];
   for (const value of Array.isArray(r.drawings) ? r.drawings : []) {
@@ -210,6 +280,70 @@ export function sanitizeDrawingsFile(raw: unknown, onSimplified?: () => void): D
   };
 }
 
+/** What the anchors file holds, per annotation. */
+interface AnchorsFile {
+  highlights: Map<string, { anchor?: TextAnchor; state?: AnchorState }>;
+  marker?: { for: string; anchor?: TextAnchor; rel?: { pages: number; dy: number }; state?: AnchorState };
+  drawings: Map<string, { binding?: DrawingBinding; states?: (AnchorState | undefined)[] }>;
+  pages?: string[];
+}
+
+/** Validates a parsed anchors file. Throws if it is not one. Everything doubtful is dropped: it can be derived again. */
+export function sanitizeAnchorsFile(raw: unknown): AnchorsFile {
+  if (!isObject(raw)) throw new Error('not an anchors object');
+  const out: AnchorsFile = { highlights: new Map(), drawings: new Map() };
+  // Positions made with another way of reading the text are not positions in this one.
+  const sameModel = raw.textModelVersion === TEXT_MODEL_VERSION;
+  if (isObject(raw.highlights)) {
+    for (const [id, value] of Object.entries(raw.highlights)) {
+      if (!isObject(value)) continue;
+      const anchor = sanitizeAnchor(value.anchor);
+      const state = sameModel && value.state !== undefined ? sanitizeState(value.state) : undefined;
+      if (anchor || state) out.highlights.set(id, { ...(anchor ? { anchor } : {}), ...(state ? { state } : {}) });
+    }
+  }
+  if (isObject(raw.marker) && typeof raw.marker.for === 'string') {
+    const marker = sanitizeMarker({ pageIndex: 0, y: 0, createdAt: raw.marker.for, anchor: raw.marker.anchor, rel: raw.marker.rel, state: sameModel ? raw.marker.state : undefined });
+    if (marker && (marker.anchor || marker.state)) {
+      out.marker = { for: raw.marker.for, ...(marker.anchor ? { anchor: marker.anchor } : {}), ...(marker.rel ? { rel: marker.rel } : {}), ...(marker.state ? { state: marker.state } : {}) };
+    }
+  }
+  if (isObject(raw.drawings)) {
+    for (const [id, value] of Object.entries(raw.drawings)) {
+      if (!isObject(value)) continue;
+      const binding = sanitizeBinding(value.binding);
+      if (!binding) continue;
+      const states = sameModel && Array.isArray(value.states) ? value.states.slice(0, 2).map((s) => sanitizeState(s)) : undefined;
+      out.drawings.set(id, { binding, ...(states ? { states } : {}) });
+    }
+  }
+  if (Array.isArray(raw.pages)) out.pages = raw.pages.filter((p): p is string => typeof p === 'string' && p.length <= 200).slice(0, 100_000);
+  return out;
+}
+
+/** Puts what the anchors file holds onto the annotations of a record. */
+function joinAnchors(record: StoredRecord, anchors: AnchorsFile): void {
+  for (const h of record.highlights) {
+    const entry = anchors.highlights.get(h.id);
+    if (entry?.anchor && entry.anchor.exact === h.target.selector[0].exact) {
+      h.anchor = entry.anchor;
+      if (entry.state) h.state = entry.state;
+    }
+  }
+  if (record.marker && anchors.marker && anchors.marker.for === record.marker.createdAt) {
+    if (anchors.marker.anchor) record.marker.anchor = anchors.marker.anchor;
+    if (anchors.marker.rel) record.marker.rel = anchors.marker.rel;
+    if (anchors.marker.state) record.marker.state = anchors.marker.state;
+  }
+  for (const d of record.drawings) {
+    const entry = anchors.drawings.get(d.id);
+    if (!entry?.binding) continue;
+    d.binding = entry.binding;
+    if (entry.states) d.anchorStates = entry.states;
+  }
+  if (anchors.pages) record.pages = anchors.pages;
+}
+
 /** Merges two versions of a list by id: the newer change wins, ids deleted here stay deleted. */
 function mergeById<T extends { id: string; updatedAt: string }>(ours: T[], theirs: T[], deletedIds: Set<string>): T[] {
   const byId = new Map<string, T>();
@@ -221,10 +355,16 @@ function mergeById<T extends { id: string; updatedAt: string }>(ours: T[], their
   return [...byId.values()];
 }
 
-/** The record file's content: everything but the drawings. */
+/** The record file's content: the format earlier versions read, without drawings and anchors. */
 function recordFileText(record: StoredRecord): string {
-  const { drawings: _drawings, ...rest } = record;
-  return `${JSON.stringify(rest, null, 1)}\n`;
+  const { drawings: _drawings, pages: _pages, extra, ...rest } = record;
+  const file = {
+    ...(extra ?? {}),
+    ...rest,
+    highlights: record.highlights.map(({ anchor: _anchor, state: _state, ...h }) => h),
+    ...(record.marker ? { marker: (({ anchor: _anchor, rel: _rel, state: _state, ...m }) => m)(record.marker) } : {}),
+  };
+  return `${JSON.stringify(file, null, 1)}\n`;
 }
 
 function drawingsFileText(record: StoredRecord): string {
@@ -232,11 +372,53 @@ function drawingsFileText(record: StoredRecord): string {
     schemaVersion: DRAWINGS_SCHEMA_VERSION,
     uri: record.uri,
     fsPath: record.fsPath,
-    drawings: record.drawings,
+    drawings: record.drawings.map(({ binding: _binding, anchorStates: _states, ...d }) => d as Drawing),
     updatedAt: record.updatedAt,
   };
   return `${JSON.stringify(file)}\n`;
 }
+
+/** The anchors file's content, or undefined when there is nothing to keep in it. */
+function anchorsFileText(record: StoredRecord): string | undefined {
+  const highlights: Record<string, unknown> = {};
+  for (const h of record.highlights) if (h.anchor) highlights[h.id] = { anchor: h.anchor, ...(h.state ? { state: h.state } : {}) };
+  const drawings: Record<string, unknown> = {};
+  for (const d of record.drawings) if (d.binding) drawings[d.id] = { binding: d.binding, ...(d.anchorStates ? { states: d.anchorStates } : {}) };
+  const m = record.marker;
+  const marker = m && (m.anchor || m.state) ? { for: m.createdAt, ...(m.anchor ? { anchor: m.anchor } : {}), ...(m.rel ? { rel: m.rel } : {}), ...(m.state ? { state: m.state } : {}) } : undefined;
+  if (Object.keys(highlights).length === 0 && Object.keys(drawings).length === 0 && !marker && !record.pages?.length) return undefined;
+  return `${JSON.stringify({
+    schemaVersion: ANCHORS_SCHEMA_VERSION,
+    textModelVersion: TEXT_MODEL_VERSION,
+    uri: record.uri,
+    fsPath: record.fsPath,
+    highlights,
+    ...(marker ? { marker } : {}),
+    drawings,
+    ...(record.pages?.length ? { pages: record.pages } : {}),
+    updatedAt: record.updatedAt,
+  })}\n`;
+}
+
+/** A drawings or anchors file's text without its last field, the time it was written. */
+function withoutStamp(text: string): string {
+  const at = text.lastIndexOf(',"updatedAt":"');
+  return at < 0 ? text : text.slice(0, at);
+}
+
+/** The text versions the annotations of a record were last found in. */
+export function referencedHashes(record: StoredRecord): Set<string> {
+  const out = new Set<string>();
+  const add = (state: AnchorState | undefined) => {
+    if (state?.found?.hash) out.add(state.found.hash);
+  };
+  for (const h of record.highlights) add(h.state);
+  add(record.marker?.state);
+  for (const d of record.drawings) for (const s of d.anchorStates ?? []) add(s);
+  return out;
+}
+
+const HASH = /^[0-9a-f]{6,64}$/;
 
 export class HighlightStore {
   private readonly entries = new Map<string, Entry>();
@@ -268,9 +450,22 @@ export class HighlightStore {
     return `${this.options.dir}/${key}.drawings.json`;
   }
 
+  anchorsPathOf(key: string): string {
+    return `${this.options.dir}/${key}.anchors.json`;
+  }
+
+  snapshotPathOf(key: string, hash: string): string {
+    return `${this.options.dir}/${key}.text-${hash}.gz`;
+  }
+
   /** Loads the record for a document (cached). A document without annotations gets an empty, unsaved record. */
   async get(ref: DocumentRef): Promise<StoredRecord> {
     return (await this.entry(ref)).record;
+  }
+
+  /** Whether the document's data was written by a newer version (it is shown; changes are not stored). */
+  async isReadOnly(ref: DocumentRef): Promise<boolean> {
+    return (await this.entry(ref)).readOnly;
   }
 
   /** Re-reads the record from disk, dropping the in-memory copy (pending writes are flushed first). */
@@ -285,68 +480,148 @@ export class HighlightStore {
     const key = this.keyOf(ref);
     let entry = this.entries.get(key);
     if (!entry) {
-      const loaded = await this.readFromDisk(key, ref);
+      const loaded = await this.readFromDisk(key, ref, true);
       entry = this.entries.get(key) ?? {
         ref,
         record: loaded.record,
-        diskMtimeMs: loaded.mtimeMs,
-        drawingsMtimeMs: loaded.drawingsMtimeMs,
+        mtimes: loaded.mtimes,
         deletedIds: new Set(),
         deletedDrawingIds: new Set(),
-        markerChanged: false,
-        dirty: false,
+        dirty: loaded.recovered.length > 0,
+        readOnly: loaded.readOnly,
+        recovered: loaded.recovered,
       };
       this.entries.set(key, entry);
+      if (entry.dirty) this.schedule(key);
     }
     return entry;
   }
 
-  private async readFromDisk(key: string, ref: DocumentRef): Promise<{ record: StoredRecord; mtimeMs?: number; drawingsMtimeMs?: number }> {
-    const record = await this.readRecordFile(key, ref);
-    const drawings = await this.readDrawingsFile(key, ref);
-    const result = record?.record ?? emptyRecord(ref);
-    result.drawings = drawings?.drawings ?? [];
-    return { record: result, mtimeMs: record?.mtimeMs, drawingsMtimeMs: drawings?.mtimeMs };
-  }
+  /**
+   * Reads the three files of a document into one record. With `repair`, unreadable files are
+   * moved aside and data an older version moved aside is taken back in.
+   */
+  private async readFromDisk(key: string, ref: DocumentRef, repair: boolean): Promise<{ record: StoredRecord; mtimes: Mtimes; readOnly: boolean; recovered: string[] }> {
+    const mtimes: Mtimes = {};
+    let readOnly = false;
+    const recovered: string[] = [];
+    let record: StoredRecord | undefined;
 
-  private async readRecordFile(key: string, ref: DocumentRef): Promise<{ record: StoredRecord; mtimeMs: number } | undefined> {
-    const file = this.pathOf(key);
-    const read = await this.readText(file);
-    if (!read) return undefined;
-    try {
-      return { record: sanitizeRecord(JSON.parse(read.text), ref), mtimeMs: read.mtimeMs };
-    } catch (err) {
-      await this.moveCorrupt(file, `${this.options.dir}/${key}.corrupt-${Date.now()}.json`, ref, 'Highlight data', err);
-      return undefined;
-    }
-  }
-
-  private async readDrawingsFile(key: string, ref: DocumentRef): Promise<{ drawings: Drawing[]; mtimeMs: number } | undefined> {
-    const file = this.drawingsPathOf(key);
-    const read = await this.readText(file);
-    if (!read) return undefined;
-    try {
-      let simplified = 0;
-      const parsed = sanitizeDrawingsFile(JSON.parse(read.text), () => simplified++);
-      if (simplified > 0) {
-        this.log.warn(`${simplified} stored drawing(s) of ${ref.uri} had more points than allowed and were simplified to fit`);
-        this.options.onSimplified?.(ref, simplified);
+    const main = await this.readJson(this.pathOf(key));
+    if (main) {
+      try {
+        record = sanitizeRecord(main.json, ref);
+        if (isNewerSchema(main.json)) readOnly = true;
+        mtimes.record = main.mtimeMs;
+      } catch (err) {
+        if (!repair) throw err;
+        await this.moveCorrupt(this.pathOf(key), `${this.options.dir}/${key}.corrupt-${Date.now()}.json`, ref, 'Highlight data', err);
       }
-      return { drawings: parsed.drawings, mtimeMs: read.mtimeMs };
-    } catch (err) {
-      await this.moveCorrupt(file, `${this.options.dir}/${key}.drawings.corrupt-${Date.now()}.json`, ref, 'Drawings', err);
-      return undefined;
+    } else if (main === null && repair) {
+      await this.moveCorrupt(this.pathOf(key), `${this.options.dir}/${key}.corrupt-${Date.now()}.json`, ref, 'Highlight data', 'not valid JSON');
+    }
+    const result = record ?? emptyRecord(ref);
+
+    const drawn = await this.readJson(this.drawingsPathOf(key));
+    if (drawn) {
+      try {
+        let simplified = 0;
+        const parsed = sanitizeDrawingsFile(drawn.json, () => simplified++);
+        if (isNewerSchema(drawn.json, DRAWINGS_SCHEMA_VERSION)) readOnly = true;
+        if (simplified > 0 && repair) {
+          this.log.warn(`${simplified} stored drawing(s) of ${ref.uri} had more points than allowed and were simplified to fit`);
+          this.options.onSimplified?.(ref, simplified);
+        }
+        result.drawings = parsed.drawings;
+        mtimes.drawings = drawn.mtimeMs;
+      } catch (err) {
+        if (!repair) throw err;
+        await this.moveCorrupt(this.drawingsPathOf(key), `${this.options.dir}/${key}.drawings.corrupt-${Date.now()}.json`, ref, 'Drawings', err);
+      }
+    } else if (drawn === null && repair) {
+      await this.moveCorrupt(this.drawingsPathOf(key), `${this.options.dir}/${key}.drawings.corrupt-${Date.now()}.json`, ref, 'Drawings', 'not valid JSON');
+    }
+
+    if (repair) await this.recoverAside(key, ref, result, recovered);
+
+    const anchors = await this.readJson(this.anchorsPathOf(key));
+    if (anchors) {
+      mtimes.anchors = anchors.mtimeMs;
+      if (isNewerSchema(anchors.json, ANCHORS_SCHEMA_VERSION)) {
+        // A newer version's anchors: not understood here, and not to be overwritten.
+        readOnly = true;
+      } else {
+        try {
+          joinAnchors(result, sanitizeAnchorsFile(anchors.json));
+        } catch (err) {
+          // Only derived data and wider context: annotations fall back to what the record holds.
+          this.log.warn(`Anchors of ${ref.uri} are unreadable (${String(err)}); they will be made again`);
+        }
+      }
+    } else if (anchors === null) {
+      this.log.warn(`Anchors of ${ref.uri} are not valid JSON; they will be made again`);
+    }
+    return { record: result, mtimes, readOnly, recovered };
+  }
+
+  /**
+   * Takes back data that an older version moved aside as "corrupt" because it was written in a
+   * format newer than it knew, and that this version can read. Annotations already in the record
+   * are kept as they are.
+   */
+  private async recoverAside(key: string, ref: DocumentRef, record: StoredRecord, recovered: string[]): Promise<void> {
+    let names: string[];
+    try {
+      names = await fs.readdir(this.options.dir);
+    } catch {
+      return;
+    }
+    const aside = names.filter((n) => n.startsWith(`${key}.`) && /\.corrupt-\d+\.json$/.test(n)).sort().reverse();
+    for (const name of aside) {
+      const file = `${this.options.dir}/${name}`;
+      const read = await this.readJson(file);
+      if (!read) continue;
+      try {
+        if (name.startsWith(`${key}.drawings.`)) {
+          if (isNewerSchema(read.json, DRAWINGS_SCHEMA_VERSION)) continue;
+          const parsed = sanitizeDrawingsFile(read.json);
+          const have = new Set(record.drawings.map((d) => d.id));
+          const added = parsed.drawings.filter((d) => !have.has(d.id));
+          if (added.length === 0) continue;
+          record.drawings.push(...added);
+        } else {
+          if (isNewerSchema(read.json)) continue;
+          const parsed = sanitizeRecord(read.json, ref);
+          if (!hasData(parsed)) continue;
+          const have = new Set(record.highlights.map((h) => h.id));
+          record.highlights.push(...parsed.highlights.filter((h) => !have.has(h.id)));
+          if (!record.marker && parsed.marker) record.marker = parsed.marker;
+          if (record.view.zoom === undefined && parsed.view.zoom !== undefined) record.view.zoom = parsed.view.zoom;
+          if (parsed.extra && !record.extra) record.extra = parsed.extra;
+        }
+        recovered.push(file);
+        this.log.info(`Took back annotations of ${ref.uri} from ${name}, which an older version had moved aside`);
+      } catch {
+        // Really unreadable: it stays where it is.
+      }
     }
   }
 
-  private async readText(file: string): Promise<{ text: string; mtimeMs: number } | undefined> {
+  /** Reads and parses a JSON file: undefined if it does not exist, null if it is not JSON. */
+  private async readJson(file: string): Promise<{ json: unknown; mtimeMs: number } | undefined | null> {
+    let text: string;
+    let mtimeMs: number;
     try {
-      const text = await fs.readFile(file, 'utf8');
-      const mtimeMs = (await fs.stat(file)).mtimeMs;
-      return { text, mtimeMs };
+      text = await fs.readFile(file, 'utf8');
+      mtimeMs = (await fs.stat(file)).mtimeMs;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
       throw err;
+    }
+    try {
+      return { json: JSON.parse(text), mtimeMs };
+    } catch {
+      return null;
     }
   }
 
@@ -356,13 +631,23 @@ export class HighlightStore {
     this.options.onCorrupt?.(ref, movedTo);
   }
 
-  /** Applies a change and schedules a coalesced write. */
-  async update(ref: DocumentRef, mutate: (record: StoredRecord) => void): Promise<StoredRecord> {
+  /**
+   * Applies a change and schedules a coalesced write. Derived data (statuses, positions, states)
+   * is changed the same way; only a change of what the reader made counts as theirs when windows
+   * merge. On a read-only document nothing is changed. A change that returns `false` changed
+   * nothing: no write is scheduled.
+   */
+  async update(ref: DocumentRef, mutate: (record: StoredRecord) => unknown): Promise<StoredRecord> {
     const entry = await this.entry(ref);
+    if (entry.readOnly) {
+      this.options.onReadOnly?.(ref);
+      return entry.record;
+    }
     const before = new Set(entry.record.highlights.map((h) => h.id));
     const drawingsBefore = new Set(entry.record.drawings.map((d) => d.id));
-    const markerBefore = JSON.stringify(entry.record.marker ?? null);
-    mutate(entry.record);
+    const markerBefore = markerIntent(entry.record.marker);
+    // `false` from the change says that nothing was changed: nothing is written then.
+    if (mutate(entry.record) === false) return entry.record;
     const after = new Set(entry.record.highlights.map((h) => h.id));
     for (const id of before) if (!after.has(id)) entry.deletedIds.add(id);
     // A highlight brought back (undo of a delete) must survive the next merge with other windows.
@@ -370,7 +655,8 @@ export class HighlightStore {
     const drawingsAfter = new Set(entry.record.drawings.map((d) => d.id));
     for (const id of drawingsBefore) if (!drawingsAfter.has(id)) entry.deletedDrawingIds.add(id);
     for (const id of drawingsAfter) if (!drawingsBefore.has(id)) entry.deletedDrawingIds.delete(id);
-    if (JSON.stringify(entry.record.marker ?? null) !== markerBefore) entry.markerChanged = true;
+    // Only placing or removing the marker is the reader's doing; where it was found again is not.
+    if (markerIntent(entry.record.marker) !== markerBefore) entry.markerActedAt = new Date().toISOString();
     entry.record.updatedAt = new Date().toISOString();
     entry.record.uri = ref.uri;
     entry.record.fsPath = ref.fsPath;
@@ -407,57 +693,108 @@ export class HighlightStore {
     return this.enqueue(key, () => this.writeEntry(key));
   }
 
+  private async mtimeOf(file: string): Promise<number | undefined> {
+    return (await fs.stat(file).catch(() => undefined))?.mtimeMs;
+  }
+
   private async writeEntry(key: string): Promise<void> {
     const entry = this.entries.get(key);
-    if (!entry || !entry.dirty) return;
+    if (!entry || !entry.dirty || entry.readOnly) return;
     entry.dirty = false;
     const file = this.pathOf(key);
     const drawingsFile = this.drawingsPathOf(key);
+    const anchorsFile = this.anchorsPathOf(key);
     try {
       // Another VS Code window may have written these files since we read them: merge, don't clobber.
-      const stat = await fs.stat(file).catch(() => undefined);
-      if (stat && stat.mtimeMs !== entry.diskMtimeMs) {
+      const [recordNow, drawingsNow, anchorsNow] = await Promise.all([this.mtimeOf(file), this.mtimeOf(drawingsFile), this.mtimeOf(anchorsFile)]);
+      const changed =
+        (recordNow !== undefined && recordNow !== entry.mtimes.record) ||
+        (drawingsNow !== undefined && drawingsNow !== entry.mtimes.drawings) ||
+        (anchorsNow !== undefined && anchorsNow !== entry.mtimes.anchors);
+      if (changed) {
         try {
-          const theirs = sanitizeRecord(JSON.parse(await fs.readFile(file, 'utf8')), entry.ref);
-          entry.record.highlights = mergeById(entry.record.highlights, theirs.highlights, entry.deletedIds);
-          if (!entry.markerChanged) {
-            if (theirs.marker) entry.record.marker = theirs.marker;
-            else delete entry.record.marker;
+          const theirs = await this.readFromDisk(key, entry.ref, false);
+          if (theirs.readOnly) {
+            // A newer version took the document over: stop writing.
+            entry.readOnly = true;
+            this.options.onReadOnly?.(entry.ref);
+            return;
           }
+          this.merge(entry, theirs.record, { record: recordNow !== entry.mtimes.record, drawings: drawingsNow !== entry.mtimes.drawings });
         } catch {
           // Unreadable on disk: ours wins.
         }
+        // What is on disk is no longer what we wrote.
+        entry.written = {};
       }
-      const drawingsStat = await fs.stat(drawingsFile).catch(() => undefined);
-      if (drawingsStat && drawingsStat.mtimeMs !== entry.drawingsMtimeMs) {
-        try {
-          const theirs = sanitizeDrawingsFile(JSON.parse(await fs.readFile(drawingsFile, 'utf8')));
-          entry.record.drawings = mergeById(entry.record.drawings, theirs.drawings, entry.deletedDrawingIds);
-        } catch {
-          // Unreadable on disk: ours wins.
-        }
-      }
+      const written = (entry.written ??= {});
       if (!hasData(entry.record)) {
+        await removeFile(anchorsFile);
         await removeFile(drawingsFile);
         await removeFile(file);
-        entry.diskMtimeMs = undefined;
-        entry.drawingsMtimeMs = undefined;
-        return;
+        await this.removeSnapshots(key);
+        entry.mtimes = {};
+        entry.written = {};
+      } else {
+        // The record last: when it is on disk, its drawings and anchors are too. Those two are
+        // written only when what they hold changed (or the file is not there).
+        if (entry.record.drawings.length > 0) {
+          const text = drawingsFileText(entry.record);
+          const body = withoutStamp(text);
+          if (drawingsNow === undefined || written.drawings !== body) {
+            await writeFileAtomic(drawingsFile, text, this.options.writeHooks);
+            entry.mtimes.drawings = await this.mtimeOf(drawingsFile);
+            written.drawings = body;
+          }
+        } else if (drawingsNow !== undefined) {
+          await removeFile(drawingsFile);
+          entry.mtimes.drawings = undefined;
+          written.drawings = undefined;
+        }
+        const anchors = anchorsFileText(entry.record);
+        if (anchors !== undefined) {
+          const body = withoutStamp(anchors);
+          if (anchorsNow === undefined || written.anchors !== body) {
+            await writeFileAtomic(anchorsFile, anchors, this.options.writeHooks);
+            entry.mtimes.anchors = await this.mtimeOf(anchorsFile);
+            written.anchors = body;
+          }
+        } else if (anchorsNow !== undefined) {
+          await removeFile(anchorsFile);
+          entry.mtimes.anchors = undefined;
+          written.anchors = undefined;
+        }
+        await writeFileAtomic(file, recordFileText(entry.record), this.options.writeHooks);
+        entry.mtimes.record = await this.mtimeOf(file);
       }
-      // Drawings first: when the record is on disk, its drawings are too.
-      if (entry.record.drawings.length > 0) {
-        await writeFileAtomic(drawingsFile, drawingsFileText(entry.record), this.options.writeHooks);
-        entry.drawingsMtimeMs = (await fs.stat(drawingsFile)).mtimeMs;
-      } else if (drawingsStat) {
-        await removeFile(drawingsFile);
-        entry.drawingsMtimeMs = undefined;
-      }
-      await writeFileAtomic(file, recordFileText(entry.record), this.options.writeHooks);
-      entry.diskMtimeMs = (await fs.stat(file)).mtimeMs;
+      for (const aside of entry.recovered.splice(0)) await removeFile(aside);
     } catch (err) {
       entry.dirty = true;
       throw err;
     }
+  }
+
+  /**
+   * Merges what another window wrote into ours. What the reader made wins by its `updatedAt`
+   * (a marker: by when it was placed); derived data comes along with the version that wins and
+   * never decides anything.
+   */
+  private merge(entry: Entry, theirs: StoredRecord, changed: { record: boolean; drawings: boolean }): void {
+    if (changed.record) {
+      entry.record.highlights = mergeById(entry.record.highlights, theirs.highlights, entry.deletedIds);
+      const acted = entry.markerActedAt;
+      const theirsIsNewer = theirs.marker !== undefined && (acted === undefined || theirs.marker.createdAt > acted);
+      if (acted === undefined || theirsIsNewer) {
+        if (theirs.marker) {
+          // The same marker: keep what we derived for it.
+          if (markerIntent(theirs.marker) !== markerIntent(entry.record.marker)) entry.record.marker = theirs.marker;
+        } else {
+          delete entry.record.marker;
+        }
+      }
+      if (theirs.extra && !entry.record.extra) entry.record.extra = theirs.extra;
+    }
+    if (changed.drawings) entry.record.drawings = mergeById(entry.record.drawings, theirs.drawings, entry.deletedDrawingIds);
   }
 
   /** Writes every pending change now. */
@@ -473,6 +810,108 @@ export class HighlightStore {
     const entry = this.entries.get(key);
     if (entry && !entry.dirty && !this.timers.has(key)) this.entries.delete(key);
   }
+
+  // ---------- Text snapshots ----------
+
+  private async snapshotFiles(key: string): Promise<{ hash: string; file: string; size: number; mtimeMs: number }[]> {
+    let names: string[];
+    try {
+      names = await fs.readdir(this.options.dir);
+    } catch {
+      return [];
+    }
+    const out: { hash: string; file: string; size: number; mtimeMs: number }[] = [];
+    for (const name of names) {
+      const match = new RegExp(`^${key}\\.text-([0-9a-f]{6,64})\\.gz$`).exec(name);
+      if (!match) continue;
+      const file = `${this.options.dir}/${name}`;
+      const stat = await fs.stat(file).catch(() => undefined);
+      if (stat) out.push({ hash: match[1], file, size: stat.size, mtimeMs: stat.mtimeMs });
+    }
+    return out;
+  }
+
+  /** The text versions kept for a document. */
+  async snapshotHashes(ref: DocumentRef): Promise<string[]> {
+    return (await this.snapshotFiles(this.keyOf(ref))).map((s) => s.hash);
+  }
+
+  /**
+   * Keeps the normalized text of a version of a document, compressed, so annotations last found
+   * in it can be followed by diff later (also after a restart). Only for documents that have
+   * annotations. Returns whether the text is stored.
+   */
+  async saveSnapshot(ref: DocumentRef, hash: string, text: string): Promise<boolean> {
+    if (!HASH.test(hash) || text.length === 0 || text.length > MAX_SNAPSHOT_CHARS) return false;
+    const entry = await this.entry(ref);
+    if (entry.readOnly || !hasData(entry.record)) return false;
+    const key = this.keyOf(ref);
+    const file = this.snapshotPathOf(key, hash);
+    let stored = false;
+    await this.enqueue(key, async () => {
+      if ((await this.mtimeOf(file)) === undefined) {
+        const bytes = gzipSync(Buffer.from(text, 'utf8'));
+        if (bytes.byteLength > MAX_SNAPSHOT_BYTES) return;
+        await writeFileAtomic(file, bytes, this.options.writeHooks);
+      }
+      stored = true;
+      await this.pruneSnapshots(key, entry.record, hash);
+    });
+    return stored;
+  }
+
+  /** The text of a kept version, or undefined if it is not kept (or unreadable: then it is dropped). */
+  async readSnapshot(ref: DocumentRef, hash: string): Promise<string | undefined> {
+    if (!HASH.test(hash)) return undefined;
+    const file = this.snapshotPathOf(this.keyOf(ref), hash);
+    let bytes: Buffer;
+    try {
+      bytes = await fs.readFile(file);
+    } catch {
+      return undefined;
+    }
+    try {
+      return gunzipSync(bytes).toString('utf8');
+    } catch (err) {
+      this.log.warn(`A text snapshot of ${ref.uri} is unreadable (${String(err)}); dropped it`);
+      await removeFile(file).catch(() => undefined);
+      return undefined;
+    }
+  }
+
+  /** Drops snapshots no annotation points at any more, then the oldest ones over the limits. `keep` always stays. */
+  private async pruneSnapshots(key: string, record: StoredRecord, keep?: string): Promise<void> {
+    const referenced = referencedHashes(record);
+    const files = (await this.snapshotFiles(key)).sort((a, b) => b.mtimeMs - a.mtimeMs);
+    let count = 0;
+    let bytes = 0;
+    for (const snapshot of files) {
+      const wanted = snapshot.hash === keep || referenced.has(snapshot.hash);
+      if (wanted && (snapshot.hash === keep || (count < MAX_SNAPSHOTS && bytes + snapshot.size <= MAX_SNAPSHOT_BYTES))) {
+        count++;
+        bytes += snapshot.size;
+      } else {
+        await removeFile(snapshot.file);
+      }
+    }
+  }
+
+  private async removeSnapshots(key: string): Promise<void> {
+    for (const snapshot of await this.snapshotFiles(key)) await removeFile(snapshot.file);
+  }
+
+  /** Deletes every text snapshot (the setting was turned off). */
+  async removeAllSnapshots(): Promise<void> {
+    let names: string[];
+    try {
+      names = await fs.readdir(this.options.dir);
+    } catch {
+      return;
+    }
+    for (const name of names) if (/^[0-9a-f]{64}\.text-[0-9a-f]{6,64}\.gz$/.test(name)) await removeFile(`${this.options.dir}/${name}`);
+  }
+
+  // ---------- Renames, lists, copies ----------
 
   /** Moves a document's annotations to a new path (file rename or move). Returns false if there was nothing to move. */
   async migrate(from: DocumentRef, to: DocumentRef): Promise<boolean> {
@@ -493,6 +932,10 @@ export class HighlightStore {
       return false;
     }
     const target = await this.entry(to);
+    if (source.readOnly || target.readOnly) {
+      this.options.onReadOnly?.(source.readOnly ? from : to);
+      return false;
+    }
     const targetHadData = hasData(target.record);
     const moved = source.record;
     await this.update(to, (record) => {
@@ -502,11 +945,20 @@ export class HighlightStore {
       record.drawings = [...record.drawings, ...moved.drawings.filter((d) => !existingDrawings.has(d.id))];
       record.view = targetHadData ? { ...moved.view, ...record.view } : { ...moved.view };
       if (moved.marker && !record.marker) record.marker = structuredClone(moved.marker);
+      if (!targetHadData && moved.pages) record.pages = [...moved.pages];
+      if (moved.extra && !record.extra) record.extra = structuredClone(moved.extra);
     });
     await this.flushKey(toKey);
+    // The snapshots follow the file: the same text, so the same hashes.
+    for (const snapshot of await this.snapshotFiles(fromKey)) {
+      const destination = this.snapshotPathOf(toKey, snapshot.hash);
+      if ((await this.mtimeOf(destination)) === undefined) await moveFile(snapshot.file, destination).catch(() => undefined);
+    }
     await this.enqueue(fromKey, async () => {
+      await removeFile(this.anchorsPathOf(fromKey));
       await removeFile(this.drawingsPathOf(fromKey));
       await removeFile(this.pathOf(fromKey));
+      await this.removeSnapshots(fromKey);
     });
     this.entries.delete(fromKey);
     this.log.info(`Moved highlight data from ${from.uri} to ${to.uri}`);
@@ -543,27 +995,33 @@ export class HighlightStore {
     return out;
   }
 
-  /** Reads a record and its drawings for `list()`; unreadable files are skipped (they are handled when opened). */
+  /** Reads a record with its drawings and anchors for `list()`; unreadable files are skipped (they are handled when opened). */
   private async readListed(key: string): Promise<StoredRecord | undefined> {
     let record: StoredRecord | undefined;
     try {
-      const read = await this.readText(this.pathOf(key));
+      const read = await this.readJson(this.pathOf(key));
       if (read) {
-        const parsed = JSON.parse(read.text) as StoredRecord;
+        const parsed = read.json as StoredRecord;
         record = sanitizeRecord(parsed, { uri: parsed.uri, scheme: 'unknown', fsPath: parsed.fsPath });
       }
     } catch {
       // Skip.
     }
     try {
-      const read = await this.readText(this.drawingsPathOf(key));
+      const read = await this.readJson(this.drawingsPathOf(key));
       if (read) {
-        const drawings = sanitizeDrawingsFile(JSON.parse(read.text));
+        const drawings = sanitizeDrawingsFile(read.json);
         if (!record && drawings.uri) {
           record = { ...emptyRecord({ uri: drawings.uri, scheme: 'unknown', fsPath: drawings.fsPath }), updatedAt: drawings.updatedAt ?? new Date(0).toISOString() };
         }
         if (record) record.drawings = drawings.drawings;
       }
+    } catch {
+      // Skip.
+    }
+    try {
+      const read = record ? await this.readJson(this.anchorsPathOf(key)) : undefined;
+      if (read && record && !isNewerSchema(read.json, ANCHORS_SCHEMA_VERSION)) joinAnchors(record, sanitizeAnchorsFile(read.json));
     } catch {
       // Skip.
     }
@@ -592,7 +1050,11 @@ export class HighlightStore {
     return moved;
   }
 
-  /** Copies the highlights and drawings of another record into this document (used by "Reattach"). */
+  /**
+   * Copies the highlights and drawings of another record into this document (used by "Reattach").
+   * What they are anchored to comes along; where that was found in the other file does not: they
+   * are looked for again in this one.
+   */
   async mergeInto(source: StoredRecord, target: DocumentRef): Promise<{ highlights: number; drawings: number }> {
     let highlights = 0;
     let drawings = 0;
@@ -600,13 +1062,17 @@ export class HighlightStore {
       const existing = new Set(record.highlights.map((h) => h.id));
       for (const h of source.highlights) {
         if (existing.has(h.id)) continue;
-        record.highlights.push(structuredClone(h));
+        const copy = structuredClone(h);
+        delete copy.state;
+        record.highlights.push(copy);
         highlights++;
       }
       const existingDrawings = new Set(record.drawings.map((d) => d.id));
       for (const d of source.drawings) {
         if (existingDrawings.has(d.id)) continue;
-        record.drawings.push(structuredClone(d));
+        const copy = structuredClone(d);
+        delete copy.anchorStates;
+        record.drawings.push(copy);
         drawings++;
       }
       if (record.view.zoom === undefined && source.view.zoom !== undefined) record.view.zoom = source.view.zoom;
@@ -618,8 +1084,10 @@ export class HighlightStore {
   async deleteKey(key: string): Promise<void> {
     this.entries.delete(key);
     await this.enqueue(key, async () => {
+      await removeFile(this.anchorsPathOf(key));
       await removeFile(this.drawingsPathOf(key));
       await removeFile(this.pathOf(key));
+      await this.removeSnapshots(key);
     });
   }
 

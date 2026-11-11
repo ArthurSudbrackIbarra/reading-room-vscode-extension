@@ -3,10 +3,16 @@
 // selection, and producing rectangles for export.
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { pdfjsLib } from './pdfjs';
-import { anchorQuote, createSelectors } from '../src/anchoring/match';
-import { TextModel, trimRange, type PageInput, type PageSegments } from '../src/anchoring/textModel';
-import type { AnchorResult, ExportHighlight } from '../src/shared/messages';
+import { createAnchor, type AnchorState, type TextAnchor } from '../src/anchoring/anchor';
+import { extractPage, type TextContentLike } from '../src/anchoring/extract';
+import { createSelectors } from '../src/anchoring/match';
+import type { Resolution } from '../src/anchoring/resolve';
+import type { HighlightInput } from '../src/anchoring/runs';
+import { TEXT_MODEL_VERSION, TextModel, trimRange, type PageInput, type PageSegments } from '../src/anchoring/textModel';
+import { pageGeometry, toPdfSpace, type PageGeometry } from '../src/shared/drawingGeometry';
+import type { ExportHighlight } from '../src/shared/messages';
 import { HIGHLIGHT_HEX, type Highlight, type HighlightColor, type PageRects, type PdfRect } from '../src/shared/types';
+import { legacyAnchor, type ResolvedHighlight } from '../src/store/resolutions';
 import type { PageLayers } from './pageLayers';
 import type { PageViewLike, Viewer } from './viewer';
 
@@ -19,11 +25,43 @@ interface TextItemLike {
   transform?: number[];
 }
 
-interface PageData {
+export interface PageData {
   view: number[];
+  /** The page as shown at scale 1 (its /Rotate and crop box applied). */
+  geometry: PageGeometry;
+  rotate: number;
   textContent: { items: TextItemLike[]; styles: Record<string, unknown>; lang?: string | null };
   /** Indices (into textContent.items) of the items that have a `str`, i.e. TextLayer.textDivs order. */
   strItems: TextItemLike[];
+}
+
+/** Pages read at once from a PDF. */
+const READ_BATCH = 8;
+
+/** Reads the text of every page of a PDF (a few pages at a time, in parallel). `stale` stops it early. */
+export async function readPages(doc: PDFDocumentProxy, stale: () => boolean): Promise<{ pages: PageData[]; inputs: PageInput[] } | undefined> {
+  const pages: PageData[] = new Array(doc.numPages);
+  const inputs: PageInput[] = new Array(doc.numPages);
+  for (let first = 1; first <= doc.numPages; first += READ_BATCH) {
+    const batch = Array.from({ length: Math.min(READ_BATCH, doc.numPages - first + 1) }, (_, k) => first + k);
+    await Promise.all(
+      batch.map(async (number) => {
+        const page = await doc.getPage(number);
+        const { input, textContent } = await extractPage(page as never);
+        const content = textContent as TextContentLike as PageData['textContent'];
+        pages[number - 1] = {
+          view: page.view,
+          geometry: pageGeometry(page.view, page.rotate ?? 0, page.userUnit ?? 1),
+          rotate: page.rotate ?? 0,
+          textContent: content,
+          strItems: content.items.filter((it) => typeof it.str === 'string'),
+        };
+        inputs[number - 1] = input;
+      }),
+    );
+    if (stale()) return undefined;
+  }
+  return { pages, inputs };
 }
 
 interface LiveLayer {
@@ -35,14 +73,21 @@ interface Runtime {
   data: Highlight;
   start?: number;
   end?: number;
-  /** Per page index: rectangles as fractions of the page. */
+  /** Per page index: rectangles as fractions of the page. Only ever for the document that is shown. */
   pages: Map<number, Frac[]>;
+  /** What the last resolving run found (undefined until the first one). */
+  resolution?: Resolution;
+  /** The state from a render of unsaved text: used for the next run, never stored. */
+  liveState?: AnchorState;
 }
+
+export type HighlightRuntime = Runtime;
 
 export interface HighlightEvents {
   created(highlight: Highlight): void;
   changed(): void;
-  anchored(results: AnchorResult[]): void;
+  /** A highlight was added or brought back: it has to be found in the document. */
+  needsResolve(): void;
 }
 
 const HL_LAYER = 'mpv-hl-layer';
@@ -106,11 +151,118 @@ export class HighlightController {
 
   // ---------- Data ----------
 
+  /** Replaces every highlight. Nothing is drawn until they are resolved (see AnchoringController). */
   setHighlights(list: Highlight[]): void {
     this.runtimes.clear();
-    for (const h of list) this.runtimes.set(h.id, { data: structuredClone(h), pages: new Map() });
-    if (this.doc) this.ready = this.anchorAll();
-    else this.events.changed();
+    for (const h of list) this.runtimes.set(h.id, this.runtimeOf(h));
+    this.redrawAll();
+    this.events.changed();
+  }
+
+  private runtimeOf(highlight: Highlight): Runtime {
+    const data = structuredClone(highlight);
+    // Highlights of earlier versions carry no anchor: their stored quote is it.
+    if (!data.anchor) data.anchor = legacyAnchor(data);
+    return { data, pages: new Map() };
+  }
+
+  /** What the resolver works on. */
+  inputs(): HighlightInput[] {
+    return [...this.runtimes.values()].map((rt) => ({ id: rt.data.id, anchor: rt.data.anchor as TextAnchor, state: rt.liveState ?? rt.data.state }));
+  }
+
+  /**
+   * Takes over the results of a resolving run: where every highlight is in the document shown,
+   * or why it is not. Rectangles are computed from the text layers (as they render).
+   */
+  applyResolutions(resolutions: Map<string, Resolution>, upgraded: Map<string, TextAnchor>, provisional: boolean): void {
+    for (const rt of this.runtimes.values()) {
+      const r = resolutions.get(rt.data.id);
+      if (!r) continue;
+      rt.resolution = r;
+      rt.pages.clear();
+      rt.start = r.status === 'anchored' ? r.start : undefined;
+      rt.end = r.status === 'anchored' ? r.end : undefined;
+      rt.data.status = r.status;
+      if (provisional) {
+        rt.liveState = r.state;
+      } else {
+        rt.liveState = undefined;
+        rt.data.state = r.state;
+        const wider = upgraded.get(rt.data.id);
+        if (wider && !rt.data.anchor?.fingerprint) rt.data.anchor = wider;
+        if (r.status === 'anchored' && this.model) {
+          rt.data.target.selector[1] = { type: 'TextPositionSelector', start: r.start!, end: r.end! };
+          rt.data.target.hints.textModelHash = this.model.hash;
+        }
+      }
+      for (const seg of this.segmentsOf(rt)) {
+        const live = this.live.get(seg.page);
+        if (live?.layer.isConnected) this.computePageRects(rt, seg.page, live);
+      }
+    }
+    this.redrawAll();
+    this.events.changed();
+  }
+
+  /** Computes the rectangles still missing (pages PDF.js has not rendered), then draws. */
+  async completeRects(): Promise<void> {
+    const missing = [...this.runtimes.values()].filter((rt) => rt.data.status === 'anchored' && this.segmentsOf(rt).some((s) => !rt.pages.has(s.page)));
+    if (missing.length === 0) return;
+    await this.computeRects(missing);
+    this.redrawAll();
+  }
+
+  /** What the host stores of the last run: states, positions and rectangles. */
+  resolvedPayload(upgraded: Map<string, TextAnchor>): ResolvedHighlight[] {
+    const out: ResolvedHighlight[] = [];
+    for (const rt of this.runtimes.values()) {
+      if (!rt.resolution) continue;
+      const anchor = upgraded.get(rt.data.id);
+      out.push({ id: rt.data.id, state: rt.resolution.state, ...(rt.data.status === 'anchored' ? { pages: this.pdfRects(rt) } : {}), ...(anchor ? { anchor } : {}) });
+    }
+    return out;
+  }
+
+  /** The text a highlight is on now (differs from its quote when the passage was edited). */
+  currentText(id: string): string | undefined {
+    const rt = this.runtimes.get(id);
+    return rt && this.model && rt.start !== undefined && rt.end !== undefined ? this.model.text.slice(rt.start, rt.end) : undefined;
+  }
+
+  /** The text that replaced an orphaned highlight's text, if any. */
+  candidateOf(id: string): { start: number; end: number; text: string } | undefined {
+    const c = this.runtimes.get(id)?.resolution?.candidate;
+    return c && this.model ? { ...c, text: this.model.text.slice(c.start, c.end) } : undefined;
+  }
+
+  /**
+   * A highlight rebased by the reader: on the text it is on now (Accept), or on another range
+   * (Attach). Returns the version before and after; the caller stores it and records the undo.
+   */
+  rebase(id: string, range?: [number, number]): { before: Highlight; after: Highlight } | undefined {
+    const rt = this.runtimes.get(id);
+    const model = this.model;
+    if (!rt || !model) return undefined;
+    const start = range?.[0] ?? rt.start;
+    const end = range?.[1] ?? rt.end;
+    if (start === undefined || end === undefined || end <= start) return undefined;
+    const before = structuredClone(rt.data);
+    const after = structuredClone(rt.data);
+    after.anchor = createAnchor(model.text, model.hash, start, end);
+    after.target.selector = createSelectors(model.text, start, end);
+    after.status = 'anchored';
+    after.state = { status: 'anchored', kind: 'exact', resolvedIn: model.hash, found: { hash: model.hash, v: TEXT_MODEL_VERSION, length: model.text.length, start, end } };
+    after.updatedAt = new Date().toISOString();
+    return { before, after };
+  }
+
+  /** Replaces a highlight's data (a rebase, or its undo); it is resolved again by the caller. */
+  replace(highlight: Highlight): void {
+    const old = this.runtimes.get(highlight.id);
+    this.runtimes.set(highlight.id, this.runtimeOf(highlight));
+    if (old) this.drawPagesOf(old);
+    this.events.needsResolve();
   }
 
   /** Highlights in document order, orphans last. */
@@ -149,84 +301,43 @@ export class HighlightController {
 
   // ---------- Document lifecycle ----------
 
-  /** Called after each (re)load of the PDF. Builds the text model and re-anchors every highlight. */
-  documentLoaded(doc: PDFDocumentProxy, renderId: number): Promise<void> {
+  /** The margins inside which text is header or footer (not part of the text model). */
+  get margins(): { top: number; bottom: number } {
+    return this.marginsPt;
+  }
+
+  /**
+   * The viewer switched to a new PDF whose text was read already. Everything computed for the
+   * previous one is dropped at once: positions and rectangles are only ever those of the
+   * document on screen.
+   */
+  setDocument(doc: PDFDocumentProxy, renderId: number, pages: PageData[], model: TextModel): void {
     this.doc = doc;
     this.renderId = renderId;
-    this.model = undefined;
-    this.pages = [];
-    this.live.clear();
-    this.ready = (async () => {
-      await this.buildModel(doc);
-      if (this.doc !== doc) return;
-      await this.anchorAll();
-    })();
-    return this.ready;
-  }
-
-  whenReady(): Promise<void> {
-    return this.ready;
-  }
-
-  private async buildModel(doc: PDFDocumentProxy): Promise<void> {
-    const pages: PageData[] = [];
-    for (let i = 1; i <= doc.numPages; i++) {
-      const page = await doc.getPage(i);
-      const textContent = (await page.getTextContent({ includeMarkedContent: true, disableNormalization: true })) as unknown as PageData['textContent'];
-      const strItems = textContent.items.filter((it) => typeof it.str === 'string');
-      pages.push({ view: page.view, textContent, strItems });
-      if (this.doc !== doc) return;
-    }
     this.pages = pages;
-    const inputs: PageInput[] = pages.map((p) => ({
-      view: p.view,
-      items: p.strItems.map((it) => ({ str: it.str ?? '', hasEOL: !!it.hasEOL, transform: it.transform ?? [1, 0, 0, 1, 0, 0] })),
-    }));
-    this.model = new TextModel(inputs, { marginsPt: this.marginsPt });
-    // Text layers that rendered before the model existed.
+    this.model = model;
+    this.live.clear();
+    for (const rt of this.runtimes.values()) {
+      rt.pages.clear();
+      rt.start = undefined;
+      rt.end = undefined;
+      rt.resolution = undefined;
+    }
+    // Text layers that rendered before this was called.
     for (let i = 0; i < doc.numPages; i++) {
       const view = this.viewer.pageView(i);
       if (view?.textLayer?.div?.childElementCount) this.onTextLayer(i);
     }
-  }
-
-  private anchorOne(rt: Runtime, model: TextModel): void {
-    const [quote, position] = rt.data.target.selector;
-    const match = anchorQuote(model.text, quote, position);
-    rt.pages.clear();
-    if (match) {
-      rt.start = match.start;
-      rt.end = match.end;
-      rt.data.status = 'anchored';
-    } else {
-      rt.start = undefined;
-      rt.end = undefined;
-      rt.data.status = 'orphaned';
-    }
-  }
-
-  private async anchorAll(): Promise<void> {
-    const model = this.model;
-    if (!model) return;
-    const results: AnchorResult[] = [];
-    for (const rt of this.runtimes.values()) this.anchorOne(rt, model);
-    // Rectangles: from live text layers where rendered, off-screen layers elsewhere.
-    await this.computeRects([...this.runtimes.values()]);
-    if (this.model !== model) return;
-    for (const rt of this.runtimes.values()) {
-      const result: AnchorResult = { id: rt.data.id, status: rt.data.status, textModelHash: model.hash };
-      if (rt.data.status === 'anchored') {
-        result.start = rt.start;
-        result.end = rt.end;
-        result.pages = this.pdfRects(rt);
-        rt.data.target.selector[1] = { type: 'TextPositionSelector', start: rt.start!, end: rt.end! };
-        rt.data.target.hints = { pages: result.pages, textModelHash: model.hash };
-      }
-      results.push(result);
-    }
     this.redrawAll();
-    this.events.anchored(results);
-    this.events.changed();
+  }
+
+  /** Resolves when the work in `task` is done; exports wait for it. */
+  track(task: Promise<void>): void {
+    this.ready = task.catch(() => undefined);
+  }
+
+  whenReady(): Promise<void> {
+    return this.ready;
   }
 
   private segmentsOf(rt: Pick<Runtime, 'start' | 'end'>): PageSegments[] {
@@ -313,20 +424,19 @@ export class HighlightController {
     return { layer, divs: textLayer.textDivs as HTMLElement[] };
   }
 
+  /**
+   * The rectangles in PDF units. Fractions are of the page as shown, so they go through the
+   * page's own transform: right for any /Rotate and for crop boxes that do not start at 0.
+   */
   private pdfRects(rt: Runtime): PageRects[] {
     const out: PageRects[] = [];
     for (const [pageIndex, fracs] of [...rt.pages].sort((a, b) => a[0] - b[0])) {
-      const [x0, y0, x1, y1] = this.pages[pageIndex]?.view ?? [0, 0, 612, 792];
-      const w = x1 - x0;
-      const h = y1 - y0;
-      const rects = fracs.map(
-        ([fx1, fy1, fx2, fy2]): PdfRect => [
-          round2(x0 + fx1 * w),
-          round2(y1 - fy2 * h),
-          round2(x0 + fx2 * w),
-          round2(y1 - fy1 * h),
-        ],
-      );
+      const g = this.pages[pageIndex]?.geometry ?? pageGeometry([0, 0, 612, 792]);
+      const rects = fracs.map(([fx1, fy1, fx2, fy2]): PdfRect => {
+        const a = toPdfSpace(g, [fx1 * g.width, fy1 * g.height]);
+        const b = toPdfSpace(g, [fx2 * g.width, fy2 * g.height]);
+        return [round2(Math.min(a[0], b[0])), round2(Math.min(a[1], b[1])), round2(Math.max(a[0], b[0])), round2(Math.max(a[1], b[1]))];
+      });
       out.push({ pageIndex, rects });
     }
     return out;
@@ -510,11 +620,11 @@ export class HighlightController {
       this.viewer.goToPage(page + 1);
       return true;
     }
-    const [x0, , x1, y1] = this.pages[pageIndex]?.view ?? [0, 0, 612, 792];
-    const [, y0] = this.pages[pageIndex]?.view ?? [0, 0];
+    const g = this.pages[pageIndex]?.geometry ?? pageGeometry([0, 0, 612, 792]);
     const top = rects.reduce((m, r) => Math.min(m, r[1]), 1);
     const left = rects.reduce((m, r) => Math.min(m, r[0]), 1);
-    this.viewer.scrollToPoint(pageIndex, x0 + left * (x1 - x0), y1 - top * (y1 - y0));
+    const [x, y] = toPdfSpace(g, [left * g.width, top * g.height]);
+    this.viewer.scrollToPoint(pageIndex, x, y);
     this.flash(id);
     return true;
   }
@@ -605,6 +715,9 @@ export class HighlightController {
       updatedAt: now,
       status: 'anchored',
       target: { selector: createSelectors(model.text, start, end), hints: { pages: [], textModelHash: model.hash } },
+      anchor: createAnchor(model.text, model.hash, start, end),
+      // Where it is in the text it was made in: the next render follows it from here.
+      state: { status: 'anchored', kind: 'exact', resolvedIn: model.hash, found: { hash: model.hash, v: TEXT_MODEL_VERSION, length: model.text.length, start, end, page: model.pageOf(start) } },
     };
     const rt: Runtime = { data: highlight, start, end, pages: new Map() };
     this.runtimes.set(highlight.id, rt);
@@ -623,16 +736,11 @@ export class HighlightController {
     return highlight;
   }
 
-  /** Adds a highlight back (undo/redo), anchoring it in the current document. */
-  async add(highlight: Highlight): Promise<void> {
-    const rt: Runtime = { data: structuredClone(highlight), pages: new Map() };
-    this.runtimes.set(rt.data.id, rt);
-    if (this.model) {
-      this.anchorOne(rt, this.model);
-      await this.computeRects([rt]);
-    }
-    this.drawPagesOf(rt);
+  /** Adds a highlight back (undo/redo). It is found again in the current document by the next resolving run. */
+  add(highlight: Highlight): void {
+    this.runtimes.set(highlight.id, this.runtimeOf(highlight));
     this.events.changed();
+    this.events.needsResolve();
   }
 
   setColor(id: string, color: HighlightColor): void {
@@ -692,7 +800,7 @@ export class HighlightController {
 
   // ---------- Export ----------
 
-  async exportData(): Promise<{ highlights: ExportHighlight[]; orphaned: number }> {
+  async exportData(): Promise<{ highlights: ExportHighlight[]; orphaned: number; orphanedNotes: number }> {
     await this.ready;
     // Make sure every anchored highlight has rectangles on every page it touches.
     const incomplete = [...this.runtimes.values()].filter(
@@ -701,9 +809,11 @@ export class HighlightController {
     if (incomplete.length > 0) await this.computeRects(incomplete);
     const highlights: ExportHighlight[] = [];
     let orphaned = 0;
+    let orphanedNotes = 0;
     for (const rt of this.list()) {
       if (rt.data.status !== 'anchored') {
         orphaned++;
+        if (rt.data.note) orphanedNotes++;
         continue;
       }
       const pages = this.pdfRects(rt);
@@ -712,7 +822,7 @@ export class HighlightController {
       const text = this.model && rt.start !== undefined && rt.end !== undefined ? this.model.text.slice(rt.start, rt.end) : rt.data.target.selector[0].exact;
       highlights.push({ id: rt.data.id, color: rt.data.color, text, note: rt.data.note, createdAt: rt.data.createdAt, pages });
     }
-    return { highlights, orphaned };
+    return { highlights, orphaned, orphanedNotes };
   }
 
   get currentRenderId(): number {

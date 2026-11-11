@@ -1,6 +1,8 @@
 // Drawings: pen strokes, simple shapes and text boxes on a page. The data model, its limits and
 // its validation, shared by the host (storage, export) and the viewer. No runtime dependencies.
 // Text boxes are drawings too: they share the list, the storage, selecting, moving and undo.
+import { sanitizeState, type AnchorState } from '../anchoring/anchor';
+import { sanitizeBinding, type DrawingBinding } from '../anchoring/binding';
 import { DEFAULT_INK, isInk, sanitizeInk, type Ink } from './colors';
 import { round2, simplifyPoints, type PdfPoint, type Shape } from './drawingGeometry';
 import { CHAR_STYLES, rangeStyle, sanitizeSpans, styleRange, type CharStyle, type TextSpan } from './richText';
@@ -107,6 +109,10 @@ export interface InkDrawing {
   updatedAt: string;
   /** Hash of the text model of the render it was drawn on (for re-anchoring it later). */
   textModelHash?: string;
+  /** What it is attached to (see anchoring/binding). Stored in the anchors file, not with the drawing. */
+  binding?: DrawingBinding;
+  /** Derived: where the binding's anchors were last found. Stored in the anchors file. */
+  anchorStates?: (AnchorState | undefined)[];
 }
 
 export interface TextDrawing extends TextBoxStyle {
@@ -127,9 +133,37 @@ export interface TextDrawing extends TextBoxStyle {
   createdAt: string;
   updatedAt: string;
   textModelHash?: string;
+  binding?: DrawingBinding;
+  anchorStates?: (AnchorState | undefined)[];
 }
 
 export type Drawing = InkDrawing | TextDrawing;
+
+/** The fields of a drawing this version knows; anything else in a stored drawing is kept as it is. */
+const KNOWN_FIELDS = new Set([
+  'id', 'tool', 'color', 'width', 'pageIndex', 'points', 'polyline', 'createdAt', 'updatedAt', 'textModelHash', 'binding', 'anchorStates',
+  'text', 'spans', 'boxWidth', 'size', 'align', 'bold', 'italic', 'underline',
+]);
+const MAX_UNKNOWN_FIELDS = 16;
+
+/** Copies the fields a newer version may have added (a few, JSON only), so a round trip through this one loses nothing. */
+function keepUnknown(from: Record<string, unknown>, to: Drawing): void {
+  let kept = 0;
+  for (const key of Object.keys(from)) {
+    if (KNOWN_FIELDS.has(key) || kept >= MAX_UNKNOWN_FIELDS) continue;
+    const value = from[key];
+    if (value === undefined || typeof value === 'function') continue;
+    (to as unknown as Record<string, unknown>)[key] = value;
+    kept++;
+  }
+}
+
+/** The binding and anchor states of a stored drawing, cleaned. */
+function attachAnchoring(from: Record<string, unknown>, to: Drawing): void {
+  const binding = sanitizeBinding(from.binding);
+  if (binding) to.binding = binding;
+  if (binding && Array.isArray(from.anchorStates)) to.anchorStates = from.anchorStates.slice(0, 2).map((s) => sanitizeState(s));
+}
 
 /** A text box laid out by the viewer, for the download: its lines as shown, and its size in points. */
 export interface TextLayout {
@@ -300,6 +334,8 @@ export function sanitizeDrawing(value: unknown, onAdjusted?: (drawing: Drawing, 
       drawing.boxWidth = round2(Math.min(MAX_TEXT_BOX_WIDTH, Math.max(MIN_TEXT_BOX_WIDTH, d.boxWidth)));
     }
     if (hash) drawing.textModelHash = hash;
+    attachAnchoring(d, drawing);
+    keepUnknown(d, drawing);
     if (shortenedFrom !== undefined) onAdjusted?.(drawing, shortenedFrom);
     return drawing;
   }
@@ -327,6 +363,8 @@ export function sanitizeDrawing(value: unknown, onAdjusted?: (drawing: Drawing, 
   const drawing: InkDrawing = { id: d.id, tool: d.tool, color, width: d.width, pageIndex: d.pageIndex, points, createdAt, updatedAt };
   if (d.tool === 'pen' && d.polyline === true) drawing.polyline = true;
   if (hash) drawing.textModelHash = hash;
+  attachAnchoring(d, drawing);
+  keepUnknown(d, drawing);
   if (simplifiedFrom !== undefined) onAdjusted?.(drawing, simplifiedFrom);
   return drawing;
 }

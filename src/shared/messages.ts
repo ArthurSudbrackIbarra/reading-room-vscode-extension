@@ -1,4 +1,6 @@
 // Message protocol between the extension host (PreviewPanel) and the viewer webview.
+import type { CopyHint } from '../anchoring/diff';
+import type { ResolvedPayload } from '../store/resolutions';
 import type { HexColor, Ink } from './colors';
 import type { DrawTool, Drawing, InkWidth, TextLayout, TextStyle } from './drawings';
 import type { CustomSound, SoundRequest, SoundState } from './sounds';
@@ -6,7 +8,6 @@ import type {
   DocumentKind,
   Highlight,
   HighlightColor,
-  HighlightStatus,
   PageRects,
   PageTheme,
   ReadingMarker,
@@ -44,6 +45,12 @@ export interface ViewerInit {
   sound: SoundState;
   /** The reader's own reading sounds. */
   customSounds: CustomSoundView[];
+  /** The annotations were stored by a newer version: they are shown, and changes are not stored. */
+  readOnly: boolean;
+  /** Whether texts of earlier versions are kept on disk (the textSnapshots setting). */
+  keepSnapshots: boolean;
+  /** PDF files: signatures of the pages of the last version that was stored. */
+  pages?: string[];
 }
 
 export interface DrawStyle {
@@ -64,10 +71,25 @@ export interface RenderWarning {
 export type HostToViewer =
   | { type: 'init'; init: ViewerInit }
   | { type: 'rendering' }
-  | { type: 'pdf'; data: Uint8Array; renderId: number; theme: PageTheme; warnings: RenderWarning[]; fromCache?: boolean }
+  | {
+      type: 'pdf';
+      data: Uint8Array;
+      renderId: number;
+      theme: PageTheme;
+      warnings: RenderWarning[];
+      fromCache?: boolean;
+      /** A render of unsaved text: what it does to the annotations is shown but not stored. */
+      provisional?: boolean;
+      /** Which of two identical neighboring blocks is the copy (from the editor's change events). */
+      hints?: CopyHint[];
+      /** Hashes of the earlier versions of the text that are kept on disk. */
+      snapshots?: string[];
+    }
+  /** The texts of earlier versions the viewer asked for (those that are kept). */
+  | { type: 'snapshots'; requestId: number; texts: Record<string, string> }
   | { type: 'renderError'; message: string; firstRender: boolean }
   | { type: 'zoom'; action: 'in' | 'out' | 'reset' }
-  | { type: 'highlights'; highlights: Highlight[]; marker: ReadingMarker | null; drawings: Drawing[] }
+  | { type: 'highlights'; highlights: Highlight[]; marker: ReadingMarker | null; drawings: Drawing[]; readOnly?: boolean; pages?: string[] }
   | { type: 'toggleList' }
   | { type: 'toggleTool' }
   | { type: 'toggleDrawing' }
@@ -90,15 +112,6 @@ export type HostToViewer =
   | { type: 'customSounds'; sounds: CustomSoundView[] }
   /** Sounds this viewer asked to add: measure their loudness, and show them if `reveal`. */
   | { type: 'soundsAdded'; ids: string[]; reveal: boolean };
-
-export interface AnchorResult {
-  id: string;
-  status: HighlightStatus;
-  start?: number;
-  end?: number;
-  pages?: PageRects[];
-  textModelHash?: string;
-}
 
 export interface ExportHighlight {
   id: string;
@@ -127,6 +140,8 @@ export type ViewerToHost =
   | { type: 'ready' }
   | { type: 'focus'; focused: boolean }
   | { type: 'createHighlight'; highlight: Highlight }
+  /** A new version of a highlight made by the reader: its quote rebased (Accept) or attached to other text. */
+  | { type: 'replaceHighlight'; highlight: Highlight }
   /** `note: ''` removes the note. */
   | { type: 'updateHighlight'; id: string; color?: HighlightColor; note?: string }
   | { type: 'deleteHighlight'; id: string }
@@ -140,7 +155,12 @@ export type ViewerToHost =
   | { type: 'textHintShown' }
   | { type: 'eraseHintShown' }
   | { type: 'recentColorsChanged'; colors: HexColor[] }
-  | { type: 'anchorsResolved'; renderId: number; results: AnchorResult[] }
+  /** Where everything is in a render (derived data: stored for saved renders only). */
+  | ({ type: 'resolved'; renderId: number } & ResolvedPayload)
+  /** Asks for the texts of earlier versions, to follow annotations by diff. */
+  | { type: 'requestSnapshots'; requestId: number; hashes: string[] }
+  /** The normalized text of a saved render in which annotations were found, to keep for later. */
+  | { type: 'saveSnapshot'; renderId: number; hash: string; text: string }
   | { type: 'viewChanged'; zoom: ZoomValue }
   | { type: 'colorChanged'; color: HighlightColor }
   | { type: 'toolChanged'; active: boolean }
@@ -150,8 +170,15 @@ export type ViewerToHost =
   | {
       type: 'exportData';
       requestId: number;
+      /** The render the positions were computed for, and the hash of its text. */
+      renderId: number;
+      hash: string;
       highlights: ExportHighlight[];
       orphaned: number;
+      /** How many of the orphaned highlights have a note. */
+      orphanedNotes?: number;
+      /** Drawings and text boxes left out because their content is not in this version. */
+      orphanedDrawings?: number;
       /** Drawings and text boxes on pages the PDF has. */
       drawings: Drawing[];
       /** How the viewer laid out those text boxes (their lines as shown). */
