@@ -1,8 +1,8 @@
 {
   "name": "markdown-pdf-viewer",
   "displayName": "Document Viewer & Highlighter",
-  "description": "Read Markdown, text and PDF files as PDFs inside VS Code. Highlight in five colors, add notes, mark where you stopped reading, play relaxing rain, fireplace or your own sounds, undo with Ctrl+Z, and download with highlights as PDF annotations.",
-  "version": "0.4.0",
+  "description": "Read Markdown, text and PDF files as PDFs inside VS Code. Highlight in five colors, add notes, draw and type on the page, mark where you stopped reading, play relaxing rain, fireplace or your own sounds, undo with Ctrl+Z, and download with all of it as PDF annotations.",
+  "version": "0.6.0",
   "publisher": "local",
   "license": "MIT",
   "repository": {
@@ -27,6 +27,8 @@
     "highlight",
     "annotation",
     "notes",
+    "drawing",
+    "text box",
     "bookmark",
     "reading",
     "ambient sounds"
@@ -87,7 +89,7 @@
       },
       {
         "command": "markdownPdfViewer.downloadWithoutHighlights",
-        "title": "Download PDF without Highlights",
+        "title": "Download PDF without Annotations",
         "category": "Document Viewer"
       },
       {
@@ -112,7 +114,17 @@
       },
       {
         "command": "markdownPdfViewer.toggleHighlightsList",
-        "title": "Toggle Highlights List",
+        "title": "Toggle Annotations List",
+        "category": "Document Viewer"
+      },
+      {
+        "command": "markdownPdfViewer.toggleDrawing",
+        "title": "Toggle Drawing",
+        "category": "Document Viewer"
+      },
+      {
+        "command": "markdownPdfViewer.toggleText",
+        "title": "Toggle Adding Text",
         "category": "Document Viewer"
       },
       {
@@ -123,12 +135,12 @@
       },
       {
         "command": "markdownPdfViewer.undo",
-        "title": "Undo Highlight, Note or Marker Change",
+        "title": "Undo Highlight, Note, Marker, Drawing or Text Change",
         "category": "Document Viewer"
       },
       {
         "command": "markdownPdfViewer.redo",
-        "title": "Redo Highlight, Note or Marker Change",
+        "title": "Redo Highlight, Note, Marker, Drawing or Text Change",
         "category": "Document Viewer"
       },
       {
@@ -166,6 +178,16 @@
       {
         "command": "markdownPdfViewer.deleteAllHighlights",
         "title": "Delete All Highlights for This File",
+        "category": "Document Viewer"
+      },
+      {
+        "command": "markdownPdfViewer.deleteAllDrawings",
+        "title": "Delete All Drawings for This File",
+        "category": "Document Viewer"
+      },
+      {
+        "command": "markdownPdfViewer.deleteAllTextBoxes",
+        "title": "Delete All Text Boxes for This File",
         "category": "Document Viewer"
       },
       {
@@ -261,6 +283,14 @@
           "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
         },
         {
+          "command": "markdownPdfViewer.toggleDrawing",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+        },
+        {
+          "command": "markdownPdfViewer.toggleText",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+        },
+        {
           "command": "markdownPdfViewer.toggleDarkMode",
           "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
         },
@@ -294,6 +324,14 @@
         },
         {
           "command": "markdownPdfViewer.deleteAllHighlights",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+        },
+        {
+          "command": "markdownPdfViewer.deleteAllDrawings",
+          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+        },
+        {
+          "command": "markdownPdfViewer.deleteAllTextBoxes",
           "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
         }
       ]

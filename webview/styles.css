@@ -2,6 +2,7 @@
    and high-contrast themes. The PDF pages keep their own colors (white, or the dark page theme). */
 
 :root {
+  --mpv-page: #ffffff;
   --mpv-marker-color: #e5484d;
   --mpv-sidebar-width: 280px;
   --mpv-radius: 4px;
@@ -36,14 +37,41 @@ body {
   display: none !important;
 }
 
-/* ---------- Toolbar ---------- */
+/* Ink: elements drawn in an ink color carry its two shades; the page theme picks one. */
+.mpv-ink {
+  --ink: var(--ink-l);
+}
 
-.mpv-toolbar {
+body[data-page-theme='dark'] {
+  --mpv-page: #0d1117;
+}
+
+body[data-page-theme='dark'] .mpv-ink {
+  --ink: var(--ink-d);
+}
+
+/* ---------- Toolbar and mode bars ---------- */
+
+/* One grid for both rows: every control is --mpv-control tall, buttons are square, groups are
+   --mpv-group-gap apart (in the toolbar with a divider in the middle of that space, in the mode
+   bars without), and the rows share their padding, so things line up from row to row. */
+:root {
+  --mpv-control: 26px;
+  --mpv-input: 24px;
+  --mpv-bar-pad: 6px;
+  --mpv-divider-gap: 7px;
+  --mpv-group-gap: calc(2 * var(--mpv-divider-gap) + 1px);
+}
+
+.mpv-toolbar,
+.mpv-modebar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px 4px;
-  padding: 3px 6px;
+  row-gap: 4px;
+  box-sizing: border-box;
+  min-height: calc(var(--mpv-control) + 9px);
+  padding: 4px var(--mpv-bar-pad);
   background: var(--mpv-surface);
   border-bottom: 1px solid var(--mpv-border);
   user-select: none;
@@ -53,33 +81,69 @@ body {
 .mpv-group {
   display: flex;
   align-items: center;
-  gap: 1px;
-  padding: 0 4px;
+  gap: 2px;
 }
 
-.mpv-group + .mpv-group {
-  border-left: 1px solid var(--mpv-border);
+/* The divider after a toolbar group: a line in the middle of the space between two groups. */
+.mpv-divided::after {
+  content: '';
+  flex: 0 0 auto;
+  width: 1px;
+  height: 18px;
+  /* The group's own 2px gap comes before it. */
+  margin: 0 var(--mpv-divider-gap) 0 calc(var(--mpv-divider-gap) - 2px);
+  background: var(--mpv-border);
+}
+
+/* A row of a wrapped toolbar does not end with a divider (its space stays: no re-wrapping). */
+.mpv-divided.mpv-row-end::after {
+  visibility: hidden;
 }
 
 .mpv-spacer {
-  flex: 1 1 auto;
+  flex: 1 1 var(--mpv-group-gap);
+  min-width: var(--mpv-group-gap);
 }
 
-.mpv-spacer + .mpv-group {
-  border-left: none;
+.mpv-modebar {
+  column-gap: var(--mpv-group-gap);
+}
+
+.mpv-modebar .mpv-spacer {
+  flex-basis: 0;
+  min-width: 0;
+}
+
+/* "DRAW", "TEXT": the same width in every bar, so their controls start at the same place, and
+   left-aligned with the icons of the toolbar above. */
+.mpv-modebar-label {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 40px;
+  padding-left: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: var(--mpv-control);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground, var(--vscode-foreground));
 }
 
 .mpv-btn {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 24px;
+  box-sizing: border-box;
+  width: var(--mpv-control);
+  height: var(--mpv-control);
+  margin: 0;
   padding: 0;
   border: 1px solid transparent;
   border-radius: var(--mpv-radius);
   background: transparent;
   color: var(--vscode-icon-foreground, var(--vscode-foreground));
+  font: inherit;
   cursor: pointer;
 }
 
@@ -95,6 +159,7 @@ body {
 .mpv-swatch:focus-visible,
 .mpv-item:focus-visible,
 .mpv-zoom-select:focus-visible,
+.mpv-select:focus-visible,
 .mpv-page-input:focus {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: -1px;
@@ -127,15 +192,17 @@ body {
 .mpv-page {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   margin: 0 3px;
   white-space: nowrap;
 }
 
 .mpv-page-input,
-.mpv-zoom-select {
-  height: 22px;
+.mpv-zoom-select,
+.mpv-select {
   box-sizing: border-box;
+  height: var(--mpv-input);
+  margin: 0;
   border: 1px solid var(--vscode-dropdown-border, var(--vscode-input-border, transparent));
   border-radius: var(--mpv-radius);
   background: var(--vscode-input-background, var(--vscode-dropdown-background));
@@ -147,28 +214,36 @@ body {
   width: auto;
   min-width: 2.2em;
   max-width: 4.5em;
-  padding: 0 4px;
+  padding: 0 5px;
   text-align: right;
 }
 
 .mpv-page-count {
-  opacity: 0.85;
+  color: var(--vscode-descriptionForeground, var(--vscode-foreground));
 }
 
-.mpv-zoom-select {
-  width: 98px;
-  padding: 0 2px;
-  margin: 0 2px;
+.mpv-zoom-select,
+.mpv-select {
+  padding: 0 2px 0 4px;
   background: var(--vscode-dropdown-background);
   color: var(--vscode-dropdown-foreground);
   cursor: pointer;
 }
 
+.mpv-zoom-select {
+  width: 100px;
+  margin: 0 2px;
+}
+
+.mpv-size-select {
+  width: 54px;
+}
+
 .mpv-swatches {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  margin-left: 4px;
+  gap: 6px;
+  margin: 0 4px;
 }
 
 .mpv-swatch {
@@ -190,6 +265,94 @@ body {
   box-shadow:
     0 0 0 2px var(--mpv-surface),
     0 0 0 3.5px var(--vscode-focusBorder, #0078d4);
+}
+
+/* While drawing or adding text, the highlight colors step back (they still work). */
+.mpv-swatches.mpv-dimmed {
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+
+.mpv-swatches.mpv-dimmed:hover,
+.mpv-swatches.mpv-dimmed:focus-within {
+  opacity: 0.85;
+}
+
+/* The band under the highlighter, the pencil and the T: the highlight color, the ink, the text color. */
+.mpv-icon-band {
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-opacity: 0.45;
+  stroke-width: 0.7;
+}
+
+.mpv-highlight-tool .mpv-icon-band {
+  fill: var(--mpv-band, currentColor);
+}
+
+.mpv-draw-button .mpv-icon-band,
+.mpv-text-button .mpv-icon-band {
+  fill: var(--ink, currentColor);
+}
+
+/* A color that opens the color picker: a dot in the color, and a chevron. */
+.mpv-btn.mpv-color-button {
+  width: auto;
+  gap: 3px;
+  padding: 0 4px 0 5px;
+}
+
+.mpv-color-dot {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  background: var(--ink, currentColor);
+  /* A ring, so dark colors still show on a dark toolbar. */
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-foreground, #888) 35%, transparent);
+}
+
+.mpv-chevron {
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
+
+/* Done: the way out of a mode, at the end of its bar. */
+.mpv-done {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  box-sizing: border-box;
+  height: var(--mpv-control);
+  margin: 0;
+  padding: 0 12px 0 9px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: var(--mpv-radius);
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.mpv-done:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.mpv-done:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.mpv-done .mpv-svg-icon {
+  width: 14px;
+  height: 14px;
 }
 
 /* ---------- Progress, banner ---------- */
@@ -528,6 +691,178 @@ body.mpv-tool-active .textLayer span {
   cursor: pointer;
 }
 
+/* ---------- Drawings ---------- */
+
+/* One SVG per page, in PDF units. Stacking on a page, bottom to top: page image, dark-page image
+   fix, highlights, text layer, links (100000), drawings (100001), note badges (100002), the
+   reading marker (100003), and in draw and text mode the capture surface (100004); the editor of
+   a text box sits above the pages (100005). */
+.mpv-draw-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100001;
+}
+
+.mpv-draw-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.mpv-drawing-ink,
+.mpv-drawing-halo,
+.mpv-drawing-hit {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mpv-drawing-ink {
+  stroke: var(--ink);
+  pointer-events: visibleStroke;
+  cursor: pointer;
+}
+
+/* Clicks only on the strokes, through a wider invisible stroke so thin lines are easy to hit. */
+.mpv-drawing-hit {
+  stroke: transparent;
+  stroke-width: 10px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.mpv-drawing-halo {
+  stroke: var(--ink);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+
+.mpv-drawing:hover .mpv-drawing-halo {
+  opacity: 0.22;
+}
+
+.mpv-drawing.mpv-selected .mpv-drawing-ink,
+.mpv-drawing.mpv-selected .mpv-drawing-hit {
+  cursor: move;
+}
+
+.mpv-drawing-selection {
+  fill: none;
+  stroke: var(--vscode-focusBorder, #0078d4);
+  stroke-width: 1.25px;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+/* What the eraser would delete (under it now, or touched by this drag). */
+.mpv-drawing.mpv-erasing {
+  opacity: 0.28;
+}
+
+.mpv-drawing.mpv-flash .mpv-drawing-halo {
+  animation: mpv-draw-flash 1.4s ease-out;
+}
+
+@keyframes mpv-draw-flash {
+  0%,
+  35% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Drawings are not clickable while drawing or adding text (the capture surface is on top) or placing the marker. */
+.mpv-drawing-preview .mpv-drawing-ink,
+body.mpv-draw-mode .mpv-drawing-ink,
+body.mpv-draw-mode .mpv-drawing-hit,
+body.mpv-text-mode .mpv-drawing-ink,
+body.mpv-text-mode .mpv-drawing-hit,
+body.mpv-placing-marker .mpv-drawing-ink,
+body.mpv-placing-marker .mpv-drawing-hit {
+  pointer-events: none;
+}
+
+/* Draw mode: a surface above every page layer takes the pointer (pen, touch and mouse). */
+.mpv-draw-capture {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100004;
+}
+
+body.mpv-draw-mode .mpv-draw-capture {
+  pointer-events: auto;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+body.mpv-draw-mode .pdfViewer .page {
+  touch-action: none;
+}
+
+body.mpv-draw-mode[data-draw-tool='eraser'] .mpv-draw-capture {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 18 18'%3E%3Ccircle cx='9' cy='9' r='8' fill='none' stroke='white' stroke-opacity='0.85' stroke-width='1.2'/%3E%3Ccircle cx='9' cy='9' r='7' fill='rgba(255,255,255,0.45)' stroke='%23333' stroke-width='1.2'/%3E%3C/svg%3E")
+      9 9,
+    cell;
+}
+
+/* Drawings in the list: a thumbnail on a chip in the page color. */
+.mpv-drawings-group {
+  justify-content: space-between;
+  padding-right: 8px;
+  color: inherit;
+}
+
+.mpv-drawing-item {
+  align-items: center;
+}
+
+.mpv-thumb {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  border-radius: 4px;
+  background: var(--mpv-page);
+  box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.35);
+}
+
+.mpv-thumb-ink {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.6px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+[data-width='thin'] > .mpv-thumb-ink {
+  stroke-width: 1.2px;
+}
+
+[data-width='thick'] > .mpv-thumb-ink {
+  stroke-width: 2.4px;
+}
+
+.mpv-item-meta-inline {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.mpv-drawing-popover .mpv-popover-row {
+  gap: 2px;
+}
+
 /* ---------- Popovers and menus ---------- */
 
 .mpv-popover,
@@ -563,9 +898,10 @@ body.mpv-tool-active .textLayer span {
 }
 
 .mpv-popover-sep {
+  flex: 0 0 auto;
   width: 1px;
   height: 18px;
-  margin: 0 2px;
+  margin: 0 5px;
   background: var(--mpv-border);
 }
 
@@ -700,8 +1036,8 @@ body.mpv-tool-active .textLayer span {
 }
 
 .mpv-badge-layer {
-  /* Above PDF.js's annotation sections (see .mpv-link-layer). */
-  z-index: 100001;
+  /* Above PDF.js's annotation sections (see .mpv-link-layer) and drawings. */
+  z-index: 100002;
 }
 
 .mpv-note-badge {
@@ -869,7 +1205,7 @@ body.mpv-tool-active .textLayer span {
 /* ---------- Reading marker ---------- */
 
 .mpv-marker-layer {
-  z-index: 100002;
+  z-index: 100003;
 }
 
 .mpv-marker {
@@ -1192,11 +1528,8 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
   font-size: 12px;
 }
 
-/* Equalizer bars on the tile that is playing. */
+/* Equalizer bars on the recording that is playing (in place of its radio ring). */
 .mpv-eq {
-  position: absolute;
-  top: 7px;
-  right: 8px;
   display: none;
   align-items: flex-end;
   gap: 2px;
@@ -1319,10 +1652,6 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
   border-color: var(--vscode-focusBorder, #0078d4);
   background: var(--vscode-focusBorder, #0078d4);
   opacity: 1;
-}
-
-.mpv-sound-mark .mpv-eq {
-  position: static;
 }
 
 .mpv-sound-row.mpv-sound-playing .mpv-sound-mark::before {
@@ -1504,4 +1833,312 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
   font-variant-numeric: tabular-nums;
   text-align: right;
   opacity: 0.85;
+}
+
+/* ---------- Color picker ---------- */
+
+.mpv-color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 200px;
+  padding: 10px;
+}
+
+.mpv-cp-label {
+  margin-bottom: -3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+}
+
+.mpv-cp-swatches {
+  display: grid;
+  grid-template-columns: repeat(5, 24px);
+  justify-content: space-between;
+  row-gap: 8px;
+}
+
+.mpv-cp-swatch {
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  background: var(--ink);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-foreground, #888) 30%, transparent);
+  cursor: pointer;
+}
+
+.mpv-cp-swatch:hover {
+  transform: scale(1.1);
+}
+
+.mpv-cp-swatch:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 3px;
+}
+
+.mpv-cp-swatch.mpv-selected {
+  box-shadow:
+    0 0 0 2px var(--vscode-editorWidget-background, var(--mpv-surface)),
+    0 0 0 3.5px var(--vscode-focusBorder, #0078d4);
+}
+
+/* Saturation (left to right) and brightness (bottom to top) at the hue below. */
+.mpv-cp-area {
+  position: relative;
+  height: 112px;
+  border-radius: var(--mpv-radius);
+  background:
+    linear-gradient(to top, #000, rgba(0, 0, 0, 0)),
+    linear-gradient(to right, #fff, hsl(var(--hue, 0) 100% 50%));
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.mpv-cp-area:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.mpv-cp-thumb {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+
+.mpv-cp-hue {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 12px;
+  margin: 0;
+  border-radius: 6px;
+  background: linear-gradient(to right, #f00 0%, #ff0 16.67%, #0f0 33.33%, #0ff 50%, #00f 66.67%, #f0f 83.33%, #f00 100%);
+  cursor: pointer;
+}
+
+.mpv-cp-hue::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: transparent;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+
+.mpv-cp-hue:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.mpv-cp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mpv-cp-preview {
+  flex: 0 0 auto;
+  width: var(--mpv-input);
+  height: var(--mpv-input);
+  box-sizing: border-box;
+  border-radius: var(--mpv-radius);
+  border: 1px solid rgba(0, 0, 0, 0.22);
+}
+
+.mpv-cp-hex {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  height: var(--mpv-input);
+  margin: 0;
+  padding: 0 6px;
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: var(--mpv-radius);
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.mpv-cp-hex:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* ---------- Text boxes ---------- */
+
+/* The text of a text box: shown on the page (inside the page's SVG, in points), in the editor
+   (scaled to the zoom) and in the hidden measurer. Same font metrics as Helvetica, which the PDF
+   export uses; no kerning or ligatures, so widths are the font's own. */
+.mpv-text-body {
+  box-sizing: border-box;
+  display: block;
+  margin: 0;
+  border: 0;
+  padding: 1px 2px;
+  font-family: Helvetica, Arial, 'Liberation Sans', 'Nimbus Sans', 'Nimbus Sans L', sans-serif;
+  line-height: 1.25;
+  letter-spacing: 0;
+  word-spacing: 0;
+  font-kerning: none;
+  font-variant-ligatures: none;
+  font-feature-settings:
+    'kern' 0,
+    'liga' 0,
+    'clig' 0;
+  text-rendering: geometricPrecision;
+  text-indent: 0;
+  text-transform: none;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
+  tab-size: 4;
+  text-underline-offset: 0.075em;
+  text-decoration-thickness: 0.05em;
+  text-decoration-skip-ink: none;
+  color: var(--ink);
+  background: transparent;
+}
+
+.mpv-text-measure {
+  position: fixed;
+  left: -100000px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+  contain: layout style;
+}
+
+.mpv-textbox foreignObject {
+  overflow: visible;
+  pointer-events: none;
+}
+
+.mpv-textbox .mpv-text-body {
+  user-select: none;
+}
+
+/* Clicks on the whole box (outside draw and text mode). */
+.mpv-text-hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+  cursor: pointer;
+}
+
+.mpv-textbox:hover .mpv-text-hit {
+  stroke: var(--vscode-focusBorder, #0078d4);
+  stroke-opacity: 0.5;
+  stroke-width: 1px;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.mpv-textbox.mpv-selected .mpv-text-hit {
+  cursor: move;
+}
+
+.mpv-textbox.mpv-editing {
+  visibility: hidden;
+}
+
+.mpv-textbox.mpv-flash .mpv-text-hit {
+  animation: mpv-text-flash 1.4s ease-out;
+}
+
+@keyframes mpv-text-flash {
+  0%,
+  35% {
+    fill: color-mix(in srgb, var(--vscode-focusBorder, #0078d4) 22%, transparent);
+  }
+  100% {
+    fill: transparent;
+  }
+}
+
+.mpv-text-selection .mpv-drawing-selection {
+  pointer-events: none;
+}
+
+/* The handles of a selected text box: drag one to make the box wider or narrower. */
+.mpv-text-handle {
+  fill: var(--vscode-editorWidget-background, #fff);
+  stroke: var(--vscode-focusBorder, #0078d4);
+  stroke-width: 1.25px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: all;
+  cursor: ew-resize;
+}
+
+body.mpv-draw-mode .mpv-text-hit,
+body.mpv-draw-mode .mpv-text-handle,
+body.mpv-text-mode .mpv-text-hit,
+body.mpv-text-mode .mpv-text-handle,
+body.mpv-placing-marker .mpv-text-hit,
+body.mpv-placing-marker .mpv-text-handle {
+  pointer-events: none;
+}
+
+/* Text mode: the capture surface takes the pointer; a click types, a drag sets the width. */
+body.mpv-text-mode .mpv-draw-capture {
+  pointer-events: auto;
+  cursor: text;
+  touch-action: none;
+}
+
+body.mpv-text-mode .pdfViewer .page {
+  touch-action: none;
+}
+
+/* The box being typed in: a textarea laid out in points, scaled to the zoom. */
+.mpv-text-editor {
+  position: absolute;
+  z-index: 100005;
+  min-height: 0;
+  transform-origin: 0 0;
+  resize: none;
+  overflow: hidden;
+  outline: calc(1.25px * var(--mpv-unscale, 1)) dashed var(--vscode-focusBorder, #0078d4);
+  outline-offset: 0;
+  caret-color: var(--ink);
+  appearance: none;
+}
+
+.mpv-text-editor:focus {
+  outline-style: solid;
+}
+
+/* While dragging out a new text box. */
+.mpv-text-new {
+  stroke-dasharray: 4 3;
+}
+
+/* A text box in the list: a T in its color, on a chip in the page color. */
+.mpv-text-thumb .mpv-svg-icon {
+  color: var(--ink);
+}
+
+.mpv-text-thumb .mpv-icon-band {
+  fill: var(--ink);
+  stroke: none;
 }

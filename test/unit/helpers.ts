@@ -1,5 +1,42 @@
 import type { PageInput, TextItemInput } from '../../src/anchoring/textModel';
+import { DEFAULT_TEXT_STYLE, type InkDrawing, type TextDrawing } from '../../src/shared/drawings';
 import type { Highlight, HighlightColor } from '../../src/shared/types';
+
+let drawingCounter = 0;
+/** A red, medium line on the first page (unique id unless one is given). */
+export function makeDrawing(overrides: Partial<InkDrawing> = {}): InkDrawing {
+  drawingCounter++;
+  return {
+    id: `d-${drawingCounter}`,
+    tool: 'line',
+    color: 'red',
+    width: 'medium',
+    pageIndex: 0,
+    points: [
+      [10, 20],
+      [110, 220],
+    ],
+    createdAt: '2026-11-10T10:00:00.000Z',
+    updatedAt: '2026-11-10T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
+/** A text box with the default style near the top left of the first page (unique id unless one is given). */
+export function makeText(overrides: Partial<TextDrawing> = {}): TextDrawing {
+  drawingCounter++;
+  return {
+    id: `t-${drawingCounter}`,
+    tool: 'text',
+    pageIndex: 0,
+    points: [[72, 770]],
+    text: 'A note on the page',
+    ...DEFAULT_TEXT_STYLE,
+    createdAt: '2026-11-11T10:00:00.000Z',
+    updatedAt: '2026-11-11T10:00:00.000Z',
+    ...overrides,
+  };
+}
 
 /** A4 page box in PDF points. */
 export const A4_VIEW = [0, 0, 595.28, 841.89];

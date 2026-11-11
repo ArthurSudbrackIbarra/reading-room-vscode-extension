@@ -7,6 +7,21 @@ import * as vscode from 'vscode';
 import type { PdfCache } from '../cache/PdfCache';
 import { downloadsFolder, writeDownloadedPdf } from '../export/downloads';
 import type { AnchorResult, CustomSoundView, ExportHighlight, HostToViewer, ViewerToHost } from '../shared/messages';
+import { MAX_RECENT_COLORS, normalizeHex, sanitizeInk, type HexColor, type Ink } from '../shared/colors';
+import {
+  MAX_DRAWINGS,
+  MAX_TEXT_LENGTH,
+  isDrawTool,
+  isInkWidth,
+  isTextDrawing,
+  sanitizeDrawing,
+  sanitizeTextStyle,
+  type DrawTool,
+  type Drawing,
+  type InkWidth,
+  type TextLayout,
+  type TextStyle,
+} from '../shared/drawings';
 import {
   DEFAULT_ZOOM,
   MAX_NOTE_LENGTH,
@@ -33,6 +48,14 @@ export interface UiState {
   theme: PageTheme;
   toolActive: boolean;
   listOpen: boolean;
+  /** The last drawing tool, ink and width; draw mode itself always starts off. */
+  drawTool: DrawTool;
+  inkColor: Ink;
+  inkWidth: InkWidth;
+  /** The style new text boxes get; text mode itself always starts off. */
+  textStyle: TextStyle;
+  /** Custom colors picked lately (newest first), offered again in the color picker. */
+  recentColors: HexColor[];
 }
 
 export interface PanelHost {
@@ -50,6 +73,15 @@ export interface PanelHost {
   soundRequest(panel: PreviewPanel, request: SoundRequest): void;
   uiState(): UiState;
   updateUiState(patch: Partial<UiState>): void;
+  /** Whether the "how to draw" tip is still to be shown in this VS Code session; `shown` marks it shown. */
+  drawHint(shown?: boolean): boolean;
+  /** The same for the "how to add text" tip. */
+  textHint(shown?: boolean): boolean;
+  /**
+   * Asks the reader to confirm, then deletes every drawing ('ink') or every text box ('text') of the
+   * panel's file (through its viewer, so it can be undone).
+   */
+  deleteAllDrawings(panel: PreviewPanel, kind: 'ink' | 'text'): Promise<void>;
   toggleTheme(): void;
   refFor(uri: vscode.Uri): DocumentRef;
   focusChanged(panel: PreviewPanel, focused: boolean): void;
@@ -63,7 +95,34 @@ interface ShownPdf {
   warnings: string[];
 }
 
-type ExportReply = { highlights: ExportHighlight[]; orphaned: number; password?: string; error?: string };
+type ExportReply = {
+  highlights: ExportHighlight[];
+  orphaned: number;
+  drawings: Drawing[];
+  textLayouts?: TextLayout[];
+  skippedDrawings: number;
+  password?: string;
+  error?: string;
+};
+
+/** A text box layout from a viewer, if it is well formed (the export checks it against the text). */
+function sanitizeTextLayout(value: unknown): TextLayout | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const l = value as Partial<Record<keyof TextLayout, unknown>>;
+  const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0 && n < 1e6;
+  if (typeof l.id !== 'string' || !Array.isArray(l.lines) || l.lines.length > MAX_TEXT_LENGTH || !finite(l.width) || !finite(l.height)) return undefined;
+  if (!l.lines.every((line): line is string => typeof line === 'string')) return undefined;
+  return { id: l.id, lines: l.lines.slice(), width: l.width, height: l.height };
+}
+
+function count(n: number, noun: string, plural = `${noun}s`): string {
+  return `${n} ${n === 1 ? noun : plural}`;
+}
+
+/** "a", "a and b", "a, b and c". */
+function listOf(parts: string[]): string {
+  return parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
 
 export const MARKDOWN_EXT = /\.(md|markdown|mdown|mkd|mkdn|mdwn|mdtxt|mdtext|rmd|qmd)$/i;
 export const TEXT_EXT = /\.txt$/i;
@@ -256,6 +315,43 @@ export class PreviewPanel implements vscode.Disposable {
         });
         break;
       }
+      case 'saveDrawings':
+        await this.saveDrawings(msg.drawings);
+        break;
+      case 'deleteDrawings': {
+        const ids = new Set((Array.isArray(msg.ids) ? msg.ids : []).filter((id): id is string => typeof id === 'string'));
+        if (ids.size === 0) return;
+        await this.host.store.update(this.ref, (r) => {
+          r.drawings = r.drawings.filter((d) => !ids.has(d.id));
+        });
+        break;
+      }
+      case 'drawStyleChanged': {
+        const style = msg.style ?? {};
+        const patch: Partial<UiState> = {};
+        const color = sanitizeInk(style.color);
+        if (isDrawTool(style.tool)) patch.drawTool = style.tool;
+        if (color) patch.inkColor = color;
+        if (isInkWidth(style.width)) patch.inkWidth = style.width;
+        if (Object.keys(patch).length > 0) this.host.updateUiState(patch);
+        break;
+      }
+      case 'drawHintShown':
+        this.host.drawHint(true);
+        break;
+      case 'textStyleChanged': {
+        const current = this.host.uiState().textStyle;
+        this.host.updateUiState({ textStyle: sanitizeTextStyle({ ...current, ...(msg.style ?? {}) }, current) });
+        break;
+      }
+      case 'textHintShown':
+        this.host.textHint(true);
+        break;
+      case 'recentColorsChanged': {
+        const colors = (Array.isArray(msg.colors) ? msg.colors : []).map(normalizeHex).filter((c): c is HexColor => c !== undefined);
+        this.host.updateUiState({ recentColors: [...new Set(colors)].slice(0, MAX_RECENT_COLORS) });
+        break;
+      }
       case 'anchorsResolved':
         await this.applyAnchors(msg.renderId, msg.results);
         break;
@@ -296,6 +392,51 @@ export class PreviewPanel implements vscode.Disposable {
     }
   }
 
+  /** Stores new drawings and new versions of existing ones, after checking every one of them. */
+  private async saveDrawings(incoming: unknown): Promise<void> {
+    let simplified = 0;
+    let shortened = 0;
+    const drawings = (Array.isArray(incoming) ? incoming : [])
+      .map((value: unknown) =>
+        sanitizeDrawing(structuredClone(value), (d) => {
+          if (isTextDrawing(d)) shortened++;
+          else simplified++;
+        }),
+      )
+      .filter((d): d is Drawing => d !== undefined);
+    if (drawings.length === 0) return;
+    let refused = 0;
+    const now = new Date().toISOString();
+    await this.host.store.update(this.ref, (r) => {
+      const index = new Map(r.drawings.map((d, i) => [d.id, i]));
+      for (const drawing of drawings) {
+        const i = index.get(drawing.id);
+        if (i !== undefined) {
+          r.drawings[i] = { ...drawing, createdAt: r.drawings[i].createdAt, updatedAt: now };
+        } else if (r.drawings.length >= MAX_DRAWINGS) {
+          refused++;
+        } else {
+          index.set(drawing.id, r.drawings.length);
+          r.drawings.push({ ...drawing, updatedAt: now });
+        }
+      }
+    });
+    if (simplified > 0) {
+      this.host.log.warn(`${count(simplified, 'drawing')} of ${this.fileName} had more points than allowed and ${simplified === 1 ? 'was' : 'were'} simplified to fit`);
+    }
+    if (shortened > 0) {
+      this.host.log.warn(
+        `${count(shortened, 'text box', 'text boxes')} of ${this.fileName} had more than ${MAX_TEXT_LENGTH} characters and ${shortened === 1 ? 'was' : 'were'} shortened`,
+      );
+    }
+    if (refused > 0) {
+      this.host.log.warn(`${count(refused, 'drawing')} of ${this.fileName} not saved: the file already has ${MAX_DRAWINGS} drawings`);
+      void vscode.window.showWarningMessage(
+        `Document Viewer: ${this.fileName} already has ${MAX_DRAWINGS} drawings, the most one file can have, so ${count(refused, 'new drawing')} ${refused === 1 ? 'was' : 'were'} not saved. Delete some drawings to make room.`,
+      );
+    }
+  }
+
   private async onReady(): Promise<void> {
     this.ready = true;
     this.host.sounds.pageLoaded(this);
@@ -312,11 +453,17 @@ export class PreviewPanel implements vscode.Disposable {
         uri: this.uri.toString(),
         highlights: record.highlights,
         marker: record.marker ?? null,
+        drawings: record.drawings,
         zoom: record.view.zoom ?? DEFAULT_ZOOM,
         color: ui.color,
         theme: this.theme,
         toolActive: ui.toolActive,
         listOpen: ui.listOpen,
+        drawStyle: { tool: ui.drawTool, color: ui.inkColor, width: ui.inkWidth },
+        drawHint: this.host.drawHint(),
+        textStyle: ui.textStyle,
+        textHint: this.host.textHint(),
+        recentColors: ui.recentColors,
         fullView: this.kind !== 'pdf' && this.isFullView(),
         marginsPt: margins,
         sound: this.host.sounds.stateFor(this),
@@ -580,6 +727,14 @@ export class PreviewPanel implements vscode.Disposable {
     this.post({ type: 'toggleTool' });
   }
 
+  toggleDrawing(): void {
+    this.post({ type: 'toggleDrawing' });
+  }
+
+  toggleText(): void {
+    this.post({ type: 'toggleText' });
+  }
+
   undo(): void {
     this.post({ type: 'undo' });
   }
@@ -597,9 +752,14 @@ export class PreviewPanel implements vscode.Disposable {
     this.post({ type: 'deleteAll' });
   }
 
+  /** Deletes every drawing ('ink') or text box ('text') through the viewer, so it is one undoable step. */
+  deleteAllDrawings(kind: 'ink' | 'text'): void {
+    this.post({ type: 'deleteAllDrawings', kind });
+  }
+
   async reloadHighlights(): Promise<void> {
     const record = await this.host.store.reload(this.ref);
-    this.post({ type: 'highlights', highlights: record.highlights, marker: record.marker ?? null });
+    this.post({ type: 'highlights', highlights: record.highlights, marker: record.marker ?? null, drawings: record.drawings });
   }
 
   reveal(preserveFocus = false): void {
@@ -676,6 +836,12 @@ export class PreviewPanel implements vscode.Disposable {
         break;
       case 'showSource':
         await this.showSource();
+        break;
+      case 'deleteAllDrawings':
+        await this.host.deleteAllDrawings(this, 'ink');
+        break;
+      case 'deleteAllTextBoxes':
+        await this.host.deleteAllDrawings(this, 'text');
         break;
     }
   }
@@ -767,10 +933,10 @@ export class PreviewPanel implements vscode.Disposable {
     });
   }
 
-  private suggestedFileName(withHighlights: boolean): string {
+  private suggestedFileName(withAnnotations: boolean): string {
     if (this.kind === 'pdf') {
       const base = this.fileName.replace(PDF_EXT, '') || 'document';
-      return `${base} (${withHighlights ? 'highlighted' : 'copy'}).pdf`;
+      return `${base} (${withAnnotations ? 'annotated' : 'copy'}).pdf`;
     }
     const base = this.fileName.replace(this.kind === 'text' ? TEXT_EXT : MARKDOWN_EXT, '') || 'document';
     return `${base}.pdf`;
@@ -800,14 +966,15 @@ export class PreviewPanel implements vscode.Disposable {
     return light.pdf;
   }
 
-  async download(withHighlights: boolean): Promise<void> {
+  /** Downloads the PDF, by default with highlights, notes, drawings and text boxes as PDF annotations. */
+  async download(withAnnotations: boolean): Promise<void> {
     const folder = await downloadsFolder();
     const separator = folder.endsWith('\\') || folder.endsWith('/') ? '' : process.platform === 'win32' ? '\\' : '/';
     const target = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.file(`${folder}${separator}${this.suggestedFileName(withHighlights)}`),
+      defaultUri: vscode.Uri.file(`${folder}${separator}${this.suggestedFileName(withAnnotations)}`),
       filters: { PDF: ['pdf'] },
-      saveLabel: withHighlights ? 'Download PDF' : 'Download without Highlights',
-      title: withHighlights ? 'Download PDF (with highlights)' : 'Download PDF without highlights',
+      saveLabel: withAnnotations ? 'Download PDF' : 'Download without Annotations',
+      title: withAnnotations ? 'Download PDF (with highlights, notes, drawings and text)' : 'Download PDF without annotations',
     });
     if (!target) return;
     if (target.toString().toLowerCase() === this.uri.toString().toLowerCase()) {
@@ -816,20 +983,31 @@ export class PreviewPanel implements vscode.Disposable {
     }
     let skipped = 0;
     let included = 0;
+    let drawn = 0;
+    let texts = 0;
+    let skippedDrawings = 0;
+    let replacedChars = 0;
     let decrypted = false;
     try {
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: 'Document Viewer: preparing the PDF…' },
         async () => {
           let bytes = await this.downloadBytes();
-          if (withHighlights) {
+          if (withAnnotations) {
             const data = await this.requestExportData();
             if (data.error) throw new Error(data.error);
             skipped = data.orphaned;
             included = data.highlights.length;
-            if (data.highlights.length > 0) {
+            const drawings = (Array.isArray(data.drawings) ? data.drawings : []).map((d) => sanitizeDrawing(d)).filter((d): d is Drawing => d !== undefined);
+            const textLayouts = (Array.isArray(data.textLayouts) ? data.textLayouts : []).map(sanitizeTextLayout).filter((l): l is TextLayout => l !== undefined);
+            texts = drawings.filter(isTextDrawing).length;
+            drawn = drawings.length - texts;
+            skippedDrawings = data.skippedDrawings;
+            if (included + drawings.length > 0) {
               decrypted = this.kind === 'pdf' && data.password !== undefined;
-              bytes = await this.host.renderer.annotate(bytes, data.highlights, data.password);
+              const result = await this.host.renderer.annotate(bytes, { highlights: data.highlights, drawings, textLayouts }, data.password);
+              bytes = result.pdf;
+              replacedChars = result.replacedChars;
             }
           }
           await writeDownloadedPdf(target, bytes);
@@ -844,9 +1022,14 @@ export class PreviewPanel implements vscode.Disposable {
       return;
     }
     const name = target.path.split('/').pop();
+    const included_ = [count(included, 'highlight'), count(drawn, 'drawing'), texts > 0 ? count(texts, 'text box', 'text boxes') : ''].filter(Boolean);
     const notes = [
-      withHighlights ? `${included} highlight${included === 1 ? '' : 's'} included` : 'without highlights',
+      withAnnotations ? `${listOf(included_)} included` : 'without annotations',
       skipped > 0 ? `${skipped} orphaned highlight${skipped === 1 ? ' was' : 's were'} left out` : '',
+      skippedDrawings > 0 ? `${count(skippedDrawings, 'drawing')} on pages the document no longer has ${skippedDrawings === 1 ? 'was' : 'were'} left out` : '',
+      replacedChars > 0
+        ? `${count(replacedChars, 'character')} in text boxes ${replacedChars === 1 ? 'is' : 'are'} not in the PDF's standard font and ${replacedChars === 1 ? 'shows' : 'show'} as "?"`
+        : '',
       decrypted ? 'the copy is not password-protected' : '',
     ].filter(Boolean);
     const choice = await vscode.window.showInformationMessage(`Saved ${name} (${notes.join('; ')}).`, 'Open PDF', 'Show in Folder');
@@ -860,7 +1043,7 @@ export class PreviewPanel implements vscode.Disposable {
     if (this.disposed) return;
     this.disposed = true;
     clearTimeout(this.renderTimer);
-    for (const waiter of this.exportWaiters.values()) waiter({ highlights: [], orphaned: 0, error: 'The viewer was closed.' });
+    for (const waiter of this.exportWaiters.values()) waiter({ highlights: [], orphaned: 0, drawings: [], skippedDrawings: 0, error: 'The viewer was closed.' });
     this.exportWaiters.clear();
     this.watcher?.dispose();
     this.host.disposed(this);
@@ -875,5 +1058,10 @@ export class PreviewPanel implements vscode.Disposable {
   /** Test/diagnostic helper: highlights currently stored for this document. */
   async storedHighlights(): Promise<Highlight[]> {
     return (await this.host.store.get(this.ref)).highlights;
+  }
+
+  /** Drawings currently stored for this document. */
+  async storedDrawings(): Promise<Drawing[]> {
+    return (await this.host.store.get(this.ref)).drawings;
   }
 }

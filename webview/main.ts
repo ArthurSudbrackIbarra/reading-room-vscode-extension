@@ -7,12 +7,26 @@ import { DarkPages } from './darkPages';
 import { PageLayers } from './pageLayers';
 import { FileLinkLayer } from './fileLinks';
 import { Toolbar } from './toolbar';
-import { Banner, HighlightPopover, MOD_KEY, MarkerPopover, NoteTooltip, SelectionBar, Sidebar, StatusOverlay, Toast } from './panels';
+import { Banner, DrawingPopover, HighlightPopover, MOD_KEY, MarkerPopover, NoteTooltip, SelectionBar, Sidebar, StatusOverlay, TextPopover, Toast } from './panels';
 import { UndoStack, type EditOp, type HighlightChanges } from './undo';
 import { ReadingSounds, canPlaySounds, type SoundSource } from './sounds';
+import { DrawingController, type DrawingMode } from './drawings';
+import { DrawingBar, TOOL_KEYS, TextBar } from './drawingBar';
+import { ColorPicker } from './colorPicker';
 import { h } from './dom';
 import { getState, log, post, setState } from './vscodeApi';
-import type { HostToViewer, ViewerCommand } from '../src/shared/messages';
+import type { DrawStyle, HostToViewer, ViewerCommand } from '../src/shared/messages';
+import {
+  DEFAULT_TEXT_STYLE,
+  TOOL_NAMES,
+  isInkDrawing,
+  isTextDrawing,
+  type Drawing,
+  type DrawingTool,
+  type InkDrawing,
+  type TextDrawing,
+  type TextStyle,
+} from '../src/shared/drawings';
 import { DEFAULT_CHOICES, DEFAULT_SOUND, DEFAULT_VOLUME } from '../src/shared/sounds';
 import { DEFAULT_COLOR, DEFAULT_ZOOM, type DocumentKind, type HighlightColor, type PageTheme, type ReadingMarker, type ZoomValue } from '../src/shared/types';
 
@@ -44,6 +58,24 @@ function narrowPanel(): boolean {
   return window.matchMedia('(max-width: 760px)').matches;
 }
 
+/** What an undo step of a text style change says. */
+function formatLabel(patch: Partial<TextStyle>): string {
+  if (patch.color !== undefined) return 'Change text color';
+  if (patch.size !== undefined) return 'Change text size';
+  if (patch.align !== undefined) return 'Align text';
+  if (patch.bold !== undefined) return patch.bold ? 'Bold text' : 'Remove bold';
+  if (patch.italic !== undefined) return patch.italic ? 'Italicize text' : 'Remove italics';
+  if (patch.underline !== undefined) return patch.underline ? 'Underline text' : 'Remove underline';
+  return 'Format text box';
+}
+
+/** "Draw a rectangle", "Draw an arrow", "Draw freehand": what an undo step of a new drawing undoes. */
+function drawLabel(tool: DrawingTool): string {
+  if (tool === 'pen') return 'Draw freehand';
+  const name = TOOL_NAMES[tool].toLowerCase();
+  return `Draw ${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`;
+}
+
 class App {
   private readonly kind: DocumentKind;
   private readonly toolbar: Toolbar;
@@ -62,8 +94,20 @@ class App {
   private readonly markerPopover: MarkerPopover;
   private readonly noteTooltip = new NoteTooltip();
   private readonly selectionBar: SelectionBar;
+  private readonly drawings: DrawingController;
+  private readonly drawingBar: DrawingBar;
+  private readonly textBar: TextBar;
+  private readonly drawingPopover: DrawingPopover;
+  private readonly textPopover: TextPopover;
+  private readonly colorPicker = new ColorPicker();
   private readonly undoStack = new UndoStack();
   private readonly sounds?: ReadingSounds;
+  /** Show how drawing works the first time draw mode turns on (once per VS Code session). */
+  private drawHint = false;
+  /** The same for text mode. */
+  private textHint = false;
+  /** The style new text boxes get (the last one picked). */
+  private textStyle: TextStyle = { ...DEFAULT_TEXT_STYLE };
 
   private uri = '';
   private fileName = '';
@@ -97,6 +141,8 @@ class App {
       setZoom: (z) => this.viewer.applyZoom(z),
       toggleTool: () => this.setTool(!this.toolActive, true),
       setColor: (c) => this.pickColor(c),
+      toggleDrawing: () => this.setMode(this.drawings.active ? 'off' : 'draw'),
+      toggleText: () => this.setMode(this.drawings.textActive ? 'off' : 'text'),
       placeMarker: () => this.toggleMarkerPlacement(),
       goToMarker: () => this.goToMarker(),
       removeMarker: () => this.removeMarker(),
@@ -136,13 +182,46 @@ class App {
       editNote: (id) => this.editNoteOf(id),
       goToMarker: () => this.goToMarker(),
       removeMarker: () => this.removeMarker(),
+      revealDrawing: (id) => {
+        if (narrowPanel()) this.setListOpen(false, false);
+        this.drawings.reveal(id);
+      },
+      removeDrawing: (id) => this.removeDrawing(id),
+      removeAllDrawings: () => this.command('deleteAllDrawings'),
+      removeAllTextBoxes: () => this.command('deleteAllTextBoxes'),
       close: () => this.setListOpen(false, true),
     });
+    this.drawingBar = new DrawingBar({
+      setTool: (tool) => this.setDrawStyle({ tool }),
+      setWidth: (width) => this.setDrawStyle({ width }),
+      pickColor: (anchor) =>
+        this.colorPicker.toggle(anchor, {
+          label: 'Ink color',
+          value: this.drawings.color,
+          onChange: (color, final) => this.setDrawStyle({ color }, final),
+        }),
+      done: () => this.setMode('off'),
+    });
+    this.textBar = new TextBar({
+      setStyle: (patch) => this.changeTextStyle(patch),
+      pickColor: (anchor) => {
+        // A selected box shows each color while the reader drags; each color settled on is one undo step.
+        const session = { base: this.drawings.editing ? undefined : this.selectedText() };
+        this.colorPicker.toggle(anchor, {
+          label: 'Text color',
+          value: this.currentTextStyle().color,
+          onChange: (color, final) => this.changeTextStyle({ color }, final, session),
+          onClose: () => this.drawings.focusEditor(),
+        });
+      },
+      done: () => this.setMode('off'),
+    });
+    this.colorPicker.onRecentChanged = (colors) => post({ type: 'recentColorsChanged', colors });
 
     const viewerElement = h('div', { id: 'viewer', class: 'pdfViewer' });
     this.container = h('div', { id: 'viewerContainer', class: 'mpv-viewer-container', tabindex: 0 }, viewerElement);
     const main = h('main', { class: 'mpv-main' }, this.sidebar.element, this.container, this.status.element, this.toast.element);
-    root.append(this.toolbar.element, this.progress, this.banner.element, main);
+    root.append(this.toolbar.element, this.drawingBar.element, this.textBar.element, this.progress, this.banner.element, main);
 
     this.viewer = new Viewer(this.container, viewerElement, config, main, { recordImages: this.kind === 'pdf' });
     this.viewer.onPassword = (incorrect) => this.askPassword(incorrect);
@@ -166,6 +245,40 @@ class App {
         this.toolbar.setMarkerState(this.marker.value !== null, this.marker.placing);
         this.renderList();
       },
+    });
+    // Registered after the highlights and the marker: drawings sit above links, below note badges
+    // and the marker (by z-index), and the capture surface of draw and text mode above everything.
+    this.drawings = new DrawingController(this.viewer, this.layers, this.highlights, {
+      drawn: (drawing) => {
+        post({ type: 'saveDrawings', drawings: [drawing] });
+        this.undoStack.record({ kind: 'createDrawing', drawing }, drawLabel(drawing.tool));
+      },
+      erased: (drawings) => this.eraseDrawings(drawings),
+      moved: (before, after) => {
+        post({ type: 'saveDrawings', drawings: [after] });
+        this.undoStack.record({ kind: 'updateDrawing', before, after }, isTextDrawing(after) ? 'Move text box' : 'Move drawing');
+      },
+      resized: (before, after) => {
+        post({ type: 'saveDrawings', drawings: [after] });
+        this.undoStack.record({ kind: 'updateDrawing', before, after }, 'Resize text box');
+      },
+      textCommitted: (before, after) => this.onTextCommitted(before, after),
+      editingChanged: () => this.showTextStyle(),
+      editRequested: (id, x, y) => this.editText(id, x, y),
+      selectionChanged: (id, popover) => this.onDrawingSelected(id, popover),
+      changed: () => this.renderList(),
+      notice: (message) => this.toast.show(message, { durationMs: 6000 }),
+    });
+    this.drawingPopover = new DrawingPopover({
+      pickColor: (id, anchor) => this.pickDrawingColor(id, anchor),
+      setWidth: (id, width) => this.changeDrawing(id, { width }, 'Change drawing width'),
+      remove: (id) => this.removeDrawing(id),
+    });
+    this.textPopover = new TextPopover({
+      setStyle: (id, patch) => this.changeDrawing(id, patch, formatLabel(patch)),
+      pickColor: (id, anchor) => this.pickDrawingColor(id, anchor),
+      edit: (id) => this.editText(id),
+      remove: (id) => this.removeDrawing(id),
     });
     this.popover = new HighlightPopover({
       setColor: (id, color) => this.changeHighlight(id, { color }, 'Change highlight color'),
@@ -194,6 +307,8 @@ class App {
     this.viewer.onScaleChange = (zoom, scale) => {
       this.toolbar.setZoom(zoom, scale);
       this.hideFloating(true);
+      // PDF.js lays the pages out again a moment later.
+      requestAnimationFrame(() => this.drawings.placeEditor());
       clearTimeout(this.zoomTimer);
       this.zoomTimer = setTimeout(() => {
         if (zoom !== this.persistedZoom) {
@@ -253,9 +368,18 @@ class App {
         this.highlights.setMargins(init.marginsPt);
         this.highlights.setHighlights(init.highlights);
         void this.marker.set(init.marker);
+        this.drawings.setDrawings(init.drawings ?? []);
         this.toolbar.setColor(init.color);
         this.toolbar.setFullView(init.fullView);
         this.setTool(init.toolActive, false);
+        if (init.drawStyle) this.setDrawStyle(init.drawStyle, false);
+        this.drawHint = init.drawHint === true;
+        this.textHint = init.textHint === true;
+        this.textStyle = { ...DEFAULT_TEXT_STYLE, ...(init.textStyle ?? {}) };
+        this.drawings.setTextStyle(this.textStyle);
+        this.toolbar.setTextColor(this.textStyle.color);
+        this.textBar.setStyle(this.textStyle);
+        this.colorPicker.setRecent(init.recentColors ?? []);
         if (init.customSounds) this.sounds?.setCustomSounds(init.customSounds);
         if (init.sound) this.sounds?.apply(init.sound);
         // In a narrow panel the list would cover the pages; open it only on request there.
@@ -308,12 +432,19 @@ class App {
       case 'highlights':
         this.highlights.setHighlights(msg.highlights);
         void this.marker.set(msg.marker);
+        this.drawings.setDrawings(msg.drawings ?? []);
         break;
       case 'toggleList':
         this.setListOpen(!this.sidebar.open, true);
         break;
       case 'toggleTool':
         this.setTool(!this.toolActive, true);
+        break;
+      case 'toggleDrawing':
+        this.setMode(this.drawings.active ? 'off' : 'draw');
+        break;
+      case 'toggleText':
+        this.setMode(this.drawings.textActive ? 'off' : 'text');
         break;
       case 'fullView':
         this.toolbar.setFullView(msg.full);
@@ -338,6 +469,9 @@ class App {
         break;
       case 'deleteAll':
         this.deleteAll();
+        break;
+      case 'deleteAllDrawings':
+        this.deleteAllDrawings(msg.kind === 'text' ? 'text' : 'ink');
         break;
       case 'marker':
         if (msg.action === 'place') this.toggleMarkerPlacement();
@@ -385,6 +519,8 @@ class App {
     this.layers.reset();
     const doc = await this.viewer.load(data, restore);
     if (!doc) return;
+    // Drawings stay at their page coordinates; those on pages the new PDF lacks are kept, not shown.
+    this.drawings.documentLoaded();
     const firstLoad = !this.hasDocument;
     this.hasDocument = true;
     this.status.hide();
@@ -409,9 +545,19 @@ class App {
     try {
       await this.loading;
       const data = await this.highlights.exportData();
-      post({ type: 'exportData', requestId, highlights: data.highlights, orphaned: data.orphaned, password: this.viewer.password });
+      const drawn = this.drawings.exportData();
+      post({
+        type: 'exportData',
+        requestId,
+        highlights: data.highlights,
+        orphaned: data.orphaned,
+        drawings: drawn.drawings,
+        textLayouts: drawn.textLayouts,
+        skippedDrawings: drawn.skipped,
+        password: this.viewer.password,
+      });
     } catch (err) {
-      post({ type: 'exportData', requestId, highlights: [], orphaned: 0, error: String(err) });
+      post({ type: 'exportData', requestId, highlights: [], orphaned: 0, drawings: [], skippedDrawings: 0, error: String(err) });
     }
   }
 
@@ -425,38 +571,70 @@ class App {
 
   // ---------- Edits (all undoable) ----------
 
+  /** Applies an edit here and stores it. Drawing changes of a batch go to the host in one message each way. */
   private async apply(op: EditOp): Promise<void> {
-    switch (op.kind) {
-      case 'create':
-        post({ type: 'createHighlight', highlight: op.highlight });
-        await this.highlights.add(op.highlight);
-        break;
-      case 'delete':
-        if (this.popover.highlightId === op.highlight.id) this.popover.hide(false);
-        this.highlights.remove(op.highlight.id);
-        post({ type: 'deleteHighlight', id: op.highlight.id });
-        break;
-      case 'update':
-        if (op.after.color) this.highlights.setColor(op.id, op.after.color);
-        if (op.after.note !== undefined) this.highlights.setNote(op.id, op.after.note);
-        post({ type: 'updateHighlight', id: op.id, ...op.after });
-        break;
-      case 'marker':
-        post({ type: 'setMarker', marker: op.after });
-        await this.marker.set(op.after);
-        break;
-      case 'batch':
-        for (const child of op.ops) await this.apply(child);
-        break;
-    }
+    const saved: Drawing[] = [];
+    const deleted: string[] = [];
+    const flush = () => {
+      if (saved.length > 0) post({ type: 'saveDrawings', drawings: saved.splice(0) });
+      if (deleted.length > 0) post({ type: 'deleteDrawings', ids: deleted.splice(0) });
+    };
+    const run = async (o: EditOp): Promise<void> => {
+      switch (o.kind) {
+        case 'create':
+          post({ type: 'createHighlight', highlight: o.highlight });
+          await this.highlights.add(o.highlight);
+          break;
+        case 'delete':
+          if (this.popover.highlightId === o.highlight.id) this.popover.hide(false);
+          this.highlights.remove(o.highlight.id);
+          post({ type: 'deleteHighlight', id: o.highlight.id });
+          break;
+        case 'update':
+          if (o.after.color) this.highlights.setColor(o.id, o.after.color);
+          if (o.after.note !== undefined) this.highlights.setNote(o.id, o.after.note);
+          post({ type: 'updateHighlight', id: o.id, ...o.after });
+          break;
+        case 'marker':
+          post({ type: 'setMarker', marker: o.after });
+          await this.marker.set(o.after);
+          break;
+        case 'createDrawing':
+        case 'updateDrawing': {
+          const drawing = o.kind === 'createDrawing' ? o.drawing : o.after;
+          if (deleted.length > 0) flush();
+          this.drawings.put(drawing);
+          if (isTextDrawing(drawing)) this.textPopover.update(drawing);
+          else this.drawingPopover.update(drawing);
+          saved.push(drawing);
+          break;
+        }
+        case 'deleteDrawing':
+          if (saved.length > 0) flush();
+          this.drawings.remove(o.drawing.id);
+          deleted.push(o.drawing.id);
+          break;
+        case 'batch':
+          for (const child of o.ops) await run(child);
+          break;
+      }
+    };
+    await run(op);
+    flush();
   }
 
   /** Brings an undone/redone change into view if it is off-screen. */
   private revealChange(op: EditOp): void {
-    const first = op.kind === 'batch' ? op.ops.find((o) => o.kind !== 'delete') : op;
+    const first = op.kind === 'batch' ? op.ops.find((o) => o.kind !== 'delete' && o.kind !== 'deleteDrawing') : op;
     if (!first) return;
     if (first.kind === 'marker') {
       if (first.after && !this.marker.isVisible()) this.marker.goTo();
+      return;
+    }
+    if (first.kind === 'createDrawing' || first.kind === 'updateDrawing') {
+      const id = first.kind === 'createDrawing' ? first.drawing.id : first.after.id;
+      if (this.drawings.isVisible(id)) this.drawings.flash(id);
+      else this.drawings.reveal(id);
       return;
     }
     const id = first.kind === 'update' ? first.id : first.kind === 'create' ? first.highlight.id : undefined;
@@ -466,6 +644,9 @@ class App {
   }
 
   private async undo(): Promise<void> {
+    this.drawings.cancelGesture();
+    // Typing in a text box ends first (so the undo can take back the typing too).
+    this.drawings.commitEditing();
     const step = this.undoStack.undo();
     if (!step) {
       this.toast.show('Nothing to undo.');
@@ -478,6 +659,8 @@ class App {
   }
 
   private async redo(): Promise<void> {
+    this.drawings.cancelGesture();
+    this.drawings.commitEditing();
     const step = this.undoStack.redo();
     if (!step) {
       this.toast.show('Nothing to redo.');
@@ -530,6 +713,144 @@ class App {
     this.toast.show(`Deleted ${ops.length} highlight${ops.length === 1 ? '' : 's'}.`, { action: this.undoAction() });
   }
 
+  /** Changes a drawing's ink or width, or a text box's style (one undo step). */
+  private changeDrawing(id: string, changes: Partial<Pick<InkDrawing, 'color' | 'width'>> | Partial<TextStyle>, label: string, from?: Drawing): void {
+    const before = from ?? this.drawings.get(id);
+    if (!before) return;
+    let after = { ...before, ...changes } as Drawing;
+    if (isTextDrawing(after)) after = this.drawings.fitText(after);
+    const { updatedAt: _a, ...a } = after;
+    const { updatedAt: _b, ...b } = before;
+    if (JSON.stringify(a) === JSON.stringify(b)) return;
+    after.updatedAt = new Date().toISOString();
+    const op: EditOp = { kind: 'updateDrawing', before, after };
+    void this.apply(op);
+    this.undoStack.record(op, label);
+  }
+
+  private removeDrawing(id: string): void {
+    const drawing = this.drawings.get(id);
+    if (!drawing) return;
+    const op: EditOp = { kind: 'deleteDrawing', drawing };
+    void this.apply(op);
+    const text = isTextDrawing(drawing);
+    this.undoStack.record(op, text ? 'Delete text box' : 'Delete drawing');
+    this.toast.show(text ? 'Text box deleted.' : 'Drawing deleted.', { action: this.undoAction() });
+  }
+
+  /**
+   * The color picker of a selected drawing or text box: the drawing shows each color while the
+   * reader drags in the picker, and every color they settle on is one undo step.
+   */
+  private pickDrawingColor(id: string, anchor: HTMLElement): void {
+    let base = this.drawings.get(id);
+    if (!base) return;
+    const text = isTextDrawing(base);
+    this.colorPicker.toggle(anchor, {
+      label: text ? 'Text color' : 'Ink color',
+      value: base.color,
+      onChange: (color, final) => {
+        if (!base) return;
+        if (!final) {
+          this.drawings.put({ ...base, color });
+          return;
+        }
+        const from = base;
+        this.changeDrawing(id, { color }, text ? 'Change text color' : 'Change drawing color', from);
+        base = this.drawings.get(id);
+        // Nothing changed (the original color picked again): show the original.
+        if (base && base.color !== color) this.drawings.put(base);
+      },
+    });
+  }
+
+  // ---------- Text boxes ----------
+
+  /** Typing in a text box ended: a new box, a changed one, or one emptied (deleted). */
+  private onTextCommitted(before: TextDrawing | undefined, after: TextDrawing | undefined): void {
+    if (after && !before) {
+      post({ type: 'saveDrawings', drawings: [after] });
+      this.undoStack.record({ kind: 'createDrawing', drawing: after }, 'Add text box');
+    } else if (after && before) {
+      post({ type: 'saveDrawings', drawings: [after] });
+      this.undoStack.record({ kind: 'updateDrawing', before, after }, 'Edit text box');
+    } else if (before) {
+      post({ type: 'deleteDrawings', ids: [before.id] });
+      this.undoStack.record({ kind: 'deleteDrawing', drawing: before }, 'Delete text box');
+      this.toast.show('Text box deleted (its text was empty).', { action: this.undoAction() });
+    }
+  }
+
+  /** Types in a text box (text mode turns on). */
+  private editText(id: string, clientX?: number, clientY?: number): void {
+    this.setMode('text');
+    this.drawings.startEditing(id, clientX, clientY);
+  }
+
+  /** The style the text bar works on: the box being typed in, else the selected box (in text mode), else the one new boxes get. */
+  private currentTextStyle(): TextStyle {
+    const editing = this.drawings.editing;
+    if (editing) return editing;
+    const selected = this.selectedText();
+    return selected ?? this.textStyle;
+  }
+
+  private selectedText(): TextDrawing | undefined {
+    const id = this.drawings.selectedId;
+    const drawing = id && this.drawings.textActive ? this.drawings.get(id) : undefined;
+    return drawing && isTextDrawing(drawing) ? drawing : undefined;
+  }
+
+  private showTextStyle(): void {
+    this.textBar.setStyle(this.currentTextStyle());
+  }
+
+  /**
+   * The text bar (or Ctrl+B/I/U) changed the style: of the box being typed in, or else of the
+   * selected box; either way new boxes get it too. `final` is false while a color is being picked.
+   */
+  private changeTextStyle(patch: Partial<TextStyle>, final = true, session?: { base?: TextDrawing }): void {
+    this.textStyle = { ...this.textStyle, ...patch };
+    this.drawings.setTextStyle(this.textStyle);
+    this.toolbar.setTextColor(this.textStyle.color);
+    if (final) post({ type: 'textStyleChanged', style: patch });
+    if (this.drawings.editing) {
+      this.drawings.setEditingStyle(patch);
+      this.drawings.focusEditor();
+    } else {
+      const selected = this.selectedText();
+      const from = session?.base ?? selected;
+      if (selected && from && final) {
+        this.changeDrawing(selected.id, patch, formatLabel(patch), from);
+        if (session) session.base = this.selectedText();
+      } else if (selected && from) {
+        this.drawings.put({ ...from, ...patch });
+      }
+    }
+    this.showTextStyle();
+  }
+
+  /** One eraser gesture: one undo step. */
+  private eraseDrawings(drawings: Drawing[]): void {
+    const op: EditOp =
+      drawings.length === 1 ? { kind: 'deleteDrawing', drawing: drawings[0] } : { kind: 'batch', ops: drawings.map((drawing): EditOp => ({ kind: 'deleteDrawing', drawing })) };
+    void this.apply(op);
+    this.undoStack.record(op, drawings.length === 1 ? 'Erase drawing' : `Erase ${drawings.length} drawings`);
+  }
+
+  /** Every drawing ('ink') or every text box ('text'). The host already asked the reader to confirm. */
+  private deleteAllDrawings(kind: 'ink' | 'text'): void {
+    this.drawings.commitEditing();
+    const ops: EditOp[] = this.drawings.all.filter((d) => isTextDrawing(d) === (kind === 'text')).map((drawing) => ({ kind: 'deleteDrawing', drawing }));
+    if (ops.length === 0) return;
+    const op: EditOp = { kind: 'batch', ops };
+    void this.apply(op);
+    const one = kind === 'text' ? 'text box' : 'drawing';
+    const many = kind === 'text' ? 'text boxes' : 'drawings';
+    this.undoStack.record(op, `Delete all ${many}`);
+    this.toast.show(`Deleted ${ops.length} ${ops.length === 1 ? one : many}.`, { action: this.undoAction() });
+  }
+
   private setMarker(marker: ReadingMarker | null, label: string): void {
     const op: EditOp = { kind: 'marker', before: this.marker.value, after: marker };
     void this.apply(op);
@@ -546,6 +867,9 @@ class App {
     }
     if (!this.hasDocument) return;
     this.hideFloating();
+    // The highlight tool, draw mode, text mode and placing the marker exclude each other.
+    if (this.toolActive) this.setTool(false, true);
+    this.setMode('off');
     this.marker.startPlacing();
   }
 
@@ -611,11 +935,91 @@ class App {
   }
 
   private setTool(active: boolean, notify: boolean): void {
+    if (active) {
+      // The highlight tool, draw mode, text mode and placing the marker exclude each other.
+      this.setMode('off');
+      if (this.marker.placing) this.marker.stopPlacing();
+    }
     this.toolActive = active;
     document.body.classList.toggle('mpv-tool-active', active);
     this.toolbar.setTool(active);
     if (notify) post({ type: 'toolChanged', active });
     if (active && this.highlights.selectionRange()) this.highlights.createFromSelection(this.color);
+  }
+
+  /** Draw mode, text mode or neither. Turning one on turns off the highlight tool and placing the marker. */
+  private setMode(mode: DrawingMode): void {
+    if (mode === this.drawings.mode) return;
+    if (mode !== 'off') {
+      if (this.toolActive) this.setTool(false, true);
+      if (this.marker.placing) this.marker.stopPlacing();
+      this.hideFloating();
+      window.getSelection()?.removeAllRanges();
+    }
+    this.colorPicker.close();
+    const bars = [this.drawingBar.element, this.textBar.element];
+    const barFocused = bars.some((bar) => bar.contains(document.activeElement));
+    this.drawings.setMode(mode);
+    this.drawingBar.visible = mode === 'draw';
+    this.textBar.visible = mode === 'text';
+    this.toolbar.setDrawing(mode === 'draw');
+    this.toolbar.setText(mode === 'text');
+    this.showTextStyle();
+    if (barFocused && !bars.some((bar) => !bar.hidden && bar.contains(document.activeElement))) this.container.focus({ preventScroll: true });
+    if (mode === 'draw' && this.drawHint) {
+      this.drawHint = false;
+      post({ type: 'drawHintShown' });
+      this.toast.show('Drag on the page to draw. Shift keeps shapes even. Esc stops drawing.', { durationMs: 7000 });
+    }
+    if (mode === 'text' && this.textHint) {
+      this.textHint = false;
+      post({ type: 'textHintShown' });
+      this.toast.show('Click on the page to type, or drag to set the width first. Esc stops adding text.', { durationMs: 7000 });
+    }
+  }
+
+  /** Changes the drawing tool, ink or width (remembered for all files unless `notify` is false). */
+  private setDrawStyle(style: Partial<DrawStyle>, notify = true): void {
+    if (style.tool) {
+      this.drawings.setTool(style.tool);
+      this.drawingBar.setTool(style.tool);
+    }
+    if (style.color) {
+      this.drawings.setColor(style.color);
+      this.drawingBar.setColor(style.color);
+      this.toolbar.setInk(style.color);
+    }
+    if (style.width) {
+      this.drawings.setWidth(style.width);
+      this.drawingBar.setWidth(style.width);
+    }
+    if (notify) post({ type: 'drawStyleChanged', style });
+  }
+
+  private onDrawingSelected(id: string | undefined, popover: boolean): void {
+    if (this.drawings.textActive) this.showTextStyle();
+    const drawing = id && popover ? this.drawings.get(id) : undefined;
+    const r = id && popover ? this.drawings.clientRectOf(id) : undefined;
+    if (this.colorPicker.openedFrom && (this.drawingPopover.element.contains(this.colorPicker.openedFrom) || this.textPopover.element.contains(this.colorPicker.openedFrom))) {
+      if (!drawing || drawing.id !== (this.drawingPopover.drawingId ?? this.textPopover.textId)) this.colorPicker.close();
+    }
+    if (!drawing || !r) {
+      this.drawingPopover.hide();
+      this.textPopover.hide();
+      return;
+    }
+    this.popover.hide();
+    this.markerPopover.hide();
+    this.noteTooltip.hide();
+    this.selectionBar.hide();
+    const x = (r.left + r.right) / 2;
+    if (isTextDrawing(drawing)) {
+      this.drawingPopover.hide();
+      this.textPopover.show(drawing, x, r.bottom);
+    } else {
+      this.textPopover.hide();
+      this.drawingPopover.show(drawing, x, r.bottom);
+    }
   }
 
   private pickColor(color: HighlightColor, createFromSelection = true): void {
@@ -635,13 +1039,23 @@ class App {
   private renderList(): void {
     if (!this.sidebar.open) return;
     const marker = this.marker?.value;
+    // Called while the controllers are still being built (their first `changed` events).
+    if (!this.drawings) return;
+    const pages = this.viewer.pagesCount;
+    const onPage = (d: Drawing) => !this.hasDocument || d.pageIndex < pages;
+    const listed = this.drawings.list();
     this.sidebar.render(
       this.highlights.list().map((rt) => ({ data: rt.data, page: this.highlights.firstPageOf(rt.data.id) })),
       marker ? { marker, page: this.marker.pageIndex ?? marker.pageIndex } : null,
+      listed.filter(isInkDrawing).map((data) => ({ data, onPage: onPage(data), thumbnail: this.drawings.thumbnail(data) })),
+      listed.filter(isTextDrawing).map((data) => ({ data, onPage: onPage(data) })),
     );
   }
 
-  /** Hides popovers and tooltips. On scroll/zoom (`passive`) a note being edited stays open. */
+  /**
+   * Hides popovers and tooltips, and deselects a drawing. On scroll/zoom (`passive`) a note being
+   * edited stays open, and a selected drawing stays selected (its popover closes).
+   */
   private hideFloating(passive = false): void {
     if (!passive || !this.popover.editing) this.popover.hide();
     // The sounds panel hangs from the toolbar, so scrolling and zooming leave it open.
@@ -649,6 +1063,12 @@ class App {
     this.selectionBar.hide();
     this.markerPopover.hide();
     this.noteTooltip.hide();
+    this.drawingPopover.hide();
+    this.textPopover.hide();
+    // A picker opened from a bar stays (the bar does not move); one opened from a popover goes with it.
+    const from = this.colorPicker.openedFrom;
+    if (from && (!passive || !(this.drawingBar.element.contains(from) || this.textBar.element.contains(from)))) this.colorPicker.close();
+    if (!passive && this.drawings.selectedId && !this.drawings.editing) this.drawings.select(undefined);
   }
 
   private saveState(): void {
@@ -678,7 +1098,7 @@ class App {
     );
 
     c.addEventListener('pointerup', (e) => {
-      if (e.button !== 0 || this.marker.placing) return;
+      if (e.button !== 0 || this.marker.placing || this.drawings.mode !== 'off') return;
       // Let the selection settle first.
       setTimeout(() => {
         const range = this.highlights.selectionRange();
@@ -692,7 +1112,8 @@ class App {
     });
 
     c.addEventListener('click', (e) => {
-      if (e.button !== 0) return;
+      // Clicks of draw and text mode, and the click ending a press on a drawing, are the drawings' own.
+      if (e.button !== 0 || this.drawings.consumeClick() || this.drawings.mode !== 'off') return;
       const badge = (e.target as Element | null)?.closest?.('.mpv-note-badge') as HTMLElement | null;
       if (badge?.dataset.id) {
         const rt = this.highlights.get(badge.dataset.id);
@@ -719,8 +1140,9 @@ class App {
       if (frame || e.buttons !== 0) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
-        if (this.marker.placing) {
+        if (this.marker.placing || this.drawings.mode !== 'off') {
           this.noteTooltip.hide();
+          c.classList.remove('mpv-over-highlight');
           return;
         }
         const badge = (e.target as Element | null)?.closest?.('.mpv-note-badge') as HTMLElement | null;
@@ -742,7 +1164,16 @@ class App {
       if (!this.popover.element.contains(target)) this.popover.hide();
       if (!this.selectionBar.element.contains(target)) this.selectionBar.hide();
       if (!this.markerPopover.element.contains(target)) this.markerPopover.hide();
+      // A press on the selected drawing hides its popover while it may move; it comes back after.
+      // (Not while picking its color: the picker belongs to the popover.)
+      if (!this.drawingPopover.element.contains(target) && !this.colorPicker.contains(target)) this.drawingPopover.hide();
+      if (!this.textPopover.element.contains(target) && !this.colorPicker.contains(target)) this.textPopover.hide();
       this.noteTooltip.hide();
+      // Typing in a text box ends with a press anywhere but the box, the text bar or the picker
+      // (presses on the pages are the drawings' own: they decide).
+      if (this.drawings.editing && !this.container.contains(target) && !this.textBar.element.contains(target) && !this.colorPicker.contains(target)) {
+        this.drawings.commitEditing();
+      }
     });
   }
 
@@ -755,6 +1186,17 @@ class App {
         const mod = isMac ? e.metaKey : e.ctrlKey;
         if (!mod || e.altKey) return;
         const key = e.key.length === 1 ? e.key.toLowerCase() : e.code === 'KeyZ' ? 'z' : e.code === 'KeyY' ? 'y' : '';
+        // Bold, italic and underline in the text box being edited (VS Code never gets these keys).
+        const format = { b: 'bold', i: 'italic', u: 'underline' } as const;
+        const formatKey = (e.key.length === 1 ? e.key.toLowerCase() : '') || e.code.replace(/^Key/, '').toLowerCase();
+        if (!e.shiftKey && formatKey in format && this.drawings.editorFocused) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          const prop = format[formatKey as keyof typeof format];
+          const editing = this.drawings.editing;
+          if (editing && !e.repeat) this.changeTextStyle({ [prop]: !editing[prop] });
+          return;
+        }
         const undo = key === 'z' && !e.shiftKey;
         const redo = (key === 'z' && e.shiftKey) || (!isMac && key === 'y' && !e.shiftKey);
         if (!undo && !redo) return;
@@ -773,9 +1215,42 @@ class App {
     );
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
+      // Esc cancels a shape being drawn (or a move); else it leaves draw or text mode; else it
+      // closes things. (Esc in a text box ends typing there; in the color picker it closes it.)
+      if (this.drawings.cancelGesture()) return;
+      if (this.drawings.mode !== 'off') {
+        this.setMode('off');
+        return;
+      }
       if (this.marker.placing) this.marker.stopPlacing();
       this.hideFloating();
       if (this.toolbar.element.contains(document.activeElement)) this.container.focus();
+    });
+    // Tool keys while drawing; Delete and Backspace remove the selected drawing or text box, Enter
+    // types in the selected text box. Only when the viewer itself has the keyboard (not a text
+    // field, a popover's controls, the color picker or the sounds panel).
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+      const focused = document.activeElement;
+      if (isTextField(focused) || focused?.closest('.mpv-sounds, .mpv-hl-popover, .mpv-menu, .mpv-status, .mpv-color-picker, select')) return;
+      if (this.drawings.active) {
+        const tool = TOOL_KEYS[e.key.toLowerCase()];
+        if (!tool) return;
+        e.preventDefault();
+        if (!e.repeat) this.setDrawStyle({ tool });
+        return;
+      }
+      const selected = this.drawings.selectedId;
+      if (!selected) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        this.drawingPopover.hide();
+        this.textPopover.hide();
+        this.removeDrawing(selected);
+      } else if (e.key === 'Enter' && !focused?.closest('button') && this.drawings.get(selected)?.tool === 'text') {
+        e.preventDefault();
+        this.editText(selected);
+      }
     });
   }
 

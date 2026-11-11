@@ -1,9 +1,13 @@
-// Per-file highlight and view storage in the extension's global storage folder:
-//   <globalStorage>/highlights/<sha256(normalized path)>.json
-// Writes are atomic, serialized per file and coalesced. No `vscode` import, so it is unit-testable.
+// Per-file annotation and view storage in the extension's global storage folder:
+//   <globalStorage>/highlights/<sha256(normalized path)>.json           highlights, marker, zoom
+//   <globalStorage>/highlights/<sha256(normalized path)>.drawings.json  drawings
+// Drawings live in their own file because 0.4.x rebuilds records from the fields it knows and
+// would erase them; it never reads the companion file. Both files are written atomically, through
+// one serialized and coalesced queue per document. No `vscode` import, so it is unit-testable.
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { posix, win32 } from 'node:path';
+import { sanitizeDrawing, type Drawing } from '../shared/drawings';
 import {
   MAX_NOTE_LENGTH,
   isHighlightColor,
@@ -36,22 +40,28 @@ export interface StoreOptions {
   log?: StoreLogger;
   coalesceMs?: number;
   writeHooks?: AtomicWriteHooks;
-  /** Called when a corrupt record had to be moved aside. */
+  /** Called when a corrupt record (or drawings file) had to be moved aside. */
   onCorrupt?: (ref: DocumentRef, movedTo: string) => void;
+  /** Called when stored pen strokes had more points than allowed and were simplified to fit. */
+  onSimplified?: (ref: DocumentRef, count: number) => void;
 }
 
 interface Entry {
   ref: DocumentRef;
   record: StoredRecord;
-  /** mtime of the file as last read or written by us; used to merge changes from other windows. */
+  /** mtime of the record file as last read or written by us; used to merge changes from other windows. */
   diskMtimeMs?: number;
+  /** The same for the drawings file. */
+  drawingsMtimeMs?: number;
   deletedIds: Set<string>;
+  deletedDrawingIds: Set<string>;
   /** The reading marker was set or removed here since the last read, so ours wins over other windows. */
   markerChanged: boolean;
   dirty: boolean;
 }
 
 const SCHEMA_VERSION = 1;
+const DRAWINGS_SCHEMA_VERSION = 1;
 const silentLog: StoreLogger = { info: () => undefined, warn: () => undefined, error: () => undefined };
 
 export function normalizeKeyPath(ref: DocumentRef, platform: NodeJS.Platform = process.platform): string {
@@ -76,6 +86,7 @@ export function emptyRecord(ref: DocumentRef): StoredRecord {
     view: {},
     highlights: [],
     updatedAt: new Date().toISOString(),
+    drawings: [],
   };
 }
 
@@ -131,12 +142,15 @@ export function sanitizeMarker(value: unknown): ReadingMarker | undefined {
   return marker;
 }
 
-/** True when a record holds anything worth keeping a file for. */
+/** True when a record holds anything worth keeping files for (drawings included, so the record and its drawings stay together). */
 export function hasData(record: StoredRecord): boolean {
-  return record.highlights.length > 0 || record.view.zoom !== undefined || record.marker !== undefined;
+  return record.highlights.length > 0 || record.view.zoom !== undefined || record.marker !== undefined || record.drawings.length > 0;
 }
 
-/** Validates a parsed JSON record and fills in defaults. Throws if it is not a record at all. */
+/**
+ * Validates a parsed record file and fills in defaults. Throws if it is not a record at all.
+ * Drawings are not part of the record file; they are read from the companion file.
+ */
 export function sanitizeRecord(raw: unknown, ref: DocumentRef): StoredRecord {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('not a record object');
   const r = raw as Partial<StoredRecord>;
@@ -157,17 +171,71 @@ export function sanitizeRecord(raw: unknown, ref: DocumentRef): StoredRecord {
     highlights,
     ...(marker ? { marker } : {}),
     updatedAt: typeof r.updatedAt === 'string' ? r.updatedAt : new Date().toISOString(),
+    drawings: [],
   };
 }
 
-function mergeHighlights(ours: Highlight[], theirs: Highlight[], deletedIds: Set<string>): Highlight[] {
-  const byId = new Map<string, Highlight>();
-  for (const h of theirs) if (!deletedIds.has(h.id)) byId.set(h.id, h);
-  for (const h of ours) {
-    const other = byId.get(h.id);
-    if (!other || h.updatedAt >= other.updatedAt) byId.set(h.id, h);
+interface DrawingsFile {
+  schemaVersion: number;
+  uri?: string;
+  fsPath?: string;
+  drawings: Drawing[];
+  updatedAt?: string;
+}
+
+/**
+ * Validates a parsed drawings file. Throws if it is not one (or is from a newer version); drops
+ * invalid drawings and repeated ids. `onSimplified` counts strokes that were simplified to fit.
+ */
+export function sanitizeDrawingsFile(raw: unknown, onSimplified?: () => void): DrawingsFile {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('not a drawings object');
+  const r = raw as Partial<Record<keyof DrawingsFile, unknown>>;
+  if (typeof r.schemaVersion === 'number' && r.schemaVersion > DRAWINGS_SCHEMA_VERSION) {
+    throw new Error(`drawings schema ${r.schemaVersion} is newer than this extension supports`);
+  }
+  const seen = new Set<string>();
+  const drawings: Drawing[] = [];
+  for (const value of Array.isArray(r.drawings) ? r.drawings : []) {
+    const drawing = sanitizeDrawing(value, () => onSimplified?.());
+    if (!drawing || seen.has(drawing.id)) continue;
+    seen.add(drawing.id);
+    drawings.push(drawing);
+  }
+  return {
+    schemaVersion: DRAWINGS_SCHEMA_VERSION,
+    uri: typeof r.uri === 'string' ? r.uri : undefined,
+    fsPath: typeof r.fsPath === 'string' ? r.fsPath : undefined,
+    drawings,
+    updatedAt: typeof r.updatedAt === 'string' ? r.updatedAt : undefined,
+  };
+}
+
+/** Merges two versions of a list by id: the newer change wins, ids deleted here stay deleted. */
+function mergeById<T extends { id: string; updatedAt: string }>(ours: T[], theirs: T[], deletedIds: Set<string>): T[] {
+  const byId = new Map<string, T>();
+  for (const item of theirs) if (!deletedIds.has(item.id)) byId.set(item.id, item);
+  for (const item of ours) {
+    const other = byId.get(item.id);
+    if (!other || item.updatedAt >= other.updatedAt) byId.set(item.id, item);
   }
   return [...byId.values()];
+}
+
+/** The record file's content: everything but the drawings. */
+function recordFileText(record: StoredRecord): string {
+  const { drawings: _drawings, ...rest } = record;
+  return `${JSON.stringify(rest, null, 1)}\n`;
+}
+
+function drawingsFileText(record: StoredRecord): string {
+  const file: DrawingsFile = {
+    schemaVersion: DRAWINGS_SCHEMA_VERSION,
+    uri: record.uri,
+    fsPath: record.fsPath,
+    drawings: record.drawings,
+    updatedAt: record.updatedAt,
+  };
+  return `${JSON.stringify(file)}\n`;
 }
 
 export class HighlightStore {
@@ -196,7 +264,11 @@ export class HighlightStore {
     return `${this.options.dir}/${key}.json`;
   }
 
-  /** Loads the record for a document (cached). A document without highlights gets an empty, unsaved record. */
+  drawingsPathOf(key: string): string {
+    return `${this.options.dir}/${key}.drawings.json`;
+  }
+
+  /** Loads the record for a document (cached). A document without annotations gets an empty, unsaved record. */
   async get(ref: DocumentRef): Promise<StoredRecord> {
     return (await this.entry(ref)).record;
   }
@@ -218,7 +290,9 @@ export class HighlightStore {
         ref,
         record: loaded.record,
         diskMtimeMs: loaded.mtimeMs,
+        drawingsMtimeMs: loaded.drawingsMtimeMs,
         deletedIds: new Set(),
+        deletedDrawingIds: new Set(),
         markerChanged: false,
         dirty: false,
       };
@@ -227,39 +301,75 @@ export class HighlightStore {
     return entry;
   }
 
-  private async readFromDisk(key: string, ref: DocumentRef): Promise<{ record: StoredRecord; mtimeMs?: number }> {
+  private async readFromDisk(key: string, ref: DocumentRef): Promise<{ record: StoredRecord; mtimeMs?: number; drawingsMtimeMs?: number }> {
+    const record = await this.readRecordFile(key, ref);
+    const drawings = await this.readDrawingsFile(key, ref);
+    const result = record?.record ?? emptyRecord(ref);
+    result.drawings = drawings?.drawings ?? [];
+    return { record: result, mtimeMs: record?.mtimeMs, drawingsMtimeMs: drawings?.mtimeMs };
+  }
+
+  private async readRecordFile(key: string, ref: DocumentRef): Promise<{ record: StoredRecord; mtimeMs: number } | undefined> {
     const file = this.pathOf(key);
-    let text: string;
-    let mtimeMs: number | undefined;
+    const read = await this.readText(file);
+    if (!read) return undefined;
     try {
-      text = await fs.readFile(file, 'utf8');
-      mtimeMs = (await fs.stat(file)).mtimeMs;
+      return { record: sanitizeRecord(JSON.parse(read.text), ref), mtimeMs: read.mtimeMs };
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { record: emptyRecord(ref) };
+      await this.moveCorrupt(file, `${this.options.dir}/${key}.corrupt-${Date.now()}.json`, ref, 'Highlight data', err);
+      return undefined;
+    }
+  }
+
+  private async readDrawingsFile(key: string, ref: DocumentRef): Promise<{ drawings: Drawing[]; mtimeMs: number } | undefined> {
+    const file = this.drawingsPathOf(key);
+    const read = await this.readText(file);
+    if (!read) return undefined;
+    try {
+      let simplified = 0;
+      const parsed = sanitizeDrawingsFile(JSON.parse(read.text), () => simplified++);
+      if (simplified > 0) {
+        this.log.warn(`${simplified} stored drawing(s) of ${ref.uri} had more points than allowed and were simplified to fit`);
+        this.options.onSimplified?.(ref, simplified);
+      }
+      return { drawings: parsed.drawings, mtimeMs: read.mtimeMs };
+    } catch (err) {
+      await this.moveCorrupt(file, `${this.options.dir}/${key}.drawings.corrupt-${Date.now()}.json`, ref, 'Drawings', err);
+      return undefined;
+    }
+  }
+
+  private async readText(file: string): Promise<{ text: string; mtimeMs: number } | undefined> {
+    try {
+      const text = await fs.readFile(file, 'utf8');
+      const mtimeMs = (await fs.stat(file)).mtimeMs;
+      return { text, mtimeMs };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
       throw err;
     }
-    try {
-      const record = sanitizeRecord(JSON.parse(text), ref);
-      return { record, mtimeMs };
-    } catch (err) {
-      const movedTo = `${this.options.dir}/${key}.corrupt-${Date.now()}.json`;
-      this.log.error(`Highlight data for ${ref.uri} is unreadable (${String(err)}); moved it to ${movedTo}`);
-      await moveAside(file, movedTo).catch((moveErr: unknown) => this.log.error(`Could not move the corrupt file: ${String(moveErr)}`));
-      this.options.onCorrupt?.(ref, movedTo);
-      return { record: emptyRecord(ref) };
-    }
+  }
+
+  private async moveCorrupt(file: string, movedTo: string, ref: DocumentRef, what: string, err: unknown): Promise<void> {
+    this.log.error(`${what} for ${ref.uri} is unreadable (${String(err)}); moved it to ${movedTo}`);
+    await moveAside(file, movedTo).catch((moveErr: unknown) => this.log.error(`Could not move the corrupt file: ${String(moveErr)}`));
+    this.options.onCorrupt?.(ref, movedTo);
   }
 
   /** Applies a change and schedules a coalesced write. */
   async update(ref: DocumentRef, mutate: (record: StoredRecord) => void): Promise<StoredRecord> {
     const entry = await this.entry(ref);
     const before = new Set(entry.record.highlights.map((h) => h.id));
+    const drawingsBefore = new Set(entry.record.drawings.map((d) => d.id));
     const markerBefore = JSON.stringify(entry.record.marker ?? null);
     mutate(entry.record);
     const after = new Set(entry.record.highlights.map((h) => h.id));
     for (const id of before) if (!after.has(id)) entry.deletedIds.add(id);
     // A highlight brought back (undo of a delete) must survive the next merge with other windows.
     for (const id of after) if (!before.has(id)) entry.deletedIds.delete(id);
+    const drawingsAfter = new Set(entry.record.drawings.map((d) => d.id));
+    for (const id of drawingsBefore) if (!drawingsAfter.has(id)) entry.deletedDrawingIds.add(id);
+    for (const id of drawingsAfter) if (!drawingsBefore.has(id)) entry.deletedDrawingIds.delete(id);
     if (JSON.stringify(entry.record.marker ?? null) !== markerBefore) entry.markerChanged = true;
     entry.record.updatedAt = new Date().toISOString();
     entry.record.uri = ref.uri;
@@ -302,13 +412,14 @@ export class HighlightStore {
     if (!entry || !entry.dirty) return;
     entry.dirty = false;
     const file = this.pathOf(key);
+    const drawingsFile = this.drawingsPathOf(key);
     try {
-      // Another VS Code window may have written this file since we read it: merge, don't clobber.
+      // Another VS Code window may have written these files since we read them: merge, don't clobber.
       const stat = await fs.stat(file).catch(() => undefined);
       if (stat && stat.mtimeMs !== entry.diskMtimeMs) {
         try {
           const theirs = sanitizeRecord(JSON.parse(await fs.readFile(file, 'utf8')), entry.ref);
-          entry.record.highlights = mergeHighlights(entry.record.highlights, theirs.highlights, entry.deletedIds);
+          entry.record.highlights = mergeById(entry.record.highlights, theirs.highlights, entry.deletedIds);
           if (!entry.markerChanged) {
             if (theirs.marker) entry.record.marker = theirs.marker;
             else delete entry.record.marker;
@@ -317,12 +428,31 @@ export class HighlightStore {
           // Unreadable on disk: ours wins.
         }
       }
+      const drawingsStat = await fs.stat(drawingsFile).catch(() => undefined);
+      if (drawingsStat && drawingsStat.mtimeMs !== entry.drawingsMtimeMs) {
+        try {
+          const theirs = sanitizeDrawingsFile(JSON.parse(await fs.readFile(drawingsFile, 'utf8')));
+          entry.record.drawings = mergeById(entry.record.drawings, theirs.drawings, entry.deletedDrawingIds);
+        } catch {
+          // Unreadable on disk: ours wins.
+        }
+      }
       if (!hasData(entry.record)) {
+        await removeFile(drawingsFile);
         await removeFile(file);
         entry.diskMtimeMs = undefined;
+        entry.drawingsMtimeMs = undefined;
         return;
       }
-      await writeFileAtomic(file, `${JSON.stringify(entry.record, null, 1)}\n`, this.options.writeHooks);
+      // Drawings first: when the record is on disk, its drawings are too.
+      if (entry.record.drawings.length > 0) {
+        await writeFileAtomic(drawingsFile, drawingsFileText(entry.record), this.options.writeHooks);
+        entry.drawingsMtimeMs = (await fs.stat(drawingsFile)).mtimeMs;
+      } else if (drawingsStat) {
+        await removeFile(drawingsFile);
+        entry.drawingsMtimeMs = undefined;
+      }
+      await writeFileAtomic(file, recordFileText(entry.record), this.options.writeHooks);
       entry.diskMtimeMs = (await fs.stat(file)).mtimeMs;
     } catch (err) {
       entry.dirty = true;
@@ -344,7 +474,7 @@ export class HighlightStore {
     if (entry && !entry.dirty && !this.timers.has(key)) this.entries.delete(key);
   }
 
-  /** Moves a document's record to a new path (file rename or move). Returns false if there was nothing to move. */
+  /** Moves a document's annotations to a new path (file rename or move). Returns false if there was nothing to move. */
   async migrate(from: DocumentRef, to: DocumentRef): Promise<boolean> {
     const fromKey = this.keyOf(from);
     const toKey = this.keyOf(to);
@@ -368,11 +498,14 @@ export class HighlightStore {
     await this.update(to, (record) => {
       const existing = new Set(record.highlights.map((h) => h.id));
       record.highlights = [...record.highlights, ...moved.highlights.filter((h) => !existing.has(h.id))];
+      const existingDrawings = new Set(record.drawings.map((d) => d.id));
+      record.drawings = [...record.drawings, ...moved.drawings.filter((d) => !existingDrawings.has(d.id))];
       record.view = targetHadData ? { ...moved.view, ...record.view } : { ...moved.view };
       if (moved.marker && !record.marker) record.marker = structuredClone(moved.marker);
     });
     await this.flushKey(toKey);
     await this.enqueue(fromKey, async () => {
+      await removeFile(this.drawingsPathOf(fromKey));
       await removeFile(this.pathOf(fromKey));
     });
     this.entries.delete(fromKey);
@@ -380,7 +513,10 @@ export class HighlightStore {
     return true;
   }
 
-  /** Lists all stored records (reads every file; used for folder renames and "Reattach"). */
+  /**
+   * Lists all stored records (reads every file; used for folder renames and "Reattach"). Drawings
+   * whose record file is gone (0.4.x deletes a record it thinks is empty) are listed too.
+   */
   async list(): Promise<{ key: string; record: StoredRecord }[]> {
     await this.flush();
     let names: string[];
@@ -389,25 +525,49 @@ export class HighlightStore {
     } catch {
       return [];
     }
-    const out: { key: string; record: StoredRecord }[] = [];
+    const keys = new Set<string>();
     for (const name of names) {
-      const match = /^([0-9a-f]{64})\.json$/.exec(name);
-      if (!match) continue;
-      const key = match[1];
+      const match = /^([0-9a-f]{64})(\.drawings)?\.json$/.exec(name);
+      if (match) keys.add(match[1]);
+    }
+    const out: { key: string; record: StoredRecord }[] = [];
+    for (const key of keys) {
       const cached = this.entries.get(key);
       if (cached) {
         out.push({ key, record: cached.record });
         continue;
       }
-      try {
-        const text = await fs.readFile(`${this.options.dir}/${name}`, 'utf8');
-        const parsed = JSON.parse(text) as StoredRecord;
-        out.push({ key, record: sanitizeRecord(parsed, { uri: parsed.uri, scheme: 'unknown', fsPath: parsed.fsPath }) });
-      } catch {
-        // Skip unreadable files here; they are handled when opened.
-      }
+      const record = await this.readListed(key);
+      if (record) out.push({ key, record });
     }
     return out;
+  }
+
+  /** Reads a record and its drawings for `list()`; unreadable files are skipped (they are handled when opened). */
+  private async readListed(key: string): Promise<StoredRecord | undefined> {
+    let record: StoredRecord | undefined;
+    try {
+      const read = await this.readText(this.pathOf(key));
+      if (read) {
+        const parsed = JSON.parse(read.text) as StoredRecord;
+        record = sanitizeRecord(parsed, { uri: parsed.uri, scheme: 'unknown', fsPath: parsed.fsPath });
+      }
+    } catch {
+      // Skip.
+    }
+    try {
+      const read = await this.readText(this.drawingsPathOf(key));
+      if (read) {
+        const drawings = sanitizeDrawingsFile(JSON.parse(read.text));
+        if (!record && drawings.uri) {
+          record = { ...emptyRecord({ uri: drawings.uri, scheme: 'unknown', fsPath: drawings.fsPath }), updatedAt: drawings.updatedAt ?? new Date(0).toISOString() };
+        }
+        if (record) record.drawings = drawings.drawings;
+      }
+    } catch {
+      // Skip.
+    }
+    return record;
   }
 
   /**
@@ -432,25 +592,35 @@ export class HighlightStore {
     return moved;
   }
 
-  /** Copies the highlights of another record into this document (used by "Reattach Highlights"). */
-  async mergeInto(source: StoredRecord, target: DocumentRef): Promise<number> {
-    let added = 0;
+  /** Copies the highlights and drawings of another record into this document (used by "Reattach"). */
+  async mergeInto(source: StoredRecord, target: DocumentRef): Promise<{ highlights: number; drawings: number }> {
+    let highlights = 0;
+    let drawings = 0;
     await this.update(target, (record) => {
       const existing = new Set(record.highlights.map((h) => h.id));
       for (const h of source.highlights) {
         if (existing.has(h.id)) continue;
         record.highlights.push(structuredClone(h));
-        added++;
+        highlights++;
+      }
+      const existingDrawings = new Set(record.drawings.map((d) => d.id));
+      for (const d of source.drawings) {
+        if (existingDrawings.has(d.id)) continue;
+        record.drawings.push(structuredClone(d));
+        drawings++;
       }
       if (record.view.zoom === undefined && source.view.zoom !== undefined) record.view.zoom = source.view.zoom;
     });
-    return added;
+    return { highlights, drawings };
   }
 
-  /** Deletes the stored file of a record found through `list()`. */
+  /** Deletes the stored files of a record found through `list()`. */
   async deleteKey(key: string): Promise<void> {
     this.entries.delete(key);
-    await this.enqueue(key, () => removeFile(this.pathOf(key)));
+    await this.enqueue(key, async () => {
+      await removeFile(this.drawingsPathOf(key));
+      await removeFile(this.pathOf(key));
+    });
   }
 
   async ensureDirectory(): Promise<void> {

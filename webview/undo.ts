@@ -1,6 +1,7 @@
-// Undo/redo for the reader's edits: highlights, their colors and notes, and the reading marker.
-// Each edit is recorded as an operation; undoing applies its inverse. No DOM access, so it is
-// unit-testable.
+// Undo/redo for the reader's edits: highlights, their colors and notes, the reading marker, and
+// drawings. Each edit is recorded as an operation; undoing applies its inverse. No DOM access, so
+// it is unit-testable.
+import type { Drawing } from '../src/shared/drawings';
 import type { Highlight, HighlightColor, ReadingMarker } from '../src/shared/types';
 
 /** Changeable properties of a highlight. `note: ''` means "no note". */
@@ -14,6 +15,10 @@ export type EditOp =
   | { kind: 'delete'; highlight: Highlight }
   | { kind: 'update'; id: string; before: HighlightChanges; after: HighlightChanges }
   | { kind: 'marker'; before: ReadingMarker | null; after: ReadingMarker | null }
+  | { kind: 'createDrawing'; drawing: Drawing }
+  | { kind: 'deleteDrawing'; drawing: Drawing }
+  /** A drawing's color, width or position changed: the whole drawing before and after. */
+  | { kind: 'updateDrawing'; before: Drawing; after: Drawing }
   | { kind: 'batch'; ops: EditOp[] };
 
 export interface UndoStep {
@@ -32,6 +37,12 @@ export function inverse(op: EditOp): EditOp {
       return { kind: 'update', id: op.id, before: op.after, after: op.before };
     case 'marker':
       return { kind: 'marker', before: op.after, after: op.before };
+    case 'createDrawing':
+      return { kind: 'deleteDrawing', drawing: op.drawing };
+    case 'deleteDrawing':
+      return { kind: 'createDrawing', drawing: op.drawing };
+    case 'updateDrawing':
+      return { kind: 'updateDrawing', before: op.after, after: op.before };
     case 'batch':
       return { kind: 'batch', ops: op.ops.map(inverse).reverse() };
   }

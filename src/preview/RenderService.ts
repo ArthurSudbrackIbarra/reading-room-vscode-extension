@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import * as vscode from 'vscode';
 import type { CacheDependency } from '../cache/PdfCache';
 import type * as ConverterModule from '../converter/index';
-import type { AnnotationInput } from '../export/annotate';
+import type { AnnotatedPdf, ExportAnnotations } from '../export/annotate';
 import type { PageTheme } from '../shared/types';
 import { readSettings, SECTION } from '../util/settings';
 
@@ -123,9 +123,9 @@ export class RenderService implements vscode.Disposable {
     }
   }
 
-  async annotate(pdf: Uint8Array, highlights: AnnotationInput[], password?: string): Promise<Uint8Array> {
+  async annotate(pdf: Uint8Array, annotations: ExportAnnotations, password?: string): Promise<AnnotatedPdf> {
     const mod = await this.loadModule();
-    return mod.annotatePdf(pdf, highlights, password);
+    return mod.annotatePdf(pdf, annotations, password);
   }
 
   /**

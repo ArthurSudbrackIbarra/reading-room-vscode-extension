@@ -1,7 +1,12 @@
-// Sidebar (highlights list), popovers (highlight, note, reading marker), tooltips, toast, banner
-// and the status overlay.
+// Sidebar (the annotations list), popovers (highlight, note, drawing, reading marker), tooltips,
+// toast, banner and the status overlay.
+import { TOOL_NAMES, type InkDrawing, type InkWidth, type TextDrawing, type TextStyle } from '../src/shared/drawings';
 import { HIGHLIGHT_COLORS, HIGHLIGHT_HEX, MAX_NOTE_LENGTH, type Highlight, type HighlightColor, type ReadingMarker } from '../src/shared/types';
+import { ColorButton } from './colorPicker';
 import { h, icon, iconButton, placeFloating } from './dom';
+import { textStyleControls, widthRadios, type TextStyleControls } from './drawingBar';
+import { setInk } from './drawings';
+import { textIcon } from './icons';
 
 export interface ListEntry {
   data: Highlight;
@@ -13,6 +18,18 @@ export interface MarkerEntry {
   page: number;
 }
 
+export interface DrawingEntry {
+  data: InkDrawing;
+  /** False when its page is not in the document now (it is kept, but not shown). */
+  onPage: boolean;
+  thumbnail: SVGSVGElement;
+}
+
+export interface TextEntry {
+  data: TextDrawing;
+  onPage: boolean;
+}
+
 export interface SidebarActions {
   reveal(id: string): void;
   remove(id: string): void;
@@ -20,6 +37,11 @@ export interface SidebarActions {
   editNote(id: string): void;
   goToMarker(): void;
   removeMarker(): void;
+  /** Drawings and text boxes. */
+  revealDrawing(id: string): void;
+  removeDrawing(id: string): void;
+  removeAllDrawings(): void;
+  removeAllTextBoxes(): void;
   close(): void;
 }
 
@@ -40,12 +62,12 @@ export const MOD_KEY = isMac ? '⌘' : 'Ctrl';
 export class Sidebar {
   readonly element: HTMLElement;
   private readonly list = h('div', { class: 'mpv-list', role: 'list' });
-  private readonly title = h('span', { class: 'mpv-sidebar-title', text: 'Highlights' });
+  private readonly title = h('span', { class: 'mpv-sidebar-title', text: 'Annotations' });
 
   constructor(private readonly actions: SidebarActions) {
     const close = iconButton('close', 'Close the list');
     close.addEventListener('click', () => actions.close());
-    this.element = h('aside', { class: 'mpv-sidebar', 'aria-label': 'Highlights', hidden: true }, h('div', { class: 'mpv-sidebar-header' }, this.title, close), this.list);
+    this.element = h('aside', { class: 'mpv-sidebar', 'aria-label': 'Annotations', hidden: true }, h('div', { class: 'mpv-sidebar-header' }, this.title, close), this.list);
   }
 
   set open(value: boolean) {
@@ -57,19 +79,21 @@ export class Sidebar {
     return !this.element.hidden;
   }
 
-  render(entries: ListEntry[], marker: MarkerEntry | null): void {
+  render(entries: ListEntry[], marker: MarkerEntry | null, drawings: DrawingEntry[], texts: TextEntry[]): void {
     const anchored = entries.filter((e) => e.data.status !== 'orphaned');
     const orphaned = entries.filter((e) => e.data.status === 'orphaned');
-    this.title.textContent = `Highlights (${entries.length})`;
+    this.title.textContent = `Annotations (${entries.length + drawings.length + texts.length})`;
     const items: HTMLElement[] = [];
     if (marker) items.push(this.markerItem(marker));
-    if (entries.length === 0) {
+    if (entries.length === 0 && drawings.length === 0 && texts.length === 0) {
       items.push(
         h(
           'div',
           { class: 'mpv-empty' },
-          h('p', { text: 'No highlights yet.' }),
-          h('p', { text: 'Turn on the highlight tool, or select text and pick a color. Click a highlight to add a note.' }),
+          h('p', { text: 'No annotations yet.' }),
+          h('p', {
+            text: 'Turn on the highlight tool, or select text and pick a color. Click a highlight to add a note. Use Draw to draw on the page, and Text to type on it.',
+          }),
         ),
       );
     }
@@ -85,7 +109,88 @@ export class Sidebar {
       );
       for (const entry of orphaned) items.push(this.item(entry, true));
     }
+    if (drawings.length > 0) {
+      const removeAll = iconButton('trash', 'Delete all drawings…', { class: 'mpv-btn mpv-item-action' });
+      removeAll.addEventListener('click', () => this.actions.removeAllDrawings());
+      items.push(h('div', { class: 'mpv-list-group mpv-drawings-group' }, h('span', { text: `Drawings (${drawings.length})` }), removeAll));
+      for (const entry of drawings) items.push(this.drawingItem(entry));
+    }
+    if (texts.length > 0) {
+      const removeAll = iconButton('trash', 'Delete all text boxes…', { class: 'mpv-btn mpv-item-action' });
+      removeAll.addEventListener('click', () => this.actions.removeAllTextBoxes());
+      items.push(h('div', { class: 'mpv-list-group mpv-drawings-group' }, h('span', { text: `Text boxes (${texts.length})` }), removeAll));
+      for (const entry of texts) items.push(this.textItem(entry));
+    }
     this.list.replaceChildren(...items);
+  }
+
+  private textItem(entry: TextEntry): HTMLElement {
+    const { data } = entry;
+    const remove = iconButton('trash', 'Delete text box', { class: 'mpv-btn mpv-item-action' });
+    remove.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.actions.removeDrawing(data.id);
+    });
+    const thumb = h('span', { class: 'mpv-thumb mpv-text-thumb' }, textIcon());
+    setInk(thumb, data.color);
+    const meta = entry.onPage ? `page ${data.pageIndex + 1}` : `page ${data.pageIndex + 1}, which the document no longer has`;
+    const row = h(
+      'div',
+      {
+        class: `mpv-item mpv-drawing-item${entry.onPage ? '' : ' mpv-orphan'}`,
+        role: 'listitem',
+        tabindex: entry.onPage ? 0 : undefined,
+        title: entry.onPage ? 'Go to text box' : 'Not shown: its page is not in the document now. It is kept until you delete it.',
+        'data-id': data.id,
+      },
+      thumb,
+      h('div', { class: 'mpv-item-body' }, h('div', { class: 'mpv-item-text', text: excerpt(data.text, 90) }), h('div', { class: 'mpv-item-meta', text: meta })),
+      h('div', { class: 'mpv-item-actions' }, remove),
+    );
+    if (entry.onPage) {
+      row.addEventListener('click', () => this.actions.revealDrawing(data.id));
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.actions.revealDrawing(data.id);
+        }
+      });
+    }
+    return row;
+  }
+
+  private drawingItem(entry: DrawingEntry): HTMLElement {
+    const { data } = entry;
+    const remove = iconButton('trash', 'Delete drawing', { class: 'mpv-btn mpv-item-action' });
+    remove.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.actions.removeDrawing(data.id);
+    });
+    const thumb = h('span', { class: 'mpv-thumb' }, entry.thumbnail);
+    const meta = entry.onPage ? `page ${data.pageIndex + 1}` : `page ${data.pageIndex + 1}, which the document no longer has`;
+    const row = h(
+      'div',
+      {
+        class: `mpv-item mpv-drawing-item${entry.onPage ? '' : ' mpv-orphan'}`,
+        role: 'listitem',
+        tabindex: entry.onPage ? 0 : undefined,
+        title: entry.onPage ? 'Go to drawing' : 'Not shown: its page is not in the document now. It is kept until you delete it.',
+        'data-id': data.id,
+      },
+      thumb,
+      h('div', { class: 'mpv-item-body' }, h('div', { class: 'mpv-item-text' }, h('span', { text: TOOL_NAMES[data.tool] }), h('span', { class: 'mpv-item-meta-inline', text: ` · ${meta}` }))),
+      h('div', { class: 'mpv-item-actions' }, remove),
+    );
+    if (entry.onPage) {
+      row.addEventListener('click', () => this.actions.revealDrawing(data.id));
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.actions.revealDrawing(data.id);
+        }
+      });
+    }
+    return row;
   }
 
   private markerItem(entry: MarkerEntry): HTMLElement {
@@ -310,6 +415,145 @@ export class HighlightPopover {
     this.editor.hidden = true;
     this.currentId = undefined;
     if (editing && commit && id && value !== this.note.replace(/\s+$/, '')) this.actions.saveNote(id, value);
+  }
+}
+
+export interface DrawingPopoverActions {
+  /** Opens (or closes) the color picker for the drawing's ink, under `anchor`. */
+  pickColor(id: string, anchor: HTMLElement): void;
+  setWidth(id: string, width: InkWidth): void;
+  remove(id: string): void;
+}
+
+/** Shown when a drawing is selected: its ink, its width, delete. It stays open while changing them. */
+export class DrawingPopover {
+  readonly element: HTMLElement;
+  readonly color: ColorButton;
+  private currentId?: string;
+  private readonly widths: ReturnType<typeof widthRadios>;
+
+  constructor(actions: DrawingPopoverActions) {
+    this.color = new ColorButton('Ink color', (anchor) => {
+      if (this.currentId) actions.pickColor(this.currentId, anchor);
+    });
+    this.widths = widthRadios((width) => {
+      if (this.currentId) actions.setWidth(this.currentId, width);
+    });
+    const remove = iconButton('trash', 'Delete drawing (Delete)');
+    remove.addEventListener('click', () => {
+      const id = this.currentId;
+      this.hide();
+      if (id) actions.remove(id);
+    });
+    const row = h('div', { class: 'mpv-popover-row' }, this.color.element, h('span', { class: 'mpv-popover-sep' }), this.widths.group, h('span', { class: 'mpv-popover-sep' }), remove);
+    // Esc reaches the viewer's handler, which deselects the drawing (and so closes this).
+    this.element = h('div', { class: 'mpv-popover mpv-drawing-popover', role: 'dialog', 'aria-label': 'Edit drawing', hidden: true }, row);
+    document.body.append(this.element);
+  }
+
+  show(drawing: Pick<InkDrawing, 'id' | 'color' | 'width'>, x: number, y: number): void {
+    this.currentId = drawing.id;
+    this.update(drawing);
+    placeFloating(this.element, x, y);
+  }
+
+  /** Reflects the drawing's current color and width. */
+  update(drawing: Pick<InkDrawing, 'id' | 'color' | 'width'>): void {
+    if (drawing.id !== this.currentId) return;
+    this.color.setValue(drawing.color);
+    this.widths.set(drawing.width);
+  }
+
+  hide(): void {
+    this.element.hidden = true;
+    this.currentId = undefined;
+  }
+
+  get visible(): boolean {
+    return !this.element.hidden;
+  }
+
+  get drawingId(): string | undefined {
+    return this.element.hidden ? undefined : this.currentId;
+  }
+}
+
+export interface TextPopoverActions {
+  setStyle(id: string, patch: Partial<TextStyle>): void;
+  /** Opens (or closes) the color picker for the text color, under `anchor`. */
+  pickColor(id: string, anchor: HTMLElement): void;
+  edit(id: string): void;
+  remove(id: string): void;
+}
+
+/** Shown when a text box is selected (outside text mode): its color, size, format, alignment, edit and delete. */
+export class TextPopover {
+  readonly element: HTMLElement;
+  readonly color: ColorButton;
+  private currentId?: string;
+  private readonly controls: TextStyleControls;
+
+  constructor(actions: TextPopoverActions) {
+    this.color = new ColorButton('Text color', (anchor) => {
+      if (this.currentId) actions.pickColor(this.currentId, anchor);
+    });
+    this.controls = textStyleControls((patch) => {
+      if (this.currentId) actions.setStyle(this.currentId, patch);
+    });
+    const edit = iconButton('edit', 'Edit the text (Enter, or double-click the box)');
+    edit.addEventListener('click', () => {
+      const id = this.currentId;
+      this.hide();
+      if (id) actions.edit(id);
+    });
+    const remove = iconButton('trash', 'Delete text box (Delete)');
+    remove.addEventListener('click', () => {
+      const id = this.currentId;
+      this.hide();
+      if (id) actions.remove(id);
+    });
+    const sep = () => h('span', { class: 'mpv-popover-sep' });
+    const row = h(
+      'div',
+      { class: 'mpv-popover-row' },
+      this.color.element,
+      sep(),
+      this.controls.size,
+      sep(),
+      this.controls.format,
+      sep(),
+      this.controls.align,
+      sep(),
+      edit,
+      remove,
+    );
+    this.element = h('div', { class: 'mpv-popover mpv-drawing-popover mpv-text-popover', role: 'dialog', 'aria-label': 'Edit text box', hidden: true }, row);
+    document.body.append(this.element);
+  }
+
+  show(text: TextDrawing, x: number, y: number): void {
+    this.currentId = text.id;
+    this.update(text);
+    placeFloating(this.element, x, y);
+  }
+
+  update(text: TextDrawing): void {
+    if (text.id !== this.currentId) return;
+    this.controls.set(text);
+    this.color.setValue(text.color);
+  }
+
+  hide(): void {
+    this.element.hidden = true;
+    this.currentId = undefined;
+  }
+
+  get visible(): boolean {
+    return !this.element.hidden;
+  }
+
+  get textId(): string | undefined {
+    return this.element.hidden ? undefined : this.currentId;
   }
 }
 

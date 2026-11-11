@@ -1,8 +1,14 @@
 // The viewer toolbar:
-// [☰] [↑] [n / N] [↓] | [−] [zoom ▾] [+] [↺] | [✎] [● ● ● ● ●] | [🔖 ▾] | [🎧] [◐] [⟳] [⤢] [⤓ ▾]
+// [☰] │ [↑] [n / N] [↓] │ [−] [zoom ▾] [+] [↺] │ [highlighter] [● ● ● ● ●] │ [pencil] [T] [🔖 ▾]     [🎧] [◐] [⟳] [⤢] [⤓ ▾]
+// The three annotation tools show their color in a band under their icon: the highlight color,
+// the ink, the text color. Groups are divided by a line with the same space on both sides; when
+// the toolbar wraps, the line at the end of a row is hidden.
+import type { Ink } from '../src/shared/colors';
 import type { SoundState } from '../src/shared/sounds';
 import { HIGHLIGHT_COLORS, HIGHLIGHT_HEX, MAX_ZOOM, MIN_ZOOM, type DocumentKind, type HighlightColor, type PageTheme, type ZoomValue } from '../src/shared/types';
 import { h, icon, iconButton, placeFloating } from './dom';
+import { setInk } from './drawings';
+import { drawIcon, highlighterIcon, textIcon } from './icons';
 import { headphonesIcon } from './sounds';
 
 export interface ToolbarActions {
@@ -16,6 +22,8 @@ export interface ToolbarActions {
   setZoom(zoom: ZoomValue): void;
   toggleTool(): void;
   setColor(color: HighlightColor): void;
+  toggleDrawing(): void;
+  toggleText(): void;
   placeMarker(): void;
   goToMarker(): void;
   removeMarker(): void;
@@ -24,8 +32,17 @@ export interface ToolbarActions {
   toggleTheme(): void;
   refresh(): void;
   toggleFullView(): void;
-  download(withHighlights: boolean): void;
+  /** `withAnnotations`: with highlights, notes, drawings and text boxes (the default), or without any. */
+  download(withAnnotations: boolean): void;
 }
+
+const HIGHLIGHT_TITLE = 'Highlight text: select text to highlight it';
+const HIGHLIGHT_ON_TITLE = 'Highlighting is on: selecting text highlights it (click to turn off)';
+const DRAW_TITLE = 'Draw on the page: pen, lines, arrows, rectangles, ellipses';
+const DRAW_ON_TITLE = 'Drawing is on (Esc to stop)';
+const TEXT_TITLE = 'Add text: click on the page and type';
+const TEXT_ON_TITLE = 'Adding text is on (Esc to stop)';
+const DOWNLOAD_TITLE = 'Download PDF (with highlights, notes, drawings and text)';
 
 const ZOOM_OPTIONS: { value: string; label: string }[] = [
   { value: 'page-width', label: 'Fit Width' },
@@ -46,6 +63,16 @@ interface MenuItem {
   icon: string;
   label: string;
   run(): void;
+}
+
+/** Hides the divider after a group when the next item is on another row of the toolbar. */
+export function hideDividersAtRowEnds(bar: HTMLElement): void {
+  for (const group of bar.querySelectorAll<HTMLElement>(':scope > .mpv-divided')) {
+    let next = group.nextElementSibling as HTMLElement | null;
+    while (next && (next.hidden || next.classList.contains('mpv-spacer'))) next = next.nextElementSibling as HTMLElement | null;
+    const ends = !next || Math.abs(next.getBoundingClientRect().top - group.getBoundingClientRect().top) > 4;
+    group.classList.toggle('mpv-row-end', ends);
+  }
 }
 
 /** A drop-down menu opened from a small chevron button. */
@@ -89,13 +116,28 @@ class DropDown {
 
 export class Toolbar {
   readonly element: HTMLElement;
-  private readonly listButton = iconButton('list-flat', 'Highlights list');
+  private readonly listButton = iconButton('list-flat', 'Annotations list: highlights, notes, drawings and text boxes');
   private readonly pageInput = h('input', { class: 'mpv-page-input', type: 'text', inputmode: 'numeric', 'aria-label': 'Page number', value: '1' });
   private readonly pageCount = h('span', { class: 'mpv-page-count', text: '/ 0' });
   private readonly zoomSelect = h('select', { class: 'mpv-zoom-select', title: 'Zoom', 'aria-label': 'Zoom' });
   private readonly customZoom = h('option', { value: 'custom', hidden: true });
-  private readonly toolButton = iconButton('edit', 'Highlight tool: select text to highlight it');
+  private readonly toolButton = h(
+    'button',
+    { class: 'mpv-btn mpv-highlight-tool', type: 'button', title: HIGHLIGHT_TITLE, 'aria-label': HIGHLIGHT_TITLE, 'aria-pressed': 'false' },
+    highlighterIcon(),
+  );
   private readonly swatches = new Map<HighlightColor, HTMLButtonElement>();
+  private readonly swatchGroup: HTMLElement;
+  private readonly drawButton = h(
+    'button',
+    { class: 'mpv-btn mpv-draw-button', type: 'button', title: DRAW_TITLE, 'aria-label': DRAW_TITLE, 'aria-pressed': 'false' },
+    drawIcon(),
+  );
+  private readonly textButton = h(
+    'button',
+    { class: 'mpv-btn mpv-text-button', type: 'button', title: TEXT_TITLE, 'aria-label': TEXT_TITLE, 'aria-pressed': 'false' },
+    textIcon(),
+  );
   private readonly markerButton = iconButton('bookmark', 'Mark where you stopped reading: click this, then click a line');
   private readonly markerMenu: DropDown;
   private readonly soundsButton = h(
@@ -114,7 +156,7 @@ export class Toolbar {
     const zoomOut = iconButton('zoom-out', 'Zoom out (Ctrl+-)');
     const zoomIn = iconButton('zoom-in', 'Zoom in (Ctrl+=)');
     const zoomReset = iconButton('discard', 'Reset zoom to fit width (Ctrl+0)');
-    const download = iconButton('download', 'Download PDF (with highlights and notes)');
+    const download = iconButton('download', DOWNLOAD_TITLE);
 
     this.zoomSelect.append(this.customZoom, ...ZOOM_OPTIONS.map((o) => h('option', { value: o.value, text: o.label })));
 
@@ -133,6 +175,7 @@ export class Toolbar {
       this.swatches.set(color, swatch);
       colors.append(swatch);
     }
+    this.swatchGroup = colors;
 
     this.markerMenu = new DropDown('Reading marker options', [
       { key: 'place', icon: 'bookmark', label: 'Mark where I stopped reading…', run: () => actions.placeMarker() },
@@ -140,19 +183,20 @@ export class Toolbar {
       { key: 'remove', icon: 'close', label: 'Remove the reading marker', run: () => actions.removeMarker() },
     ]);
     this.downloadMenu = new DropDown('More download options', [
-      { key: 'with', icon: 'download', label: 'Download PDF (with highlights and notes)', run: () => actions.download(true) },
-      { key: 'without', icon: 'file-pdf', label: 'Download PDF without highlights', run: () => actions.download(false) },
+      { key: 'with', icon: 'download', label: DOWNLOAD_TITLE, run: () => actions.download(true) },
+      { key: 'without', icon: 'file-pdf', label: 'Download PDF without Annotations', run: () => actions.download(false) },
     ]);
     this.setMarkerState(false, false);
 
+    const divided = 'mpv-group mpv-divided';
     this.element = h(
       'header',
       { class: 'mpv-toolbar', role: 'toolbar', 'aria-label': 'Document viewer' },
-      h('div', { class: 'mpv-group' }, this.listButton),
-      h('div', { class: 'mpv-group' }, prev, h('div', { class: 'mpv-page' }, this.pageInput, this.pageCount), next),
-      h('div', { class: 'mpv-group' }, zoomOut, this.zoomSelect, zoomIn, zoomReset),
-      h('div', { class: 'mpv-group' }, this.toolButton, colors),
-      h('div', { class: 'mpv-group' }, h('div', { class: 'mpv-split' }, this.markerButton, this.markerMenu.toggle)),
+      h('div', { class: divided }, this.listButton),
+      h('div', { class: divided }, prev, h('div', { class: 'mpv-page' }, this.pageInput, this.pageCount), next),
+      h('div', { class: divided }, zoomOut, this.zoomSelect, zoomIn, zoomReset),
+      h('div', { class: divided }, this.toolButton, colors),
+      h('div', { class: 'mpv-group' }, this.drawButton, this.textButton, h('div', { class: 'mpv-split' }, this.markerButton, this.markerMenu.toggle)),
       h('div', { class: 'mpv-spacer' }),
       h(
         'div',
@@ -172,6 +216,11 @@ export class Toolbar {
     zoomIn.addEventListener('click', () => actions.zoomIn());
     zoomReset.addEventListener('click', () => actions.resetZoom());
     this.toolButton.addEventListener('click', () => actions.toggleTool());
+    this.drawButton.addEventListener('click', () => actions.toggleDrawing());
+    this.textButton.addEventListener('click', () => actions.toggleText());
+    // A divider never starts a row; one that ends a row is hidden (its space is kept, so
+    // hiding it cannot change where the toolbar wraps).
+    new ResizeObserver(() => hideDividersAtRowEnds(this.element)).observe(this.element);
     this.markerButton.addEventListener('click', () => actions.placeMarker());
     this.soundsButton.addEventListener('click', () => actions.toggleSounds(this.soundsButton));
     this.themeButton.addEventListener('click', () => actions.toggleTheme());
@@ -225,7 +274,8 @@ export class Toolbar {
   setTool(active: boolean): void {
     this.toolButton.classList.toggle('mpv-active', active);
     this.toolButton.setAttribute('aria-pressed', String(active));
-    this.toolButton.title = active ? 'Highlight tool is on: selecting text highlights it (click to turn off)' : 'Highlight tool: select text to highlight it';
+    this.toolButton.title = active ? HIGHLIGHT_ON_TITLE : HIGHLIGHT_TITLE;
+    this.toolButton.setAttribute('aria-label', this.toolButton.title);
   }
 
   setColor(color: HighlightColor): void {
@@ -233,6 +283,41 @@ export class Toolbar {
       swatch.classList.toggle('mpv-selected', c === color);
       swatch.setAttribute('aria-checked', String(c === color));
     }
+    // The highlighter's band shows the current color.
+    this.toolButton.style.setProperty('--mpv-band', HIGHLIGHT_HEX[color]);
+  }
+
+  setDrawing(active: boolean): void {
+    this.setPressed(this.drawButton, active, active ? DRAW_ON_TITLE : DRAW_TITLE);
+    this.dimSwatches();
+  }
+
+  setText(active: boolean): void {
+    this.setPressed(this.textButton, active, active ? TEXT_ON_TITLE : TEXT_TITLE);
+    this.dimSwatches();
+  }
+
+  /** The band under the pencil shows the current ink. */
+  setInk(color: Ink): void {
+    setInk(this.drawButton, color);
+  }
+
+  /** The band under the T shows the color new text gets. */
+  setTextColor(color: Ink): void {
+    setInk(this.textButton, color);
+  }
+
+  private setPressed(button: HTMLButtonElement, active: boolean, title: string): void {
+    button.classList.toggle('mpv-active', active);
+    button.setAttribute('aria-pressed', String(active));
+    button.title = title;
+    button.setAttribute('aria-label', title);
+  }
+
+  /** While drawing or adding text, the highlight colors step back (they still work). */
+  private dimSwatches(): void {
+    const busy = this.drawButton.classList.contains('mpv-active') || this.textButton.classList.contains('mpv-active');
+    this.swatchGroup.classList.toggle('mpv-dimmed', busy);
   }
 
   setMarkerState(exists: boolean, placing: boolean): void {

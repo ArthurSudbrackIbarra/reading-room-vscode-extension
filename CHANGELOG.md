@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.6.0 — 2026-11-11
+
+- **Text boxes**: the new **T** button in the toolbar (or *Toggle Adding Text*) turns on text mode, with its own row of tools: font size, bold, italic, underline, alignment (left, center, right, justify) and color.
+  - Click on a page and type: the box grows with its text and wraps at the page's edge. Drag across the page instead to set the width first. Ctrl+B, Ctrl+I and Ctrl+U work while typing; Esc, Ctrl+Enter or a click elsewhere ends it.
+  - In text mode, click a box to type in it where you click, or drag it to move it. With text mode off, click a box to select it: its bar changes the style, edits (also Enter or a double click) or deletes it (also Delete). A selected box has side handles to make it wider or narrower.
+  - Everything can be undone with Ctrl+Z, like drawings. The list has a **Text boxes** section, and *Delete All Text Boxes for This File* deletes them all after asking.
+  - Downloads include them as free text annotations with the lines shown on screen, in Helvetica, with their size, style, alignment and color, also on pages turned by /Rotate. Characters Helvetica's standard set lacks become "?", and the download's message says how many.
+- **Color picker** for drawings and text: one color button instead of six ink chips. It offers ten colors (black, gray, red, orange, yellow, green, teal, blue, purple and pink), your recent colors, and any other color through a saturation/brightness square, a hue slider or a hex code. A selected drawing shows each color as you drag; the one you settle on is one undo step. On dark pages a dark color is drawn lighter, so it stays visible; downloads use the color you picked.
+- **A cleaner toolbar and drawing bar**: every button is the same size, groups are the same distance apart, and the dividers have the same space on both sides (and no longer end a row when the toolbar wraps). The drawing and text bars have no divider lines, so nothing in them can look misaligned with the toolbar above; their controls start at the same place, and **Done** is a compact button flush with the toolbar's right edge, its check mark and label centered. The eraser now sits with the other tools.
+- The Draw button has a pencil icon with a band in the current ink, like the highlighter's band; the new T button shows the text color the same way.
+- Leaving draw or text mode leaves nothing selected.
+
+## 0.5.0 — 2026-11-10
+
+- **Drawing**: the new 🖋 **Draw** button in the toolbar turns on draw mode, with a second row of tools under the toolbar: pen, line, arrow, rectangle, ellipse and eraser, six inks and three widths.
+  - Draw anywhere on a page: over text, pictures, tables, margins and other annotations, in Markdown, text and PDF files, at any zoom, with a mouse, a pen or touch. On dark pages each ink turns lighter (black ink shows up light).
+  - Shift keeps lines and arrows to 15° steps and makes squares and circles. P, L, A, R, O and E pick the tools; Esc cancels the shape being drawn, or stops drawing.
+  - With drawing off, click a drawing to select it: change its ink or width, drag it to move it on its page, or delete it (also with Delete or Backspace). The eraser dims what it will delete; one eraser drag is one undo step.
+  - Everything can be undone with Ctrl+Z. The last tool, ink and width are remembered for all files.
+- The list is now **Annotations**, with a **Drawings** section: a small picture of each drawing, go to it, delete it, or delete them all. New commands: *Toggle Drawing* and *Delete All Drawings for This File* (it asks first, and Ctrl+Z brings them back). *Toggle Highlights List* is now *Toggle Annotations List*.
+- **Downloads** include drawings as standard PDF annotations: ink, line (with an open arrowhead for arrows), square and circle, each drawn exactly as on screen, in the light-page ink. The second option is now *Download PDF without Annotations*, and a downloaded PDF file is named `… (annotated).pdf`.
+- Drawings are stored in their own file next to each document's record (`<hash>.drawings.json`), so going back to 0.4 cannot erase them. They follow file and folder renames, come along with *Reattach Highlights*, and merge across VS Code windows like highlights.
+- The highlight tool has a new **highlighter** icon whose band shows the current highlight color, so it can't be mistaken for drawing. The highlight tool, drawing and placing the reading marker now turn each other off.
+- Reading sounds: the animated bars show only next to the recording that plays, no longer on its tile as well.
+
 ## 0.4.0 — 2026-11-10
 
 - **Ten built-in reading sounds**, five rains and five fireplaces: public-domain (CC0) recordings from Freesound, credited in the README. The loops are now part of the repository and of every package.

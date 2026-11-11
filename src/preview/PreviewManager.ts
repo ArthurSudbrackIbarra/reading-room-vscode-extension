@@ -4,6 +4,8 @@
 import * as vscode from 'vscode';
 import type { PdfCache } from '../cache/PdfCache';
 import type { WebviewPersistedState } from '../shared/messages';
+import { DEFAULT_INK, MAX_RECENT_COLORS, normalizeHex, sanitizeInk, type HexColor } from '../shared/colors';
+import { DEFAULT_DRAW_TOOL, DEFAULT_INK_WIDTH, isDrawTool, isInkWidth, isTextDrawing, sanitizeTextStyle } from '../shared/drawings';
 import { CUSTOM_SOUND_EXTENSIONS, type SoundRequest } from '../shared/sounds';
 import { DEFAULT_COLOR, isHighlightColor, type DocumentKind, type PageTheme } from '../shared/types';
 import type { DocumentRef, HighlightStore } from '../store/HighlightStore';
@@ -39,6 +41,10 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
   private activePanel?: PreviewPanel;
   private focusedPanel?: PreviewPanel;
   private ui: UiState;
+  /** The "how to draw" tip was shown in this VS Code session. */
+  private drawHintShown = false;
+  /** The "how to add text" tip was shown in this VS Code session. */
+  private textHintShown = false;
   private pruneTimer?: ReturnType<typeof setTimeout>;
   /** Reading sounds: shared by all viewers, played by one of them. */
   readonly sounds: SoundCoordinator<PreviewPanel>;
@@ -59,6 +65,14 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
       theme: saved.theme === 'dark' ? 'dark' : 'light',
       toolActive: saved.toolActive === true,
       listOpen: saved.listOpen === true,
+      drawTool: isDrawTool(saved.drawTool) ? saved.drawTool : DEFAULT_DRAW_TOOL,
+      inkColor: sanitizeInk(saved.inkColor) ?? DEFAULT_INK,
+      inkWidth: isInkWidth(saved.inkWidth) ? saved.inkWidth : DEFAULT_INK_WIDTH,
+      textStyle: sanitizeTextStyle(saved.textStyle),
+      recentColors: (Array.isArray(saved.recentColors) ? saved.recentColors : [])
+        .map(normalizeHex)
+        .filter((c): c is HexColor => c !== undefined)
+        .slice(0, MAX_RECENT_COLORS),
     };
     void vscode.commands.executeCommand('setContext', FOCUS_CONTEXT, false);
     // A file: URI on purpose: globalStorageUri can have VS Code's own scheme (vscode-userdata:),
@@ -132,6 +146,16 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
   updateUiState(patch: Partial<UiState>): void {
     this.ui = { ...this.ui, ...patch };
     void this.context.globalState.update(UI_STATE_KEY, this.ui);
+  }
+
+  drawHint(shown?: boolean): boolean {
+    if (shown) this.drawHintShown = true;
+    return !this.drawHintShown;
+  }
+
+  textHint(shown?: boolean): boolean {
+    if (shown) this.textHintShown = true;
+    return !this.textHintShown;
   }
 
   toggleTheme(): void {
@@ -313,7 +337,7 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
     const target = panel.uri.toString();
     const candidates: { record: (typeof records)[number]['record']; exists: boolean }[] = [];
     for (const { record } of records) {
-      if (record.uri === target || record.highlights.length === 0) continue;
+      if (record.uri === target || (record.highlights.length === 0 && record.drawings.length === 0)) continue;
       let exists = true;
       try {
         await vscode.workspace.fs.stat(vscode.Uri.parse(record.uri));
@@ -323,9 +347,21 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
       candidates.push({ record, exists });
     }
     if (candidates.length === 0) {
-      void vscode.window.showInformationMessage('There are no other files with stored highlights.');
+      void vscode.window.showInformationMessage('There are no other files with stored highlights, drawings or text boxes.');
       return;
     }
+    const plural = (n: number, noun: string, many = `${noun}s`) => `${n} ${n === 1 ? noun : many}`;
+    const contents = (record: (typeof records)[number]['record']) => {
+      const texts = record.drawings.filter(isTextDrawing).length;
+      const inks = record.drawings.length - texts;
+      return [
+        record.highlights.length > 0 || record.drawings.length === 0 ? plural(record.highlights.length, 'highlight') : '',
+        inks > 0 ? plural(inks, 'drawing') : '',
+        texts > 0 ? plural(texts, 'text box', 'text boxes') : '',
+      ]
+        .filter(Boolean)
+        .join(', ');
+    };
     candidates.sort((a, b) => Number(a.exists) - Number(b.exists) || b.record.updatedAt.localeCompare(a.record.updatedAt));
     const pick = await vscode.window.showQuickPick(
       candidates.map(({ record, exists }) => {
@@ -333,13 +369,13 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
         return {
           label: `${exists ? '$(file)' : '$(warning)'} ${uri.path.split('/').pop()}`,
           description: record.fsPath ?? uri.toString(),
-          detail: `${record.highlights.length} highlight${record.highlights.length === 1 ? '' : 's'} · last changed ${new Date(record.updatedAt).toLocaleString()}${exists ? '' : ' · file no longer exists'}`,
+          detail: `${contents(record)} · last changed ${new Date(record.updatedAt).toLocaleString()}${exists ? '' : ' · file no longer exists'}`,
           record,
         };
       }),
       {
-        title: `Reattach highlights to ${panel.uri.path.split('/').pop()}`,
-        placeHolder: 'Pick the file whose highlights should be copied to this file (files that no longer exist are listed first)',
+        title: `Reattach highlights, drawings and text boxes to ${panel.uri.path.split('/').pop()}`,
+        placeHolder: 'Pick the file whose highlights, drawings and text boxes should be copied to this file (files that no longer exist are listed first)',
         matchOnDescription: true,
       },
     );
@@ -347,8 +383,9 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
     const added = await this.store.mergeInto(pick.record, this.refFor(panel.uri));
     await this.store.flush();
     await panel.reloadHighlights();
+    const copied = [plural(added.highlights, 'highlight'), added.drawings > 0 ? plural(added.drawings, 'drawing') : ''].filter(Boolean).join(' and ');
     void vscode.window.showInformationMessage(
-      `Copied ${added} highlight${added === 1 ? '' : 's'}. Highlights whose text is not in this file are listed as orphaned.`,
+      `Copied ${copied}. Highlights whose text is not in this file are listed as orphaned; drawings and text boxes stay at their place on the page.`,
     );
   }
 
@@ -367,6 +404,27 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
     );
     if (answer !== 'Delete All') return;
     panel.deleteAllHighlights();
+  }
+
+  /**
+   * Commands and the list's buttons: confirm, then delete every drawing ('ink') or every text box
+   * ('text') of the file (undoable in the viewer).
+   */
+  async deleteAllDrawings(panel = this.current(), kind: 'ink' | 'text' = 'ink'): Promise<void> {
+    if (!panel || panel.isDisposed) return;
+    const count = (await panel.storedDrawings()).filter((d) => isTextDrawing(d) === (kind === 'text')).length;
+    const noun = kind === 'text' ? (count === 1 ? 'text box' : 'text boxes') : count === 1 ? 'drawing' : 'drawings';
+    if (count === 0) {
+      void vscode.window.showInformationMessage(kind === 'text' ? 'This file has no text boxes.' : 'This file has no drawings.');
+      return;
+    }
+    const answer = await vscode.window.showWarningMessage(
+      `Delete all ${count} ${noun} of ${panel.uri.path.split('/').pop()}?`,
+      { modal: true, detail: 'You can bring them back with Ctrl+Z in the viewer.' },
+      'Delete All',
+    );
+    if (answer !== 'Delete All' || panel.isDisposed) return;
+    panel.deleteAllDrawings(kind);
   }
 
   async revealDataFolder(): Promise<void> {

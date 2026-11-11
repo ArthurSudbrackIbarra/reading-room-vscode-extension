@@ -1,5 +1,6 @@
 // Types shared by the extension host, the converter bundle and the webview.
 // Keep this file free of runtime dependencies so every bundle can import it.
+import type { Drawing } from './drawings';
 
 export const HIGHLIGHT_COLORS = ['yellow', 'pink', 'green', 'blue', 'orange'] as const;
 export type HighlightColor = (typeof HIGHLIGHT_COLORS)[number];
@@ -128,6 +129,11 @@ export interface StoredRecord {
   highlights: Highlight[];
   marker?: ReadingMarker;
   updatedAt: string;
+  /**
+   * Kept in a companion file next to the record (`<key>.drawings.json`), never in the record file
+   * itself: 0.4.x rebuilds records from the fields it knows and would erase them.
+   */
+  drawings: Drawing[];
 }
 
 /** Page margins used by the converter. The viewer uses them to drop header/footer text from the text model. */

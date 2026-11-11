@@ -1,8 +1,8 @@
 # Document Viewer & Highlighter
 
-**A quiet reading room inside VS Code.** Open Markdown, plain text and PDF files as real PDFs, highlight what matters, write notes next to it, mark where you stopped, and read to the sound of rain, a crackling fireplace or your own recordings.
+**A quiet reading room inside VS Code.** Open Markdown, plain text and PDF files as real PDFs, highlight what matters, write notes next to it, draw and type on the page, mark where you stopped, and read to the sound of rain, a crackling fireplace or your own recordings.
 
-![A Markdown file next to its PDF in the viewer: highlights in four colors, two notes, the red reading marker and the list of highlights](docs/demo.png)
+![A Markdown file next to its PDF in the viewer: highlights in four colors, two notes, three drawings (a purple underline, a blue arrow and a red ellipse), a blue text box at the tail of the arrow, the red reading marker and the list of annotations](docs/demo.png)
 
 ## Features
 
@@ -13,8 +13,10 @@
 
 **Highlight and annotate**
 - Highlight text in **five colors** and write a **note** on any highlight.
+- **Draw** anywhere on a page: pen strokes, lines, arrows, rectangles and ellipses, in any color and three widths.
+- **Type** anywhere on a page: text boxes in any color and size, bold, italic or underlined, aligned left, centered, right or justified.
 - Highlights hold on to the text itself, so they follow your edits to Markdown and text files.
-- A side list shows every highlight and note; click one to jump to it.
+- A side list shows every highlight, note, drawing and text box; click one to jump to it.
 - **Undo and redo** all of it with `Ctrl+Z` / `Ctrl+Y`.
 
 **Keep your place**
@@ -24,17 +26,17 @@
 - **Reading sounds**: ten recordings of rain and fireplaces, or your own audio files, looping seamlessly for as long as you read, with play/pause and volume in a small panel that disappears when you click away.
 
 **Take it with you**
-- **Download** the PDF with your highlights and notes as standard PDF annotations, which Acrobat, Edge, Chrome, Firefox and Preview all show.
+- **Download** the PDF with your highlights, notes, drawings and text boxes as standard PDF annotations, which Acrobat, Edge, Chrome, Firefox and Preview all show.
 
 **Leaves your files alone**
-- Highlights, notes and reading positions are stored per file **outside your workspace**, and survive restarts, edits and renames.
+- Highlights, notes, drawings, text boxes and reading positions are stored per file **outside your workspace**, and survive restarts, edits and renames.
 - **The extension never writes to your documents and never creates files in your workspace.** The only file it writes outside its own storage folder is a PDF you download, where you choose.
 
 ## Contents
 
 - [Install](#install)
 - [Requirements](#requirements)
-- [Using it](#using-it): opening documents, highlights, notes, the reading marker, [reading sounds](#reading-sounds), undo, download
+- [Using it](#using-it): opening documents, highlights, notes, [drawing](#drawing), [text boxes](#text-boxes), the reading marker, [reading sounds](#reading-sounds), undo, download
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Settings](#settings)
 - [Where your data is stored (backup and reset)](#where-your-data-is-stored-backup-and-reset)
@@ -63,7 +65,7 @@ The extension is installed from a `.vsix` file that you build yourself; it is no
 3. Install it:
 
    ```bash
-   code --install-extension markdown-pdf-viewer-0.4.0.vsix --force
+   code --install-extension markdown-pdf-viewer-0.6.0.vsix --force
    ```
 
 Then reload VS Code (**Developer: Reload Window**) or open a new window. Installing a newer `.vsix` replaces the previous version and keeps your highlights. The extension ID is still `local.markdown-pdf-viewer`, from the days it only handled Markdown.
@@ -107,17 +109,21 @@ For Markdown and text files:
 
 | Control | What it does |
 |---|---|
-| ☰ | Show or hide the list of highlights, notes and the reading position |
+| ☰ | Show or hide the list of annotations: the reading position, highlights with their notes, drawings and text boxes |
 | ↑ ↓, page box | Previous/next page, go to a page |
 | − / zoom list / + / ↺ | Zoom out, choose a zoom (Fit Width, Fit Page, Actual Size, 50 %–400 %), zoom in, reset to Fit Width |
-| ✎ | **Highlight tool**: while it is on, every text selection becomes a highlight |
+| 🖍 (highlighter) | **Highlight tool**: while it is on, every text selection becomes a highlight. The band under the marker shows the current color |
 | ● ● ● ● ● | Highlight color: yellow (default), pink, green, blue, orange. The last color you used is remembered |
+| ✏️ (pencil) | **Draw**: turns drawing on, with a second row of drawing tools (see [Drawing](#drawing)). The band under the pencil shows the current ink |
+| T | **Text**: turns adding text on, with a second row of text tools (see [Text boxes](#text-boxes)). The band under the T shows the color new text gets |
 | 🔖 ▾ | **Reading marker**: click, then click the line where you stopped reading. The menu also has *Go to* and *Remove* |
 | 🎧 | **Reading sounds**: opens a small panel to play rain, a fireplace or your own sounds, pick the recording, pause and set the volume. A dot on the button means a sound is playing |
 | ◐ | **Light/dark pages** (remembered for all files). Downloads always use normal light pages |
 | ⟳ | Convert again (Markdown/text) or reload from disk (PDF) |
 | ⤢ | **Full view** (Markdown/text): move the PDF between "next to the source" and "in the source's editor group". Works with **View: Toggle Maximized Editor Group** and **Zen Mode** |
-| ⤓ ▾ | Download the PDF, with highlights and notes (default) or without |
+| ⤓ ▾ | Download the PDF, with highlights, notes, drawings and text boxes (default) or without any annotations |
+
+The highlight tool, drawing, adding text and placing the reading marker exclude each other: turning one on turns the others off.
 
 Zoom also works with **Ctrl + mouse wheel** and **trackpad pinch**. Pages are re-rendered sharply at every zoom level and when the VS Code window zoom or the monitor's scale changes.
 
@@ -126,7 +132,7 @@ Zoom also works with **Ctrl + mouse wheel** and **trackpad pinch**. Pages are re
 - **Highlight tool on**: select text; it is highlighted in the current color.
 - **Highlight tool off**: select text and a small bar appears next to the selection. Pick a color, or use 💬 to highlight and write a note right away, or 🔖 to mark that line as your reading position. You can also select text and click a color in the toolbar.
 - **Click a highlight** to change its color, add or edit its note, copy its text, or delete it.
-- The **☰ list** shows your reading position at the top, then all highlights in document order with their notes and page. Click one to jump to it.
+- The **☰ list** (*Annotations*) shows your reading position at the top, then all highlights in document order with their notes and page, then your drawings and text boxes. Click one to jump to it.
 
 Highlights are attached to the *text*, not to a position on the page. Each one stores the highlighted words plus some text before and after (a W3C Web Annotation *TextQuoteSelector*), with the page and position as hints. Every time the PDF changes, the extension searches for each highlight again, so highlights follow the text when you edit a Markdown or text file. If the text was rewritten so much that it can't be found, the highlight is kept and listed under **Orphaned**, where you can copy its text or delete it.
 
@@ -137,6 +143,52 @@ Every highlight can carry a note, for example why you highlighted it.
 - **Add or edit**: click the highlight, then 💬 (or click the note text). Type, then press **Ctrl+Enter** or click **Save**. Clicking anywhere else also saves; **Esc** cancels. An empty note removes it.
 - **See them**: highlights with a note have a darker underline and a 💬 badge in the right margin. Hover over either to read the note, or click the badge to edit it. The ☰ list shows every note under its highlight.
 - **Download**: each note becomes the comment of its PDF annotation, so other PDF readers show it in their comment popups and comment lists.
+
+### Drawing
+
+Circle a figure, underline a line, point at something with an arrow, scribble in the margin. Drawing works on any page of Markdown, text and PDF files (scanned and password-protected ones too): over text, pictures, tables, empty space and your other annotations, on light and dark pages, at any zoom.
+
+Click ✏️ **Draw** in the toolbar (or run **Document Viewer: Toggle Drawing**). A second row of tools appears under the toolbar, and every drag on a page draws:
+
+<img src="docs/drawing-bar.png" alt="The toolbar with drawing on: the pencil button is pressed and its band shows the red ink; the highlight colors are dimmed. Below it, the drawing bar: the tools (pen, line, arrow, rectangle, ellipse, eraser), the ink color (a red dot that opens the color picker), three widths and a Done button on the right" width="870">
+
+| Tool | Key | Draws | With Shift |
+|---|---|---|---|
+| Pen | `P` | A smoothed line that follows the pointer. A click leaves a dot | |
+| Line | `L` | A straight line from where you press to where you let go | The angle snaps to 15° steps |
+| Arrow | `A` | A line with an open arrowhead at the end | The angle snaps to 15° steps |
+| Rectangle | `R` | The outline of the box you drag | A square |
+| Ellipse | `O` | The outline of an ellipse inside the box you drag | A circle |
+| Eraser | `E` | Click or drag over drawings to delete them (whole drawings). What it will delete dims first | |
+
+- **Ink**: the colored dot opens the **color picker**. Pick one of ten colors, one of your recent colors, or any color: drag in the square (saturation and brightness) and along the rainbow (hue), or type its hex code. The arrow keys move through the colors, and **Esc** closes the picker. On dark pages a dark ink is drawn lighter so it stays visible (black shows up light); downloads always use the color you picked.
+- **Width**: thin, medium or thick. The last tool, ink and width are remembered for all files.
+- **Stop drawing** with **Esc**, **Done** or ✏️. Esc while dragging cancels only that shape.
+
+<img src="docs/color-picker.png" alt="The color picker: ten colors in two rows (black, gray, red, orange, yellow, green, teal, blue, purple, pink), red picked; below, a saturation and brightness square, a rainbow hue slider and the hex code #D1242F" width="202">
+- While drawing, links, text selection and the highlight and note popups take a break; the mouse wheel still scrolls, and `Ctrl`+wheel and the zoom keys still zoom. Mouse, pen and touch all work.
+
+**Change a drawing** (with drawing off): click its line. It gets a dashed outline and a small bar to pick another **ink** (the same color picker; the drawing shows each color as you drag) or **width**, or to **delete** it (**Delete** and **Backspace** do too; **Esc** deselects). **Drag** a selected drawing to move it on its page; to resize one, draw it again. Clicking *inside* a rectangle or an ellipse does not select it, so the text inside stays selectable. Where drawings overlap, a click picks the smallest; a drawing over a highlight wins the click, because it is on top.
+
+The ☰ list has a **Drawings** section with a small picture of each drawing: click one to go to it, or 🗑 to delete it. The section's own 🗑 (or **Document Viewer: Delete All Drawings for This File**) deletes all drawings of the file, after asking. Everything can be undone with `Ctrl+Z`; one eraser drag is one undo step.
+
+Drawings stay where you drew them on their page. When a Markdown or text file is converted again they keep their place on the page; unlike highlights, they do not follow the text yet. A drawing on a page the document no longer has is kept and listed, but not shown.
+
+### Text boxes
+
+Write a word in the margin, label an arrow, add a correction. Click **T** in the toolbar (or run **Document Viewer: Toggle Adding Text**). A row of text tools appears under the toolbar:
+
+<img src="docs/text-bar.png" alt="The toolbar with adding text on: the T button is pressed. Below it, the text bar: the font size (12), bold, italic and underline, the four alignments (left is on), the text color (a black dot that opens the color picker) and a Done button on the right" width="870">
+
+- **Click** on a page and type. The box grows as you type and wraps at the right edge of the page; **Enter** starts a new line.
+- **Drag** across a page instead to choose the box's width first: the text wraps inside it. Justified text needs a box like that.
+- **Size, bold, italic, underline, alignment and color** apply to the whole box: set them before you click, or while you type (**Ctrl+B**, **Ctrl+I** and **Ctrl+U** work too). New boxes get the last style you picked.
+- **Esc**, **Ctrl+Enter** or a click anywhere else ends typing. A box whose text you erase is deleted (and **Ctrl+Z** brings it back).
+- **Stop adding text** with **Esc** (when you are not typing), **Done** or **T**.
+
+**Change a text box**: in text mode, click its text to type in it (the caret goes where you click), or drag it to move it. With text mode off, click a box to select it: a small bar changes its color, size, format and alignment, edits it (✎, **Enter** or a double click) or deletes it (🗑, **Delete** or **Backspace**); drag it to move it. A selected box has a handle on each side: drag one to make the box wider or narrower.
+
+Text boxes are listed in the ☰ list under **Text boxes**, with their first words: click one to go to it. The section's 🗑 (or **Document Viewer: Delete All Text Boxes for This File**) deletes them all, after asking. Typing in a box, moving it, resizing it and every change of style are each one undo step. Like drawings, text boxes stay at their place on the page and read left to right on screen, also on pages turned by a PDF's /Rotate. The eraser leaves them alone.
 
 ### Where you stopped reading
 
@@ -149,7 +201,7 @@ The reading marker is a red line with a bookmark tab, at the line where you stop
 
 ### Reading sounds
 
-<img src="docs/reading-sounds.png" alt="The reading sounds panel below the toolbar: Rain is chosen and playing the Half-open window recording, with four other rain recordings listed below it, a pause button and a volume slider at 70 %" width="328">
+<img src="docs/reading-sounds.png" alt="The reading sounds panel below the toolbar: Rain is chosen, and the Half-open window recording plays (small bars beside it), with four other rain recordings listed below it, a pause button and a volume slider at 70 %" width="328">
 
 Click 🎧 in the toolbar to open the panel:
 - **Pick a kind of sound**: **Rain**, **Fireplace** or **Custom** (your own). It starts right away with a short fade-in; picking another one crossfades to it.
@@ -179,13 +231,15 @@ Under **Custom**, **Add sound files…** (or the command **Document Viewer: Add 
 
 ### Undo and redo
 
-`Ctrl+Z` undoes the last change to your highlights, notes and reading marker, and `Ctrl+Y` or `Ctrl+Shift+Z` redoes it (`Cmd+Z` and `Cmd+Shift+Z` on macOS). That covers:
+`Ctrl+Z` undoes the last change to your highlights, notes, drawings and reading marker, and `Ctrl+Y` or `Ctrl+Shift+Z` redoes it (`Cmd+Z` and `Cmd+Shift+Z` on macOS). That covers:
 - creating, recoloring and deleting highlights
 - adding, editing and removing notes
+- drawing, moving, recoloring, changing the width of, deleting and erasing drawings
+- adding, typing in, moving, resizing, restyling and deleting text boxes
 - placing, moving and removing the marker
-- **Delete All Highlights**
+- **Delete All Highlights**, **Delete All Drawings** and **Delete All Text Boxes**
 
-The viewer scrolls to the change and tells you what was undone. After deleting something, a message at the bottom also offers **Undo**. While you are typing a note, `Ctrl+Z` undoes the typing instead. The history lasts while the viewer is open.
+The viewer scrolls to the change and tells you what was undone. After deleting something, a message at the bottom also offers **Undo**. While you are typing a note or in a text box, `Ctrl+Z` undoes the typing instead. The history lasts while the viewer is open.
 
 ### Dark pages
 
@@ -194,14 +248,14 @@ The viewer scrolls to the change and tells you what was undone. After deleting s
 
 ### Password-protected PDFs
 
-The viewer asks for the password and keeps it in memory only while the PDF is open. When you download such a PDF with highlights, the copy is saved **without** password protection, and the confirmation says so.
+The viewer asks for the password and keeps it in memory only while the PDF is open. When you download such a PDF with annotations, the copy is saved **without** password protection, and the confirmation says so.
 
 ### Download
 
 **Download** opens a save dialog in your Downloads folder.
-- **Name**: `<file name>.pdf` for Markdown and text files, and `<file name> (highlighted).pdf` or `(copy).pdf` for PDF files. The viewer never overwrites the document you are viewing.
-- **With highlights** (the default): each highlight becomes a real PDF highlight annotation, with its color at 40 % opacity and its note as the comment (the highlighted text when there's no note). Acrobat, Edge, Chrome, Firefox, SumatraPDF, Preview and other readers show them. Links stay clickable.
-- **Download without highlights** saves the plain PDF.
+- **Name**: `<file name>.pdf` for Markdown and text files, and `<file name> (annotated).pdf` or `(copy).pdf` for PDF files. The viewer never overwrites the document you are viewing.
+- **With annotations** (the default): each highlight becomes a real PDF highlight annotation, with its color at 40 % opacity and its note as the comment (the highlighted text when there's no note). Each drawing becomes an ink, line (with an arrowhead for arrows), square or circle annotation in its light-page ink, drawn exactly as on screen. Each text box becomes a free text annotation with the same lines as on screen, in Helvetica (one of the fonts every PDF reader has), with its size, style, alignment and color. Acrobat, Edge, Chrome, Firefox, SumatraPDF, Preview and other readers show them, and the ones that edit annotations can change them. Links stay clickable.
+- **Download PDF without Annotations** saves the plain PDF.
 
 ## Keyboard shortcuts
 
@@ -209,10 +263,18 @@ The viewer asks for the password and keeps it in memory only while the PDF is op
 |---|---|---|
 | `Ctrl+K Shift+P` (macOS `Cmd+K Shift+P`) | Open PDF Preview to the Side | A Markdown or `.txt` editor is focused |
 | `Ctrl+Shift+Alt+P` (macOS `Cmd+Shift+Alt+P`) | Open PDF Preview (current group) | A Markdown or `.txt` editor is focused |
-| `Ctrl+Z` | Undo the last highlight, note or marker change | The viewer is focused |
+| `Ctrl+Z` | Undo the last highlight, note, drawing, text box or marker change | The viewer is focused |
 | `Ctrl+Y`, `Ctrl+Shift+Z` | Redo | The viewer is focused |
 | `Ctrl+Enter` | Save the note | Writing a note |
-| `Esc` | Cancel the note, stop placing the marker, close popups | The viewer is focused |
+| `Esc` | Cancel the note, stop placing the marker, deselect a drawing, close popups | The viewer is focused |
+| `P`, `L`, `A`, `R`, `O`, `E` | Pen, Line, Arrow, Rectangle, Ellipse, Eraser | Drawing is on |
+| `Shift` (held) | Lines and arrows in 15° steps; squares and circles | Drawing a shape |
+| `Esc` | Cancel the shape being drawn; otherwise stop drawing | Drawing is on |
+| `Ctrl+B`, `Ctrl+I`, `Ctrl+U` | Bold, italic, underline | Typing in a text box |
+| `Esc`, `Ctrl+Enter` | Stop typing in the text box | Typing in a text box |
+| `Esc` | Stop adding text | Adding text is on, not typing |
+| `Enter` | Type in the selected text box | A text box is selected |
+| `Delete`, `Backspace` | Delete the selected drawing or text box | A drawing or text box is selected |
 | `Ctrl+=`, `Ctrl+Shift+=`, `Ctrl+Numpad+` | Zoom in (PDF) | The viewer is focused |
 | `Ctrl+-`, `Ctrl+Shift+-`, `Ctrl+Numpad-` | Zoom out (PDF) | The viewer is focused |
 | `Ctrl+0`, `Ctrl+Numpad0` | Reset zoom to Fit Width (PDF) | The viewer is focused |
@@ -225,10 +287,13 @@ When focus is anywhere else, `Ctrl+=`, `Ctrl+-` and `Ctrl+Numpad0` zoom the whol
 All commands are in the Command Palette under **Document Viewer:**. Besides the ones above, there are:
 - *Mark Where I Stopped Reading*, *Go to Where I Stopped Reading*, *Remove the Reading Marker*
 - *Play/Pause Reading Sounds*, *Add Reading Sounds from Files…*
-- *Undo/Redo Highlight, Note or Marker Change*
-- *Toggle Light/Dark Pages*, *Toggle Highlight Tool*, *Toggle Highlights List*
-- *Reattach Highlights from Another File…*, *Delete All Highlights for This File*
+- *Undo/Redo Highlight, Note, Marker, Drawing or Text Change*
+- *Toggle Light/Dark Pages*, *Toggle Highlight Tool*, *Toggle Drawing*, *Toggle Adding Text*, *Toggle Annotations List*
+- *Reattach Highlights from Another File…* (drawings and text boxes come along), *Delete All Highlights for This File*, *Delete All Drawings for This File*, *Delete All Text Boxes for This File*
+- *Download PDF*, *Download PDF without Annotations*
 - *Clear Cached PDFs*, *Reveal Highlight Data Folder*, *Show Log*
+
+None of the drawing and text commands has a shortcut; you can give them one.
 
 ## Settings
 
@@ -257,9 +322,9 @@ Everything lives in VS Code's **global storage** for this extension, never in yo
 
 With a non-default VS Code profile the folder is under `User/profiles/<profile id>/globalStorage/…`; **Document Viewer: Reveal Highlight Data Folder** opens the right one. Insiders builds use `Code - Insiders` instead of `Code`.
 
-Small preferences (the last highlight color, light or dark pages, the chosen reading sounds and their volume) are kept in VS Code's own state for the extension rather than in these folders.
+Small preferences (the last highlight color, the last drawing tool, ink and width, the last text style, your recent custom colors, light or dark pages, the chosen reading sounds and their volume) are kept in VS Code's own state for the extension rather than in these folders.
 
-### `highlights/`: highlights, notes, reading position, zoom
+### `highlights/`: highlights, notes, drawings, text boxes, reading position, zoom
 
 There is one JSON file per document, named after a SHA-256 hash of the file's absolute path. Shortened:
 
@@ -289,12 +354,29 @@ There is one JSON file per document, named after a SHA-256 hash of the file's ab
 }
 ```
 
+A document's drawings and text boxes are in a second file next to it, `<same hash>.drawings.json`, in PDF units of their page (so zooming never changes them). A drawing records its tool, color (a color name such as `red`, or a color you picked, such as `#1F77B4`) and width, its page, its points and the text of the render it was drawn on (a hash). A text box records its text, its top left corner, its style and, if you set one, its width. Shortened:
+
+```json
+{
+ "schemaVersion": 1,
+ "uri": "file:///c%3A/Users/me/papers/article.pdf",
+ "drawings": [
+  { "id": "9b1f…", "tool": "arrow", "color": "red", "width": "medium", "pageIndex": 0,
+    "points": [[72.5, 640.2], [160.25, 702.8]], "createdAt": "2026-11-10T20:15:00.000Z", "updatedAt": "…", "textModelHash": "…" },
+  { "id": "4c2e…", "tool": "text", "pageIndex": 0, "points": [[180, 655.4]], "text": "Test yourself\ninstead of re-reading",
+    "size": 12, "bold": true, "italic": false, "underline": false, "align": "left", "color": "#0969DA", "createdAt": "…", "updatedAt": "…" }
+ ]
+}
+```
+
+Keeping drawings in their own file means going back to version 0.4, which rewrites the first file with only the fields it knows, cannot erase them. (Version 0.5 does not know text boxes or picked colors: if you go back to it, it drops those when it saves the file.)
+
 - **Back up**: copy the `highlights` folder. To restore, copy the files back while VS Code is closed.
-- **Reset one file**: run **Document Viewer: Delete All Highlights for This File** from its viewer (you can undo it with `Ctrl+Z`), or delete its JSON file.
+- **Reset one file**: run **Document Viewer: Delete All Highlights for This File**, **Delete All Drawings for This File** or **Delete All Text Boxes for This File** from its viewer (you can undo them with `Ctrl+Z`), or delete its JSON files.
 - **Reset everything**: delete the `highlights` folder.
 - Files are written atomically (temporary file + flush + rename), so a crash never leaves a half-written file. If a file is ever unreadable, it is renamed to `….corrupt-<time>.json` and you get a warning.
-- **Renames**: when you rename or move a document (or a folder) inside VS Code, its data follows it. If you renamed it outside VS Code (File Explorer, `git mv`), open the new file in the viewer, run **Document Viewer: Reattach Highlights from Another File…** and pick the old entry. Files that no longer exist are listed first. Data of deleted files is kept, so you can reattach it later.
-- Global storage is per VS Code profile, so highlights made in one profile are not visible in another.
+- **Renames**: when you rename or move a document (or a folder) inside VS Code, its data follows it, drawings and text boxes included. If you renamed it outside VS Code (File Explorer, `git mv`), open the new file in the viewer, run **Document Viewer: Reattach Highlights from Another File…** and pick the old entry; its highlights, drawings and text boxes are copied. Files that no longer exist are listed first. Data of deleted files is kept, so you can reattach it later.
+- Global storage is per VS Code profile, so highlights, drawings and text boxes made in one profile are not visible in another.
 
 ### `cache/`: converted PDFs
 
@@ -358,7 +440,7 @@ npm run build
 | Script | Purpose |
 |---|---|
 | `npm run build` / `npm run watch` | Bundles `dist/extension.js` (CommonJS), `dist/converter/` (lazy-loaded ESM) and `dist/webview/`, and copies assets |
-| `npm test` | Unit tests: highlight store, notes and marker, PDF cache, undo stack, reading sounds (coordination, your own sounds, loudness), text conversion, anchoring, text model, write guard |
+| `npm test` | Unit tests: highlight store, drawings (geometry and page rotation checked against pdf.js, checks on load, storage with a round trip through the 0.4.0 store code, annotations read back with pdf.js), colors (shades on dark pages, conversions), text boxes (checks on load, wrapping, free text annotations read back with pdf.js, rotated pages), notes and marker, PDF cache, undo stack, reading sounds (coordination, your own sounds, loudness), text conversion, anchoring, text model, write guard |
 | `npm run test:converter` | Renders the feature test and a text file with the installed browser and checks the PDFs with pdf.js |
 | `npm run typecheck` | TypeScript type check |
 | `npm run sounds` | Rebuilds the built-in reading sounds in `media/sounds/` from their Freesound recordings: cuts the loops, all at −16 LUFS. Only needed to change them, since the loops are in the repository. Needs ffmpeg with libvorbis; downloads are cached in the temp folder. `npm run sounds -- --force` rebuilds, and sound ids (`-- --force rain-roof-window`) limit it to those |
@@ -372,11 +454,13 @@ Source layout:
 |---|---|
 | `src/converter/` | Markdown/text → HTML → PDF; no `vscode` dependency |
 | `src/preview/` | Viewers (preview panels and the PDF custom editor), commands, rendering, downloads |
-| `src/store/` | Highlight, note and marker storage; your own reading sounds |
+| `src/store/` | Highlight, note, drawing, text box and marker storage; your own reading sounds |
 | `src/cache/` | The disk cache of converted PDFs |
 | `src/anchoring/` | Text model and quote matching, shared with the viewer |
-| `src/export/` | PDF annotations, the Downloads folder |
-| `webview/` | The PDF.js-based viewer: highlights, notes, reading marker, undo stack, dark pages, reading sounds |
+| `src/shared/` | Types, messages, colors, and the drawing and text box model and geometry, shared by the extension and the viewer |
+| `src/export/` | PDF annotations (text boxes in `textBox.ts`), the Downloads folder |
+| `webview/` | The PDF.js-based viewer: highlights, notes, drawings, text boxes, the color picker, reading marker, undo stack, dark pages, reading sounds |
+| `test/fixtures/store-0.4.0/` | The 0.4.0 store code, for the downgrade test |
 | `media/sounds/` | The built-in reading sound loops |
 | `scripts/` | `fetch-sounds.mjs`, which makes the reading sound loops |
 | `docs/` | The pictures in this README |
@@ -392,7 +476,10 @@ The loops are Ogg Vorbis because VS Code's built-in Chromium cannot play Opus or
 - Annotations already inside a PDF are displayed but are not editable as highlights.
 - Dark pages for PDF files are a color inversion. Diagrams that the PDF stores as pictures keep their light background.
 - Renames done outside VS Code are not detected automatically (use *Reattach Highlights*).
-- Highlights, notes and markers are per VS Code profile, and the undo history lasts while the viewer is open.
+- Drawings and text boxes keep their place on the page: when an edit moves the text of a Markdown or text file, they do not follow it (highlights and the marker do). There is no pressure sensitivity, and a drawing or text box cannot span two pages.
+- A text box has one style for all its text (no bold word inside plain text), and one font. In downloads, characters that Helvetica's standard character set lacks (most symbols outside Western European languages, and emoji) appear as "?"; the download's message says how many. The annotation's comment keeps the real text.
+- If you go back to version 0.4 and rename a file there, its drawings stay under the old name; *Reattach Highlights* in this version brings them back.
+- Highlights, notes, drawings, text boxes and markers are per VS Code profile, and the undo history lasts while the viewer is open.
 - Reading sounds play only while at least one viewer is open, since a viewer produces the audio. Each VS Code window plays its own.
 - Emoji depend on the system's emoji font (built in on Windows and macOS; install Noto Color Emoji on Linux).
 - `file:///` links in a downloaded PDF point to absolute paths on your machine, so they only work there.
@@ -416,4 +503,4 @@ The built-in reading sounds are four-minute loops cut from these recordings on [
 
 The loops were made with `npm run sounds` (see [Development](#development)): a stretch of each recording, evened out to the same loudness, with its end blended into its start.
 
-The viewer is built on [PDF.js](https://mozilla.github.io/pdf.js/). Conversion uses [markdown-it](https://github.com/markdown-it/markdown-it), [Shiki](https://shiki.style/), [KaTeX](https://katex.org/) and [Mermaid](https://mermaid.js.org/), and downloads are annotated with [pdf-lib](https://github.com/cantoo-scribe/pdf-lib). Icons are VS Code's [Codicons](https://github.com/microsoft/vscode-codicons).
+The viewer is built on [PDF.js](https://mozilla.github.io/pdf.js/). Conversion uses [markdown-it](https://github.com/markdown-it/markdown-it), [Shiki](https://shiki.style/), [KaTeX](https://katex.org/) and [Mermaid](https://mermaid.js.org/), and downloads are annotated with [pdf-lib](https://github.com/cantoo-scribe/pdf-lib). Icons are VS Code's [Codicons](https://github.com/microsoft/vscode-codicons), plus a few drawn for the viewer (the highlighter, the pencil, the drawing and text tools, the reading sounds).

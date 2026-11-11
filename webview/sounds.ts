@@ -33,6 +33,7 @@ import {
 } from '../src/shared/sounds';
 import type { CustomSoundView } from '../src/shared/messages';
 import { h, icon, placeFloating } from './dom';
+import { svg } from './icons';
 import { UndecodableError, dbToGain, measureFile } from './loudness';
 
 export interface SoundSource {
@@ -61,25 +62,6 @@ export function canPlaySounds(): boolean {
 }
 
 // ---------- Icons (drawn here; codicons has no headphones, rain or flame) ----------
-
-const SVG_NS = 'http://www.w3.org/2000/svg';
-type SvgPart = [tag: string, attrs: Record<string, string>];
-
-function svg(viewBox: string, size: number, parts: SvgPart[], className?: string): SVGSVGElement {
-  const el = document.createElementNS(SVG_NS, 'svg');
-  el.setAttribute('viewBox', viewBox);
-  el.setAttribute('width', String(size));
-  el.setAttribute('height', String(size));
-  el.setAttribute('aria-hidden', 'true');
-  el.setAttribute('focusable', 'false');
-  if (className) el.setAttribute('class', className);
-  for (const [tag, attrs] of parts) {
-    const child = document.createElementNS(SVG_NS, tag);
-    for (const [key, value] of Object.entries(attrs)) child.setAttribute(key, value);
-    el.append(child);
-  }
-  return el;
-}
 
 const LINE = { fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
 
@@ -825,7 +807,6 @@ class SoundsPanel {
         { class: 'mpv-sound-tile', type: 'button', role: 'radio', 'aria-checked': 'false', 'data-category': category, tabindex: '-1' },
         CATEGORY_ICONS[category](),
         h('span', { class: 'mpv-sound-name', text: CATEGORY_LABELS[category] }),
-        equalizer(),
       );
       tile.addEventListener('click', () => this.chooseCategory(category));
       tile.addEventListener('keydown', (e) => this.onTileKey(e, category));
@@ -945,7 +926,6 @@ class SoundsPanel {
       const shown = category === this.shown;
       tile.setAttribute('aria-checked', String(shown));
       tile.tabIndex = shown ? 0 : -1;
-      tile.classList.toggle('mpv-sound-playing', category === playingCategory);
       const name = CATEGORY_LABELS[category].toLowerCase();
       tile.title = category === playingCategory ? `Playing: ${this.nameOf(state?.sound)}` : category === 'custom' ? 'Your own sounds' : `Play ${name} sounds`;
     }

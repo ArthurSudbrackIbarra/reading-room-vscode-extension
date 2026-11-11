@@ -20,7 +20,13 @@ export interface PageViewLike {
   id: number;
   div: HTMLDivElement;
   viewport: { width: number; height: number; scale: number };
-  pdfPage?: { view: number[] };
+  /** The PDF.js page proxy (its box, /Rotate and user unit), once PDF.js has fetched the page. */
+  pdfPage?: {
+    view: number[];
+    rotate?: number;
+    userUnit?: number;
+    getViewport?(params: { scale: number }): { width: number; height: number; transform: number[] };
+  };
   textLayer?: { div: HTMLDivElement } | null;
   /** Images drawn on the page: 6 numbers each (three corners, as fractions of the page). */
   imageCoordinates?: ArrayLike<number> | null;

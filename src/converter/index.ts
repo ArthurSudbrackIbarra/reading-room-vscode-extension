@@ -1,6 +1,6 @@
 // Entry point of the lazily loaded converter bundle (dist/converter/index.mjs).
 // It has no dependency on the `vscode` module: the host passes in everything it needs.
-import { addHighlightAnnotations, paintPageBackground, type AnnotationInput } from '../export/annotate';
+import { annotate, paintPageBackground, type AnnotatedPdf, type AnnotationInput, type ExportAnnotations } from '../export/annotate';
 import { BrowserManager } from './chromium';
 import { prepareHighlighter } from './highlight';
 import { parseMarkdown, renderParsed } from './markdown';
@@ -11,7 +11,7 @@ import type { ConverterOptions, RenderRequest, RenderResult, ResolvedBrowser } f
 import { documentUrl } from './urls';
 
 export * from './types';
-export type { AnnotationInput };
+export type { AnnotatedPdf, AnnotationInput, ExportAnnotations };
 
 /** Page color of the dark theme; must match `--bg` in print.css. */
 const DARK_PAGE_BACKGROUND = '#0d1117';
@@ -113,6 +113,6 @@ export class Converter {
   }
 }
 
-export async function annotatePdf(pdf: Uint8Array, highlights: AnnotationInput[], password?: string): Promise<Uint8Array> {
-  return addHighlightAnnotations(pdf, highlights, password);
+export async function annotatePdf(pdf: Uint8Array, annotations: ExportAnnotations, password?: string): Promise<AnnotatedPdf> {
+  return annotate(pdf, annotations, password);
 }

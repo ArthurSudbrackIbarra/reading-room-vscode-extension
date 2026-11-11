@@ -19,7 +19,12 @@ export function activate(context: vscode.ExtensionContext): void {
     log,
     onCorrupt: (ref, movedTo) => {
       void vscode.window.showWarningMessage(
-        `Document Viewer: the stored highlights of ${ref.uri.split('/').pop()} were unreadable. The file was kept as ${movedTo}.`,
+        `Document Viewer: the stored annotations of ${ref.uri.split('/').pop()} were unreadable. The file was kept as ${movedTo}.`,
+      );
+    },
+    onSimplified: (ref, count) => {
+      void vscode.window.showWarningMessage(
+        `Document Viewer: ${count} drawing${count === 1 ? '' : 's'} or text box${count === 1 ? '' : 'es'} of ${ref.uri.split('/').pop()} ${count === 1 ? 'was' : 'were'} larger than allowed (too many points, or too much text) and ${count === 1 ? 'was' : 'were'} shortened to fit.`,
       );
     },
   });
@@ -51,6 +56,10 @@ export function activate(context: vscode.ExtensionContext): void {
     'markdownPdfViewer.zoomOut': withPanel((p) => p.zoom('out')),
     'markdownPdfViewer.zoomReset': withPanel((p) => p.zoom('reset')),
     'markdownPdfViewer.toggleHighlightTool': withPanel((p) => p.toggleTool()),
+    'markdownPdfViewer.toggleDrawing': withPanel((p) => p.toggleDrawing()),
+    'markdownPdfViewer.toggleText': withPanel((p) => p.toggleText()),
+    'markdownPdfViewer.deleteAllDrawings': () => m.deleteAllDrawings(undefined, 'ink'),
+    'markdownPdfViewer.deleteAllTextBoxes': () => m.deleteAllDrawings(undefined, 'text'),
     'markdownPdfViewer.toggleHighlightsList': withPanel((p) => p.toggleList()),
     'markdownPdfViewer.toggleDarkMode': () => m.toggleTheme(),
     'markdownPdfViewer.undo': withPanel((p) => p.undo()),

@@ -241,7 +241,7 @@ describe('HighlightStore', () => {
     const listed = await store.list();
     expect(listed).toHaveLength(1);
     const target = winRef('C:\\New\\found.md');
-    expect(await store.mergeInto(listed[0].record, target)).toBe(1);
+    expect(await store.mergeInto(listed[0].record, target)).toEqual({ highlights: 1, drawings: 0 });
     await store.flush();
     expect((await newStore().get(target)).highlights).toHaveLength(1);
   });
