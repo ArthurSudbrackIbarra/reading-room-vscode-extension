@@ -56,10 +56,7 @@ function scoreCandidate(text: string, quote: TextQuoteSelector, hint: number | u
   if (hint !== undefined && hint >= 0 && text.length > 0) {
     positionScore = 1 - Math.min(1, Math.abs(m.start - hint) / text.length);
   }
-  return (
-    (WEIGHTS.quote * quoteScore + WEIGHTS.prefix * prefixScore + WEIGHTS.suffix * suffixScore + WEIGHTS.position * positionScore) /
-    MAX_SCORE
-  );
+  return (WEIGHTS.quote * quoteScore + WEIGHTS.prefix * prefixScore + WEIGHTS.suffix * suffixScore + WEIGHTS.position * positionScore) / MAX_SCORE;
 }
 
 function best(text: string, quote: TextQuoteSelector, hint: number | undefined, candidates: Candidate[]): QuoteMatch | null {

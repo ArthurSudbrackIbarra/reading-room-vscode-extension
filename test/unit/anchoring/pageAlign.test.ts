@@ -1,6 +1,16 @@
 // Matching the pages of a replaced PDF file to the pages before (B20, C2, E9, G5).
 import { describe, expect, it } from 'vitest';
-import { IMAGE_MAX_DISTANCE, alignPages, differenceHash, hashDistance, pageTextHash, parseSignature, samePage, signatureKey, type PageSignature } from '../../../src/anchoring/pageAlign';
+import {
+  IMAGE_MAX_DISTANCE,
+  alignPages,
+  differenceHash,
+  hashDistance,
+  pageTextHash,
+  parseSignature,
+  samePage,
+  signatureKey,
+  type PageSignature,
+} from '../../../src/anchoring/pageAlign';
 
 const text = (content: string, rotate = 0): PageSignature => ({ text: pageTextHash(content), width: 612, height: 792, rotate });
 const picture = (image: string): PageSignature => ({ text: '', width: 612, height: 792, rotate: 0, image });

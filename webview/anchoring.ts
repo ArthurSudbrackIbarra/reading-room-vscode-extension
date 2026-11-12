@@ -386,9 +386,7 @@ export class AnchoringController implements DrawingBinder {
     if (!this.keepSnapshots || this.hostSnapshots.has(hash) || p.model.text.length === 0) return;
     const foundHere = (state: AnchorState | undefined) => state?.found?.hash === hash;
     const any =
-      [...result.highlights.values()].some((r) => foundHere(r.state)) ||
-      foundHere(result.marker?.state) ||
-      [...result.drawings.values()].some((r) => r.states.some(foundHere));
+      [...result.highlights.values()].some((r) => foundHere(r.state)) || foundHere(result.marker?.state) || [...result.drawings.values()].some((r) => r.states.some(foundHere));
     if (!any) return;
     this.hostSnapshots.add(hash);
     this.host.post({ type: 'saveSnapshot', renderId: p.renderId, hash, text: p.model.text });

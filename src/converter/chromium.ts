@@ -25,9 +25,7 @@ const PINNED_HEADLESS_SHELL = '156.0.8078.47';
 const IDLE_CLOSE_MS = 120_000;
 
 function windowsCandidates(): string[] {
-  const roots = [process.env['PROGRAMFILES'], process.env['PROGRAMFILES(X86)'], process.env['LOCALAPPDATA']].filter(
-    (r): r is string => !!r,
-  );
+  const roots = [process.env['PROGRAMFILES'], process.env['PROGRAMFILES(X86)'], process.env['LOCALAPPDATA']].filter((r): r is string => !!r);
   const rel = [
     'Google\\Chrome\\Application\\chrome.exe',
     'Microsoft\\Edge\\Application\\msedge.exe',
@@ -49,15 +47,7 @@ function macCandidates(): string[] {
 }
 
 function linuxCandidates(): string[] {
-  const names = [
-    'google-chrome-stable',
-    'google-chrome',
-    'chromium',
-    'chromium-browser',
-    'microsoft-edge-stable',
-    'microsoft-edge',
-    'brave-browser',
-  ];
+  const names = ['google-chrome-stable', 'google-chrome', 'chromium', 'chromium-browser', 'microsoft-edge-stable', 'microsoft-edge', 'brave-browser'];
   return [...names.flatMap((n) => [`/usr/bin/${n}`, `/usr/local/bin/${n}`]), '/snap/bin/chromium', '/opt/google/chrome/chrome'];
 }
 
@@ -149,8 +139,8 @@ export class BrowserManager {
     });
     for (const old of await getInstalledBrowsers({ cacheDir: this.cacheDir })) {
       if (old.browser === BrowserKind.CHROMEHEADLESSSHELL && old.buildId !== buildId) {
-        await uninstall({ browser: old.browser, buildId: old.buildId, platform: old.platform, cacheDir: this.cacheDir }).catch(
-          (err: unknown) => this.log.warn(`Could not remove old browser ${old.buildId}: ${String(err)}`),
+        await uninstall({ browser: old.browser, buildId: old.buildId, platform: old.platform, cacheDir: this.cacheDir }).catch((err: unknown) =>
+          this.log.warn(`Could not remove old browser ${old.buildId}: ${String(err)}`),
         );
       }
     }
@@ -236,9 +226,7 @@ export class BrowserManager {
           if (this.browser === browser) this.browser = undefined;
         });
         this.current = candidate;
-        this.log.info(
-          `Started ${await browser.version()} from ${candidate.executablePath} (${candidate.source}) in ${Math.round(performance.now() - started)} ms`,
-        );
+        this.log.info(`Started ${await browser.version()} from ${candidate.executablePath} (${candidate.source}) in ${Math.round(performance.now() - started)} ms`);
         return browser;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

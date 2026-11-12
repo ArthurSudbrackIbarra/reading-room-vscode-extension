@@ -77,12 +77,21 @@ function marker(): ReadingMarker {
 
 /** A record with one annotation of every kind, each with its anchor and state. */
 async function writeFull(ref: DocumentRef, store = newStore()): Promise<StoredRecord> {
-  const drawing = makeDrawing({ tool: 'ellipse', points: [[100, 628], [148, 642]] });
+  const drawing = makeDrawing({
+    tool: 'ellipse',
+    points: [
+      [100, 628],
+      [148, 642],
+    ],
+  });
   const text = makeText({ text: 'A note' });
   await store.update(ref, (r) => {
     r.highlights.push(anchoredHighlight('quick brown fox'));
     r.marker = marker();
-    r.drawings.push({ ...drawing, binding: binding(drawing.updatedAt), anchorStates: [found('lazy dog')] }, { ...text, binding: { ...binding(text.updatedAt), mode: 'text-pin' }, anchorStates: [found('lazy dog')] });
+    r.drawings.push(
+      { ...drawing, binding: binding(drawing.updatedAt), anchorStates: [found('lazy dog')] },
+      { ...text, binding: { ...binding(text.updatedAt), mode: 'text-pin' }, anchorStates: [found('lazy dog')] },
+    );
     r.view.zoom = 1.25;
   });
   await store.flush();
@@ -155,7 +164,18 @@ describe('the three files', () => {
   it('F2: fields of a newer version are kept at the top level and on every annotation', async () => {
     const ref = winRef('C:\\Notes\\future.md');
     const h = { ...makeHighlight('quoted text'), tag: 'important' };
-    writeFileSync(file(ref, '.json'), JSON.stringify({ schemaVersion: 1, uri: ref.uri, view: {}, highlights: [h], marker: { pageIndex: 1, y: 0.2, createdAt: 'x', label: 'here' }, updatedAt: 'x', future: { a: [1, 2] } }));
+    writeFileSync(
+      file(ref, '.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        uri: ref.uri,
+        view: {},
+        highlights: [h],
+        marker: { pageIndex: 1, y: 0.2, createdAt: 'x', label: 'here' },
+        updatedAt: 'x',
+        future: { a: [1, 2] },
+      }),
+    );
     writeFileSync(file(ref, '.drawings.json'), JSON.stringify({ schemaVersion: 1, uri: ref.uri, drawings: [{ ...makeDrawing(), layer: 3 }] }));
     const store = newStore();
     await store.update(ref, (r) => {
@@ -175,7 +195,10 @@ describe('the three files', () => {
       ['.anchors.json', { schemaVersion: 2, highlights: {} }],
     ] as const) {
       const ref = winRef(`C:\\Notes\\newer${suffix}.md`);
-      writeFileSync(file(ref, '.json'), JSON.stringify(suffix === '.json' ? body : { schemaVersion: 1, uri: ref.uri, view: {}, highlights: [makeHighlight('from the future')], updatedAt: 'x' }));
+      writeFileSync(
+        file(ref, '.json'),
+        JSON.stringify(suffix === '.json' ? body : { schemaVersion: 1, uri: ref.uri, view: {}, highlights: [makeHighlight('from the future')], updatedAt: 'x' }),
+      );
       if (suffix !== '.json') writeFileSync(file(ref, suffix), JSON.stringify(body));
       const before = files().map((name) => [name, readFileSync(join(dir, name), 'utf8')]);
       const notified: string[] = [];
@@ -245,11 +268,21 @@ describe('F3: round trips through earlier releases', () => {
     const written = await writeFull(ref);
     const old = new Store07({ dir, platform: 'win32', coalesceMs: 5 });
     await old.update(ref, (r) => {
-      r.drawings[0] = { ...r.drawings[0], points: [[10, 10], [60, 30]], updatedAt: '2026-12-01T00:00:00.000Z' };
+      r.drawings[0] = {
+        ...r.drawings[0],
+        points: [
+          [10, 10],
+          [60, 30],
+        ],
+        updatedAt: '2026-12-01T00:00:00.000Z',
+      };
     });
     await old.flush();
     const back = await newStore().get(ref);
-    expect(back.drawings[0].points).toEqual([[10, 10], [60, 30]]);
+    expect(back.drawings[0].points).toEqual([
+      [10, 10],
+      [60, 30],
+    ]);
     // The viewer sees that the binding is for another version of the drawing and infers it again.
     expect(back.drawings[0].binding?.for).toBe(written.drawings[0].updatedAt);
     expect(back.drawings[0].binding?.for).not.toBe(back.drawings[0].updatedAt);
@@ -331,7 +364,7 @@ describe('F5: renames, lists, copies and deletes cover anchors and snapshots', (
   });
 
   it('E11: a change of the zoom writes neither the drawings nor the anchors file; a change of a drawing writes its file', async () => {
-    const ref = winRef('C:\Notes\zoom.md');
+    const ref = winRef('C:\\Notes\\zoom.md');
     const store = newStore();
     await writeFull(ref, store);
     const read = (suffix: string) => readFileSync(file(ref, suffix), 'utf8');
@@ -345,7 +378,13 @@ describe('F5: renames, lists, copies and deletes cover anchors and snapshots', (
     expect(read('.drawings.json')).toBe(before.drawings);
     expect(read('.anchors.json')).toBe(before.anchors);
     await store.update(ref, (r) => {
-      r.drawings[0] = { ...r.drawings[0], points: [[101, 628], [149, 642]] };
+      r.drawings[0] = {
+        ...r.drawings[0],
+        points: [
+          [101, 628],
+          [149, 642],
+        ],
+      };
     });
     await store.flush();
     expect(read('.drawings.json')).not.toBe(before.drawings);
@@ -360,7 +399,7 @@ describe('F5: renames, lists, copies and deletes cover anchors and snapshots', (
   });
 
   it('D8: results that arrive after Delete All bring nothing back', async () => {
-    const ref = winRef('C:\Notes\gone.md');
+    const ref = winRef('C:\\Notes\\gone.md');
     const store = newStore();
     const record = await writeFull(ref, store);
     const payload = {
@@ -502,7 +541,22 @@ describe('applyResolved', () => {
     const h = anchoredHighlight('quick brown fox');
     const record: StoredRecord = { schemaVersion: 1, uri: 'x', view: {}, highlights: [h], updatedAt: 'x', drawings: [drawing] };
     const before = JSON.stringify(record);
-    for (const payload of [null, 'x', { hash: HASH }, { hash: HASH, highlights: [{ id: h.id, state: 'nope' }, { id: 'unknown', state: found('lazy dog') }], drawings: [{ id: drawing.id, binding: binding('another version') }, { id: drawing.id, states: [found('lazy dog')] }] }]) {
+    for (const payload of [
+      null,
+      'x',
+      { hash: HASH },
+      {
+        hash: HASH,
+        highlights: [
+          { id: h.id, state: 'nope' },
+          { id: 'unknown', state: found('lazy dog') },
+        ],
+        drawings: [
+          { id: drawing.id, binding: binding('another version') },
+          { id: drawing.id, states: [found('lazy dog')] },
+        ],
+      },
+    ]) {
       expect(applyResolved(record, payload)).toBe(false);
     }
     expect(JSON.stringify(record)).toBe(before);

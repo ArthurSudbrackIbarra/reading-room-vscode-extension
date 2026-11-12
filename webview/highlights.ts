@@ -8,7 +8,7 @@ import { extractPage, type TextContentLike } from '../src/anchoring/extract';
 import { createSelectors } from '../src/anchoring/match';
 import type { Resolution } from '../src/anchoring/resolve';
 import type { HighlightInput } from '../src/anchoring/runs';
-import { TEXT_MODEL_VERSION, TextModel, trimRange, type PageInput, type PageSegments } from '../src/anchoring/textModel';
+import { TEXT_MODEL_VERSION, type TextModel, trimRange, type PageInput, type PageSegments } from '../src/anchoring/textModel';
 import { pageGeometry, toPdfSpace, type PageGeometry } from '../src/shared/drawingGeometry';
 import type { ExportHighlight } from '../src/shared/messages';
 import { HIGHLIGHT_HEX, type Highlight, type HighlightColor, type PageRects, type PdfRect } from '../src/shared/types';
@@ -507,9 +507,7 @@ export class HighlightController {
     });
     if (lines.length === 0) return fallback;
     const containing = lines.find((l) => clientY >= l.top && clientY <= l.bottom);
-    const line =
-      containing ??
-      lines.reduce((best, l) => (Math.abs((l.top + l.bottom) / 2 - clientY) < Math.abs((best.top + best.bottom) / 2 - clientY) ? l : best));
+    const line = containing ?? lines.reduce((best, l) => (Math.abs((l.top + l.bottom) / 2 - clientY) < Math.abs((best.top + best.bottom) / 2 - clientY) ? l : best));
     return { top: (line.top - box.top) / box.height, index: model.indexAt(pageIndex, line.first.item, 0, 'start') };
   }
 
@@ -682,9 +680,11 @@ export class HighlightController {
       }
       return undefined;
     }
+    // The last span that ends at or before the point. (A selection that stops right before a
+    // span, as in front of bold words, ends at that span's own offset 0: the span is not in it.)
     for (let i = spans.length - 1; i >= 0; i--) {
       const s = spans[i];
-      if (point.comparePoint(s.el, 0) <= 0) return model.indexAt(s.page, s.item, s.el.textContent?.length ?? 0, 'end');
+      if (point.comparePoint(s.el, s.el.childNodes.length) <= 0) return model.indexAt(s.page, s.item, s.el.textContent?.length ?? 0, 'end');
     }
     return undefined;
   }
@@ -717,7 +717,12 @@ export class HighlightController {
       target: { selector: createSelectors(model.text, start, end), hints: { pages: [], textModelHash: model.hash } },
       anchor: createAnchor(model.text, model.hash, start, end),
       // Where it is in the text it was made in: the next render follows it from here.
-      state: { status: 'anchored', kind: 'exact', resolvedIn: model.hash, found: { hash: model.hash, v: TEXT_MODEL_VERSION, length: model.text.length, start, end, page: model.pageOf(start) } },
+      state: {
+        status: 'anchored',
+        kind: 'exact',
+        resolvedIn: model.hash,
+        found: { hash: model.hash, v: TEXT_MODEL_VERSION, length: model.text.length, start, end, page: model.pageOf(start) },
+      },
     };
     const rt: Runtime = { data: highlight, start, end, pages: new Map() };
     this.runtimes.set(highlight.id, rt);
@@ -803,9 +808,7 @@ export class HighlightController {
   async exportData(): Promise<{ highlights: ExportHighlight[]; orphaned: number; orphanedNotes: number }> {
     await this.ready;
     // Make sure every anchored highlight has rectangles on every page it touches.
-    const incomplete = [...this.runtimes.values()].filter(
-      (rt) => rt.data.status === 'anchored' && this.segmentsOf(rt).some((s) => !rt.pages.has(s.page)),
-    );
+    const incomplete = [...this.runtimes.values()].filter((rt) => rt.data.status === 'anchored' && this.segmentsOf(rt).some((s) => !rt.pages.has(s.page)));
     if (incomplete.length > 0) await this.computeRects(incomplete);
     const highlights: ExportHighlight[] = [];
     let orphaned = 0;

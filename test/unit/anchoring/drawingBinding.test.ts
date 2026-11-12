@@ -8,7 +8,8 @@ import { toPageSpace, toPdfSpace, type PdfPoint } from '../../../src/shared/draw
 import { MAX_STROKE_POINTS, sanitizeDrawing, type Drawing } from '../../../src/shared/drawings';
 import { LEFT, LINE_HEIGHT, TEXT_BOX_SIZE, boxOfText, makeDocument, makeShape, type DrawSpec, type TestDocument } from './scenario';
 
-const P1 = 'In the first experiment the quick brown fox jumps over the lazy dog while the students take notes by hand. The notes are collected at the end of the hour and compared with the text.';
+const P1 =
+  'In the first experiment the quick brown fox jumps over the lazy dog while the students take notes by hand. The notes are collected at the end of the hour and compared with the text.';
 const P2 = 'The second experiment repeats the first one with a longer text about rivers and lakes. Every student writes a short summary of it.';
 const SOURCE = ['Reading notes', P1, '[image 200x100]', P2].join('\n\n');
 const doc = (source = SOURCE, layout = {}) => makeDocument(source, { charsPerLine: 60, linesPerPage: 30, ...layout });
@@ -24,7 +25,10 @@ async function bind(d: TestDocument, spec: DrawSpec, prefer?: 'text' | 'image' |
  * With `from` (the version it was bound in), that version's text is known, like with a snapshot.
  */
 async function shownIn(d: TestDocument, drawing: Drawing, binding: DrawingBinding, from?: TestDocument) {
-  const ctx = (doc: TestDocument) => ({ current: { text: doc.text, hash: hashText(doc.text) }, oldText: (hash: string) => (from && hash === hashText(from.text) ? from.text : undefined) });
+  const ctx = (doc: TestDocument) => ({
+    current: { text: doc.text, hash: hashText(doc.text) },
+    oldText: (hash: string) => (from && hash === hashText(from.text) ? from.text : undefined),
+  });
   const states = from ? (await resolveBinding(binding, [], ctx(from), from.layout, { images: (p) => from.images[p] ?? [] })).states : [];
   const placement = await resolveBinding(binding, states, ctx(d), d.layout, { images: (p) => d.images[p] ?? [] });
   if (placement.status !== 'anchored') return { placement, shown: undefined, box: undefined, clipped: false };
@@ -47,7 +51,10 @@ describe('inferBinding', () => {
   it('text-pin: over text spanning several lines', async () => {
     const d = doc();
     const at = boxOfText(d, 'In the first experiment');
-    const drawing = sanitizeDrawing({ ...makeShape(d, 'x', { shape: 'rect', around: 'quick' }), points: [toPdfSpace(d.layout.geometry(0)!, [at.box[0], at.box[1] + 3 * LINE_HEIGHT]), toPdfSpace(d.layout.geometry(0)!, [at.box[0] + 200, at.box[1]])] })!;
+    const drawing = sanitizeDrawing({
+      ...makeShape(d, 'x', { shape: 'rect', around: 'quick' }),
+      points: [toPdfSpace(d.layout.geometry(0)!, [at.box[0], at.box[1] + 3 * LINE_HEIGHT]), toPdfSpace(d.layout.geometry(0)!, [at.box[0] + 200, at.box[1]])],
+    })!;
     const binding = (await bindDrawing(drawing, d))!;
     expect(binding.mode).toBe('text-pin');
     expect(binding.anchors[0].exact.startsWith('In the first experiment')).toBe(true);
@@ -176,13 +183,21 @@ describe('resolveBinding and placeDrawing', () => {
     expect(moved.states[0]?.found?.page).toBe(2);
     expect(await resolveBinding(print, moved.states, ctx, d.layout, { pageMap: (p) => (p === 2 ? 0 : undefined) })).toMatchObject({ page: 0 });
     expect(await resolveBinding(print, [], ctx, d.layout, { pageMap: () => undefined })).toMatchObject({ status: 'orphaned', reason: 'page-missing' });
-    expect(await resolveBinding(print, [], ctx, d.layout, { pageMap: () => undefined, findPage: (p) => (p === 'abc|595x842|0|' ? 1 : undefined) })).toMatchObject({ status: 'anchored', page: 1 });
+    expect(await resolveBinding(print, [], ctx, d.layout, { pageMap: () => undefined, findPage: (p) => (p === 'abc|595x842|0|' ? 1 : undefined) })).toMatchObject({
+      status: 'anchored',
+      page: 1,
+    });
     void drawing;
   });
 
   it('nothing moved: the stored drawing itself is what is shown', async () => {
     const d = doc();
-    for (const spec of [{ shape: 'ellipse', around: 'quick brown fox' }, { shape: 'bracket', beside: ['In the first experiment', 'the hour and compared'] }, { shape: 'margin', beside: 'The second experiment' }, { shape: 'rect', onImage: 0 }] as DrawSpec[]) {
+    for (const spec of [
+      { shape: 'ellipse', around: 'quick brown fox' },
+      { shape: 'bracket', beside: ['In the first experiment', 'the hour and compared'] },
+      { shape: 'margin', beside: 'The second experiment' },
+      { shape: 'rect', onImage: 0 },
+    ] as DrawSpec[]) {
       const { drawing, binding } = await bind(d, spec);
       expect((await shownIn(d, drawing, binding)).shown).toBe(drawing);
     }
@@ -208,12 +223,26 @@ describe('resolveBinding and placeDrawing', () => {
 describe('what is stored', () => {
   it('a binding survives being stored and read back; a broken one is dropped', async () => {
     const d = doc();
-    for (const spec of [{ shape: 'ellipse', around: 'quick brown fox' }, { shape: 'arrow', from: 'quick', to: 'rivers' }, { shape: 'rect', onImage: 0 }] as DrawSpec[]) {
+    for (const spec of [
+      { shape: 'ellipse', around: 'quick brown fox' },
+      { shape: 'arrow', from: 'quick', to: 'rivers' },
+      { shape: 'rect', onImage: 0 },
+    ] as DrawSpec[]) {
       const { binding } = await bind(d, spec);
       expect(sanitizeBinding(JSON.parse(JSON.stringify(binding)))).toEqual(binding);
     }
     const { binding } = await bind(d, { shape: 'ellipse', around: 'quick brown fox' });
-    for (const broken of [null, {}, { ...binding, mode: 'magnet' }, { ...binding, frame: [1, 0, 0, 0, 0, 0] }, { ...binding, frame: [1, 2] }, { ...binding, ref: [] }, { ...binding, anchors: [] }, { ...binding, pageSize: [0, 10] }, { ...binding, ref: [[1, 2, 3, Number.NaN]] }]) {
+    for (const broken of [
+      null,
+      {},
+      { ...binding, mode: 'magnet' },
+      { ...binding, frame: [1, 0, 0, 0, 0, 0] },
+      { ...binding, frame: [1, 2] },
+      { ...binding, ref: [] },
+      { ...binding, anchors: [] },
+      { ...binding, pageSize: [0, 10] },
+      { ...binding, ref: [[1, 2, 3, Number.NaN]] },
+    ]) {
       expect(sanitizeBinding(broken)).toBeUndefined();
     }
   });
@@ -221,8 +250,24 @@ describe('what is stored', () => {
   it('E15: absurd geometry is refused or fitted, and never breaks the others', () => {
     const base = makeShape(doc(), 'p', { shape: 'margin', beside: 'The second experiment' });
     expect(sanitizeDrawing({ ...base, points: [[Number.NaN, 1]] })).toBeUndefined();
-    expect(sanitizeDrawing({ ...base, points: [[Infinity, 1], [2, 3]] })).toBeUndefined();
-    expect(sanitizeDrawing({ ...base, points: [[1e9, 1], [2, 3]] })).toBeUndefined();
+    expect(
+      sanitizeDrawing({
+        ...base,
+        points: [
+          [Infinity, 1],
+          [2, 3],
+        ],
+      }),
+    ).toBeUndefined();
+    expect(
+      sanitizeDrawing({
+        ...base,
+        points: [
+          [1e9, 1],
+          [2, 3],
+        ],
+      }),
+    ).toBeUndefined();
     expect(sanitizeDrawing({ ...base, points: [] })).toBeUndefined();
     // Negative coordinates are positions (a crop box can start below zero); one point is a dot.
     expect(sanitizeDrawing({ ...base, points: [[-12.346, -7]] })?.points).toEqual([[-12.35, -7]]);

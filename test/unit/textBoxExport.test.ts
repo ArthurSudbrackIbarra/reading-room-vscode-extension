@@ -1,6 +1,6 @@
 // Downloads with text boxes: /FreeText annotations drawn with the lines the viewer showed, in
 // Helvetica, on the same baselines, upright on rotated pages. Read back with pdf.js.
-import { PDFDict, PDFDocument, PDFName, PDFRawStream, PDFRef, degrees } from '@cantoo/pdf-lib';
+import { PDFDict, PDFDocument, PDFName, type PDFRawStream, type PDFRef, degrees } from '@cantoo/pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { describe, expect, it } from 'vitest';
 import { annotate } from '../../src/export/annotate';
@@ -102,7 +102,10 @@ describe('downloads with text boxes', () => {
     expect(a.rect[2] - a.rect[0]).toBeCloseTo(textWidth('second line', { size: 14, bold: false, italic: false }) + 2 * TEXT_PAD_X, 1);
     const doc = await PDFDocument.load(pdf);
     expect(appearanceOf(doc, 1)[0]).toMatch(/\/F3 12 Tf/);
-    const fonts = doc.context.enumerateIndirectObjects().map(([, o]) => o.toString()).filter((o) => o.includes('/BaseFont'));
+    const fonts = doc.context
+      .enumerateIndirectObjects()
+      .map(([, o]) => o.toString())
+      .filter((o) => o.includes('/BaseFont'));
     expect(fonts.join()).toContain('/Helvetica-BoldOblique');
   });
 
@@ -156,12 +159,17 @@ describe('downloads with text boxes', () => {
     const width = textWidth('Turned page', { size: 12 }) + 2 * TEXT_PAD_X;
     const height = 12 * TEXT_LINE_HEIGHT + 2 * TEXT_PAD_Y;
     // pdf.js's own viewport maps the box's corners (page space) to the PDF rectangle.
-    const [px, py] = [page.transform[0] * anchorPdf[0] + page.transform[2] * anchorPdf[1] + page.transform[4], page.transform[1] * anchorPdf[0] + page.transform[3] * anchorPdf[1] + page.transform[5]];
-    const corners = [
-      viewport.convertToPdfPoint(px, py),
-      viewport.convertToPdfPoint(px + width, py + height),
+    const [px, py] = [
+      page.transform[0] * anchorPdf[0] + page.transform[2] * anchorPdf[1] + page.transform[4],
+      page.transform[1] * anchorPdf[0] + page.transform[3] * anchorPdf[1] + page.transform[5],
     ];
-    const expected = [Math.min(corners[0][0], corners[1][0]), Math.min(corners[0][1], corners[1][1]), Math.max(corners[0][0], corners[1][0]), Math.max(corners[0][1], corners[1][1])];
+    const corners = [viewport.convertToPdfPoint(px, py), viewport.convertToPdfPoint(px + width, py + height)];
+    const expected = [
+      Math.min(corners[0][0], corners[1][0]),
+      Math.min(corners[0][1], corners[1][1]),
+      Math.max(corners[0][0], corners[1][0]),
+      Math.max(corners[0][1], corners[1][1]),
+    ];
     annotations[0].rect.forEach((v, i) => expect(v).toBeCloseTo(expected[i], 1));
     // On a turned page the box is taller than wide in PDF units: the text runs along the page's y axis.
     expect(appearance.rect[3] - appearance.rect[1]).toBeCloseTo(width, 1);
@@ -185,7 +193,11 @@ describe('downloads with text boxes', () => {
     // One line: one position, then the runs follow each other.
     expect(ops.match(/ Tm/g)).toHaveLength(1);
     const before =
-      textWidth('plain ', { size: 12 }) + textWidth('bold', { size: 12, bold: true }) + textWidth(' ', { size: 12 }) + textWidth('both', { size: 12, bold: true, italic: true }) + textWidth(' ', { size: 12 });
+      textWidth('plain ', { size: 12 }) +
+      textWidth('bold', { size: 12, bold: true }) +
+      textWidth(' ', { size: 12 }) +
+      textWidth('both', { size: 12, bold: true, italic: true }) +
+      textWidth(' ', { size: 12 });
     const underline = ops.match(/([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) re f/)!;
     expect(ops.match(/ re f/g)).toHaveLength(1);
     expect(parseFloat(underline[1])).toBeCloseTo(TEXT_PAD_X + before, 2);
@@ -194,9 +206,15 @@ describe('downloads with text boxes', () => {
     expect(rect[2] - rect[0]).toBeCloseTo(before + textWidth('under', { size: 12 }) + 2 * TEXT_PAD_X, 1);
     expect(rect[2] - rect[0]).toBeGreaterThan(textWidth(text.text, { size: 12 }) + 2 * TEXT_PAD_X);
     // The download has the three faces, each once, and pdf.js reads the text back whole.
-    const { pdf } = await annotate(await pdfWithPages([0]), { highlights: [], drawings: [text, makeText({ id: 'mix2', text: 'more bold', spans: [{ start: 5, end: 9, bold: true }] })] });
+    const { pdf } = await annotate(await pdfWithPages([0]), {
+      highlights: [],
+      drawings: [text, makeText({ id: 'mix2', text: 'more bold', spans: [{ start: 5, end: 9, bold: true }] })],
+    });
     const doc = await PDFDocument.load(pdf);
-    const faces = doc.context.enumerateIndirectObjects().map(([, o]) => o.toString()).filter((o) => o.includes('/BaseFont'));
+    const faces = doc.context
+      .enumerateIndirectObjects()
+      .map(([, o]) => o.toString())
+      .filter((o) => o.includes('/BaseFont'));
     expect(faces).toHaveLength(3);
     const [{ annotations }] = await annotationsOf(pdf);
     expect(annotations[0].textContent?.join('')).toBe(text.text);

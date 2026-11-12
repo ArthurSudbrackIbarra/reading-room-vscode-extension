@@ -54,14 +54,7 @@ export function pageGeometry(view: readonly number[], rotate = 0, userUnit = 1):
     width = (x1 - x0) * scale;
     height = (y1 - y0) * scale;
   }
-  const transform: Matrix = [
-    a * scale,
-    b * scale,
-    c * scale,
-    d * scale,
-    offsetX - a * scale * centerX - c * scale * centerY,
-    offsetY - b * scale * centerX - d * scale * centerY,
-  ];
+  const transform: Matrix = [a * scale, b * scale, c * scale, d * scale, offsetX - a * scale * centerX - c * scale * centerY, offsetY - b * scale * centerX - d * scale * centerY];
   return { view: [x0, y0, x1, y1], width, height, transform };
 }
 
@@ -213,13 +206,7 @@ export function shapePath(shape: Shape): PathCommand[] {
     }
     case 'rect': {
       const [[x0, y0], [x1, y1]] = [points[0], points[1] ?? points[0]];
-      return [
-        { op: 'M', p: [x0, y0] },
-        { op: 'L', p: [x1, y0] },
-        { op: 'L', p: [x1, y1] },
-        { op: 'L', p: [x0, y1] },
-        { op: 'Z' },
-      ];
+      return [{ op: 'M', p: [x0, y0] }, { op: 'L', p: [x1, y0] }, { op: 'L', p: [x1, y1] }, { op: 'L', p: [x0, y1] }, { op: 'Z' }];
     }
     case 'ellipse':
       return ellipse([points[0], points[1] ?? points[0]]);
@@ -249,9 +236,7 @@ export function svgPathData(path: PathCommand[], decimals = 2): string {
 /** PDF content-stream path operators (m, l, c, h), to be followed by a painting operator. */
 export function pdfPathOps(path: PathCommand[]): string {
   const p = (pt: PdfPoint) => `${num(pt[0], 3)} ${num(pt[1], 3)}`;
-  return path
-    .map((cmd) => (cmd.op === 'Z' ? 'h' : cmd.op === 'C' ? `${p(cmd.c1)} ${p(cmd.c2)} ${p(cmd.p)} c` : `${p(cmd.p)} ${cmd.op === 'M' ? 'm' : 'l'}`))
-    .join('\n');
+  return path.map((cmd) => (cmd.op === 'Z' ? 'h' : cmd.op === 'C' ? `${p(cmd.c1)} ${p(cmd.c2)} ${p(cmd.p)} c` : `${p(cmd.p)} ${cmd.op === 'M' ? 'm' : 'l'}`)).join('\n');
 }
 
 /** Bounds [x0, y0, x1, y1] of every point of a path, control points included (the curve lies inside). */
@@ -276,10 +261,7 @@ export function pathBounds(path: PathCommand[]): [number, number, number, number
 
 function cubicAt(a: PdfPoint, b: PdfPoint, c: PdfPoint, d: PdfPoint, t: number): PdfPoint {
   const u = 1 - t;
-  return [
-    u * u * u * a[0] + 3 * u * u * t * b[0] + 3 * u * t * t * c[0] + t * t * t * d[0],
-    u * u * u * a[1] + 3 * u * u * t * b[1] + 3 * u * t * t * c[1] + t * t * t * d[1],
-  ];
+  return [u * u * u * a[0] + 3 * u * u * t * b[0] + 3 * u * t * t * c[0] + t * t * t * d[0], u * u * u * a[1] + 3 * u * u * t * b[1] + 3 * u * t * t * c[1] + t * t * t * d[1]];
 }
 
 /** The path as polylines (curves split into `steps` segments), for hit-testing. */

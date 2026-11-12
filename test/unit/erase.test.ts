@@ -66,19 +66,39 @@ describe('erasing part of a line', () => {
 
 describe('erasing part of a shape', () => {
   it('opens a rectangle where the eraser crosses a side: one piece going around, corners kept', () => {
-    const rect: Shape = { tool: 'rect', points: [[0, 0], [100, 60]], widthPt: 2 };
+    const rect: Shape = {
+      tool: 'rect',
+      points: [
+        [0, 0],
+        [100, 60],
+      ],
+      widthPt: 2,
+    };
     const left = eraseShape(rect, [50, 0], 10);
     expect(left).toHaveLength(1);
     const piece = left![0];
     // It starts and ends at the cut, and still goes through the four corners.
     expect(piece[0]).toEqual([60, 0]);
     expect(piece[piece.length - 1]).toEqual([40, 0]);
-    for (const corner of [[100, 0], [100, 60], [0, 60], [0, 0]]) expect(piece).toContainEqual(corner);
+    for (const corner of [
+      [100, 0],
+      [100, 60],
+      [0, 60],
+      [0, 0],
+    ])
+      expect(piece).toContainEqual(corner);
     expect(length(piece)).toBeCloseTo(320 - 20, 6);
   });
 
   it('cuts a rectangle in two when the eraser crosses two sides', () => {
-    const rect: Shape = { tool: 'rect', points: [[0, 0], [100, 60]], widthPt: 2 };
+    const rect: Shape = {
+      tool: 'rect',
+      points: [
+        [0, 0],
+        [100, 60],
+      ],
+      widthPt: 2,
+    };
     let pieces = eraseShape(rect, [50, 0], 5)!;
     expect(pieces).toHaveLength(1);
     // Rub the opposite side of what is left.
@@ -88,7 +108,14 @@ describe('erasing part of a shape', () => {
   });
 
   it('keeps the head of an arrow whose shaft is cut', () => {
-    const arrow: Shape = { tool: 'arrow', points: [[0, 0], [100, 0]], widthPt: 2 };
+    const arrow: Shape = {
+      tool: 'arrow',
+      points: [
+        [0, 0],
+        [100, 0],
+      ],
+      widthPt: 2,
+    };
     const pieces = eraseShape(arrow, [40, 0], 6)!;
     expect(pieces).toHaveLength(3);
     // Two parts of the shaft, and the head (three points, the tip in the middle).
@@ -97,7 +124,14 @@ describe('erasing part of a shape', () => {
   });
 
   it('leaves the rest of an ellipse on the ellipse', () => {
-    const ellipse: Shape = { tool: 'ellipse', points: [[0, 0], [200, 120]], widthPt: 2 };
+    const ellipse: Shape = {
+      tool: 'ellipse',
+      points: [
+        [0, 0],
+        [200, 120],
+      ],
+      widthPt: 2,
+    };
     const outline = flattenFine(shapePath(ellipse), 0.01);
     const pieces = eraseShape(ellipse, [200, 60], 15)!;
     expect(pieces).toHaveLength(1);
@@ -114,7 +148,17 @@ describe('erasing part of a shape', () => {
   });
 
   it('keeps a smooth pen stroke where it was, away from the eraser', () => {
-    const pen: Shape = { tool: 'pen', points: [[0, 0], [30, 40], [60, 0], [90, 40], [120, 0]], widthPt: 2 };
+    const pen: Shape = {
+      tool: 'pen',
+      points: [
+        [0, 0],
+        [30, 40],
+        [60, 0],
+        [90, 40],
+        [120, 0],
+      ],
+      widthPt: 2,
+    };
     const curve = flattenFine(shapePath(pen), 0.01);
     const pieces = eraseShape(pen, [60, 5], 8)!;
     expect(pieces).toHaveLength(2);
@@ -126,13 +170,35 @@ describe('erasing part of a shape', () => {
   });
 
   it('draws what is left with straight lines through its points', () => {
-    const piece: Shape = { tool: 'pen', points: [[0, 0], [50, 0], [50, 30]], widthPt: 2, polyline: true };
+    const piece: Shape = {
+      tool: 'pen',
+      points: [
+        [0, 0],
+        [50, 0],
+        [50, 30],
+      ],
+      widthPt: 2,
+      polyline: true,
+    };
     expect(svgPathData(shapePath(piece))).toBe('M0 0L50 0L50 30');
     // The same points as a pen stroke are a curve.
     expect(svgPathData(shapePath({ ...piece, polyline: false }))).toContain('C');
   });
 
   it('says nothing changed when the eraser misses the shape', () => {
-    expect(eraseShape({ tool: 'line', points: [[0, 0], [10, 10]], widthPt: 1 }, [50, 50], 5)).toBeUndefined();
+    expect(
+      eraseShape(
+        {
+          tool: 'line',
+          points: [
+            [0, 0],
+            [10, 10],
+          ],
+          widthPt: 1,
+        },
+        [50, 50],
+        5,
+      ),
+    ).toBeUndefined();
   });
 });

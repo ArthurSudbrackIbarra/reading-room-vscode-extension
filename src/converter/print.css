@@ -1,4 +1,4 @@
-/* Print stylesheet for Document Viewer (Markdown and text files).
+/* Print stylesheet for Reading Room (Markdown and text files).
  * The light and dark page themes use the same geometry; only colors change, so text
  * positions (and therefore highlight rectangles) are identical in both renders. */
 
@@ -67,8 +67,7 @@ body {
   margin: 0;
   color: var(--fg);
   background: var(--bg);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif,
-    'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji';
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji';
   font-size: 11pt;
   line-height: 1.55;
   overflow-wrap: break-word;
@@ -86,7 +85,12 @@ body {
 
 /* ---------- Headings and page breaks ---------- */
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   margin-top: 1.4em;
   margin-bottom: 0.6em;
   font-weight: 600;
@@ -111,12 +115,32 @@ h2 {
   border-bottom: 1px solid var(--border-muted);
 }
 
-h3 { font-size: 1.25em; }
-h4 { font-size: 1em; }
-h5 { font-size: 0.875em; }
-h6 { font-size: 0.85em; color: var(--fg-muted); }
+h3 {
+  font-size: 1.25em;
+}
+h4 {
+  font-size: 1em;
+}
+h5 {
+  font-size: 0.875em;
+}
+h6 {
+  font-size: 0.85em;
+  color: var(--fg-muted);
+}
 
-p, blockquote, ul, ol, dl, table, pre, details, .code-block, .markdown-alert, .katex-block, .mermaid-figure {
+p,
+blockquote,
+ul,
+ol,
+dl,
+table,
+pre,
+details,
+.code-block,
+.markdown-alert,
+.katex-block,
+.mermaid-figure {
   margin-top: 0;
   margin-bottom: 1em;
 }
@@ -135,7 +159,10 @@ a:hover {
   text-decoration: underline;
 }
 
-strong, b { font-weight: 600; }
+strong,
+b {
+  font-weight: 600;
+}
 
 hr {
   height: 0.25em;
@@ -154,7 +181,14 @@ mark {
 kbd {
   display: inline-block;
   padding: 0.15em 0.35em;
-  font: 0.85em ui-monospace, 'Cascadia Mono', 'Cascadia Code', Consolas, 'SF Mono', Menlo, monospace;
+  font:
+    0.85em ui-monospace,
+    'Cascadia Mono',
+    'Cascadia Code',
+    Consolas,
+    'SF Mono',
+    Menlo,
+    monospace;
   line-height: 1;
   color: var(--fg);
   background-color: var(--kbd-bg);
@@ -163,13 +197,15 @@ kbd {
   border-radius: 4px;
 }
 
-sup, sub {
+sup,
+sub {
   line-height: 0;
 }
 
 /* ---------- Lists ---------- */
 
-ul, ol {
+ul,
+ol {
   padding-left: 2em;
 }
 
@@ -182,15 +218,24 @@ li > p {
   margin-bottom: 0;
 }
 
-li > ul, li > ol {
+li > ul,
+li > ol {
   margin-top: 0.25em;
   margin-bottom: 0;
 }
 
-ul ul { list-style-type: circle; }
-ul ul ul { list-style-type: square; }
-ol ol { list-style-type: lower-alpha; }
-ol ol ol { list-style-type: lower-roman; }
+ul ul {
+  list-style-type: circle;
+}
+ul ul ul {
+  list-style-type: square;
+}
+ol ol {
+  list-style-type: lower-alpha;
+}
+ol ol ol {
+  list-style-type: lower-roman;
+}
 
 .task-list-container,
 ul:has(> .task-list-item) {
@@ -294,7 +339,10 @@ blockquote > :last-child {
 
 /* ---------- Code ---------- */
 
-code, pre, tt, samp {
+code,
+pre,
+tt,
+samp {
   font-family: ui-monospace, 'Cascadia Mono', 'Cascadia Code', Consolas, 'SF Mono', Menlo, 'DejaVu Sans Mono', monospace;
 }
 
@@ -400,7 +448,8 @@ tr {
   break-inside: avoid;
 }
 
-th, td {
+th,
+td {
   padding: 0.38em 0.8em;
   border: 1px solid var(--border);
   vertical-align: top;
@@ -421,7 +470,13 @@ table img {
 
 /* ---------- Images, figures, diagrams, math ---------- */
 
-img, svg, video, figure, .mermaid-figure, .katex-display, .katex-block {
+img,
+svg,
+video,
+figure,
+.mermaid-figure,
+.katex-display,
+.katex-block {
   break-inside: avoid;
 }
 

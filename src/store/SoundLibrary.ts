@@ -150,7 +150,10 @@ export class SoundLibrary {
         const id = newId();
         const record: CustomSoundRecord = {
           id,
-          name: uniqueName(soundNameFromFile(name), this.records.map((r) => r.name)),
+          name: uniqueName(
+            soundNameFromFile(name),
+            this.records.map((r) => r.name),
+          ),
           file: `${id}.${extension}`,
           source: { name, size: file.size },
           added: new Date().toISOString(),

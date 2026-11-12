@@ -4,15 +4,7 @@ import type { ResolvedPayload } from '../store/resolutions';
 import type { HexColor, Ink } from './colors';
 import type { DrawTool, Drawing, InkWidth, TextLayout, TextStyle } from './drawings';
 import type { CustomSound, SoundRequest, SoundState } from './sounds';
-import type {
-  DocumentKind,
-  Highlight,
-  HighlightColor,
-  PageRects,
-  PageTheme,
-  ReadingMarker,
-  ZoomValue,
-} from './types';
+import type { DocumentKind, Highlight, HighlightColor, PageRects, PageTheme, ReadingMarker, ZoomValue } from './types';
 
 export interface ViewerInit {
   kind: DocumentKind;
@@ -57,6 +49,8 @@ export interface DrawStyle {
   tool: DrawTool;
   color: Ink;
   width: InkWidth;
+  /** The size of the eraser of draw mode. */
+  eraserWidth: InkWidth;
 }
 
 /** A custom sound as a viewer sees it: with a URL it can load the file from. */
@@ -88,13 +82,13 @@ export type HostToViewer =
   /** The texts of earlier versions the viewer asked for (those that are kept). */
   | { type: 'snapshots'; requestId: number; texts: Record<string, string> }
   | { type: 'renderError'; message: string; firstRender: boolean }
-  | { type: 'zoom'; action: 'in' | 'out' | 'reset' }
+  | { type: 'zoom'; action: 'in' | 'out' }
   | { type: 'highlights'; highlights: Highlight[]; marker: ReadingMarker | null; drawings: Drawing[]; readOnly?: boolean; pages?: string[] }
   | { type: 'toggleList' }
   | { type: 'toggleTool' }
   | { type: 'toggleDrawing' }
   | { type: 'toggleText' }
-  | { type: 'toggleEraser' }
+  | { type: 'toggleRemove' }
   | { type: 'fullView'; full: boolean }
   | { type: 'theme'; theme: PageTheme }
   | { type: 'document'; fileName: string; uri: string }

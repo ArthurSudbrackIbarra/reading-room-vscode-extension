@@ -25,8 +25,20 @@ describe('inverse', () => {
   it('inverts batches in reverse order', () => {
     const a = makeHighlight('a');
     const b = makeHighlight('b');
-    const op: EditOp = { kind: 'batch', ops: [{ kind: 'delete', highlight: a }, { kind: 'delete', highlight: b }] };
-    expect(inverse(op)).toEqual({ kind: 'batch', ops: [{ kind: 'create', highlight: b }, { kind: 'create', highlight: a }] });
+    const op: EditOp = {
+      kind: 'batch',
+      ops: [
+        { kind: 'delete', highlight: a },
+        { kind: 'delete', highlight: b },
+      ],
+    };
+    expect(inverse(op)).toEqual({
+      kind: 'batch',
+      ops: [
+        { kind: 'create', highlight: b },
+        { kind: 'create', highlight: a },
+      ],
+    });
   });
 });
 
@@ -72,7 +84,14 @@ describe('UndoStack', () => {
 
 describe('drawing operations', () => {
   it('turn drawn into deleted and back', () => {
-    const drawing = makeDrawing({ tool: 'pen', points: [[1, 2], [3, 4], [5, 3]] });
+    const drawing = makeDrawing({
+      tool: 'pen',
+      points: [
+        [1, 2],
+        [3, 4],
+        [5, 3],
+      ],
+    });
     expect(inverse({ kind: 'createDrawing', drawing })).toEqual({ kind: 'deleteDrawing', drawing });
     expect(inverse({ kind: 'deleteDrawing', drawing })).toEqual({ kind: 'createDrawing', drawing });
   });
@@ -114,7 +133,11 @@ describe('drawing operations', () => {
 describe('rebased highlights and bound drawings', () => {
   it('a highlight rebased on other text (Accept, Attach) is one step that swaps the whole highlight', () => {
     const before = makeHighlight('quick brown fox');
-    const after = { ...before, target: { ...before.target, selector: [{ ...before.target.selector[0], exact: 'quick red fox' }, before.target.selector[1]] as typeof before.target.selector }, anchor: { exact: 'quick red fox', prefix: 'the ', suffix: ' jumps' } };
+    const after = {
+      ...before,
+      target: { ...before.target, selector: [{ ...before.target.selector[0], exact: 'quick red fox' }, before.target.selector[1]] as typeof before.target.selector },
+      anchor: { exact: 'quick red fox', prefix: 'the ', suffix: ' jumps' },
+    };
     const op: EditOp = { kind: 'replace', before, after };
     expect(inverse(op)).toEqual({ kind: 'replace', before: after, after: before });
     const stack = new UndoStack();
@@ -124,9 +147,24 @@ describe('rebased highlights and bound drawings', () => {
   });
 
   it('D3: drawings keep their binding through undo and redo, so they are resolved again where their content is', () => {
-    const binding = { mode: 'page' as const, anchors: [], ref: [], page: 0, pageSize: [612, 792] as [number, number], frame: [1, 0, 0, -1, 0, 792] as [number, number, number, number, number, number], for: '2026-11-10T10:00:00.000Z' };
+    const binding = {
+      mode: 'page' as const,
+      anchors: [],
+      ref: [],
+      page: 0,
+      pageSize: [612, 792] as [number, number],
+      frame: [1, 0, 0, -1, 0, 792] as [number, number, number, number, number, number],
+      for: '2026-11-10T10:00:00.000Z',
+    };
     const stored = { ...makeDrawing(), binding };
-    const moved = { ...stored, points: [[20, 30], [120, 230]] as [number, number][], binding: { ...binding, mode: 'line' as const } };
+    const moved = {
+      ...stored,
+      points: [
+        [20, 30],
+        [120, 230],
+      ] as [number, number][],
+      binding: { ...binding, mode: 'line' as const },
+    };
     const stack = new UndoStack();
     stack.record({ kind: 'createDrawing', drawing: stored }, 'Line');
     stack.record({ kind: 'updateDrawing', before: stored, after: moved }, 'Move drawing');
@@ -139,5 +177,31 @@ describe('rebased highlights and bound drawings', () => {
     const again = stack.redo()!.op as Extract<EditOp, { kind: 'updateDrawing' }>;
     again.after.points[0][0] = 999;
     expect((stack.undo()!.op as Extract<EditOp, { kind: 'updateDrawing' }>).before.points[0][0]).toBe(20);
+  });
+});
+
+describe('what the undo button shows', () => {
+  it('names the next change to take back, and is told about every change of the history', () => {
+    let changes = 0;
+    const stack = new UndoStack(500, () => changes++);
+    expect(stack.nextUndo).toBeUndefined();
+    stack.record({ kind: 'create', highlight: makeHighlight('a') }, 'Highlight');
+    stack.record({ kind: 'delete', highlight: makeHighlight('a') }, 'Delete highlight');
+    expect(stack.nextUndo).toBe('Delete highlight');
+    stack.undo();
+    expect(stack.nextUndo).toBe('Highlight');
+    stack.redo();
+    expect(stack.nextUndo).toBe('Delete highlight');
+    stack.clear();
+    expect(stack.nextUndo).toBeUndefined();
+    expect(changes).toBe(5);
+  });
+
+  it('is not told when there was nothing to undo or redo', () => {
+    let changes = 0;
+    const stack = new UndoStack(500, () => changes++);
+    expect(stack.undo()).toBeUndefined();
+    expect(stack.redo()).toBeUndefined();
+    expect(changes).toBe(0);
   });
 });

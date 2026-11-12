@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { createAnchor } from '../../../src/anchoring/anchor';
 import { ResolverRuns, massOrphanMessage, summaryMessage, type RunInput, type RunResult } from '../../../src/anchoring/runs';
-import { World, makeDocument, scenario } from './scenario';
+import { type World, makeDocument, scenario } from './scenario';
 
 const TEXT = [
   'Reading notes',
@@ -105,10 +105,16 @@ describe('ResolverRuns', () => {
     const hl = highlight(d1, 'h', 'approved the annual budget on Tuesday');
     const easy = highlight(d1, 'easy', 'The committee');
     // Everything around it rewritten and a word changed: only the approximate search finds it.
-    const changed = original.replace('The committee approved the annual budget on Tuesday evening.', 'Our board approved the yearly budget on Tuesday night!').replace(/Filler sentence number one is here\. /g, 'Other words. ');
+    const changed = original
+      .replace('The committee approved the annual budget on Tuesday evening.', 'Our board approved the yearly budget on Tuesday night!')
+      .replace(/Filler sentence number one is here\. /g, 'Other words. ');
     const d2 = makeDocument(changed, {}, 2);
     const quick: RunResult[] = [];
-    const result = (await runs.run(d2, { highlights: [hl, easy], drawings: [] }, { oldText: () => undefined, onQuick: (r) => quick.push({ ...r, highlights: new Map(r.highlights), pending: new Set(r.pending) }) }))!;
+    const result = (await runs.run(
+      d2,
+      { highlights: [hl, easy], drawings: [] },
+      { oldText: () => undefined, onQuick: (r) => quick.push({ ...r, highlights: new Map(r.highlights), pending: new Set(r.pending) }) },
+    ))!;
     expect(quick).toHaveLength(1);
     expect([...quick[0].pending]).toEqual(['h', 'easy']);
     expect(quick[0].highlights.get('h')).toMatchObject({ status: 'orphaned', reason: 'not-found' });
@@ -131,14 +137,19 @@ describe('ResolverRuns', () => {
 });
 
 describe('what a run reports', () => {
-  const four = () => scenario('summary').doc(TEXT).highlight('a', 'quick brown fox').highlight('b', 'rivers and lakes').highlight('c', 'typed notes').highlight('d', 'thanks to everyone');
+  const four = () =>
+    scenario('summary').doc(TEXT).highlight('a', 'quick brown fox').highlight('b', 'rivers and lakes').highlight('c', 'typed notes').highlight('d', 'thanks to everyone');
 
   it('counts what changed category, once', async () => {
     const world = await four().run();
     expect(world.last!.summary).toMatchObject({ moved: 0, edited: 0, partial: 0, restored: 0, orphanedNow: 0, total: 4, massOrphan: false });
-    await world.edit((t) => t.replace('quick brown fox', 'quick red fox').replace('rivers and ', '').replace('typed notes', 'other things').replace(' with thanks to everyone who took part in it', ''));
+    await world.edit((t) =>
+      t.replace('quick brown fox', 'quick red fox').replace('rivers and ', '').replace('typed notes', 'other things').replace(' with thanks to everyone who took part in it', ''),
+    );
     expect(world.last!.summary).toMatchObject({ edited: 1, partial: 1, orphaned: { replaced: 1, deleted: 1 }, orphanedNow: 2, total: 4, massOrphan: false });
-    expect(summaryMessage(world.last!.summary)).toBe('1 annotation is on text that changed; 1 annotation shrank: part of its text was deleted; 1 orphaned: its text was replaced; 1 orphaned: its text was deleted.');
+    expect(summaryMessage(world.last!.summary)).toBe(
+      '1 annotation is on text that changed; 1 annotation shrank: part of its text was deleted; 1 orphaned: its text was replaced; 1 orphaned: its text was deleted.',
+    );
     // The same text again: nothing changes category, nothing is reported.
     await world.edit((t) => `${t}\n\nOne more line.`);
     expect(summaryMessage(world.last!.summary)).toBeUndefined();
@@ -157,7 +168,12 @@ describe('what a run reports', () => {
     // But on opening the document in that state, the reader is told.
     expect((await world.resolve({}, true)).summary.massOrphan).toBe(true);
     // Fewer than three annotations never raise it.
-    const two = await scenario('two').doc(TEXT).highlight('a', 'quick brown fox').highlight('b', 'lazy dog').edit(() => 'Nothing of it is left.').run();
+    const two = await scenario('two')
+      .doc(TEXT)
+      .highlight('a', 'quick brown fox')
+      .highlight('b', 'lazy dog')
+      .edit(() => 'Nothing of it is left.')
+      .run();
     expect(two.last!.summary).toMatchObject({ orphanedNow: 2, total: 2, massOrphan: false });
   });
 
@@ -181,7 +197,11 @@ describe('what a run reports', () => {
     const world = await four().run();
     const g = gate();
     const doc = makeDocument(`Preface.\n\n${TEXT}`, {}, 9);
-    const stale = world.runs.run(doc, { highlights: [...world.highlights].map(([id, h]) => ({ id, anchor: h.anchor, state: h.state })), drawings: [] }, { oldText: (h) => world.texts.get(h), pause: g.pause, chunk: 1 });
+    const stale = world.runs.run(
+      doc,
+      { highlights: [...world.highlights].map(([id, h]) => ({ id, anchor: h.anchor, state: h.state })), drawings: [] },
+      { oldText: (h) => world.texts.get(h), pause: g.pause, chunk: 1 },
+    );
     // Meanwhile the reader adds a highlight and deletes one: the viewer starts a new run.
     world.highlights.delete('d');
     world.doc = { ...doc, images: [], text: doc.model.text };

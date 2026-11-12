@@ -33,7 +33,11 @@ export class MermaidRenderer {
     const results: (MermaidResult | undefined)[] = keys.map((k) => this.cache.get(k));
     const missing = keys.map((key, i) => ({ key, i, src: sources[i] })).filter(({ i }) => !results[i]);
     if (missing.length > 0) {
-      const rendered = await this.renderInSandbox(browser, missing.map((m) => ({ id: `mermaid-${m.key}`, src: m.src })), theme);
+      const rendered = await this.renderInSandbox(
+        browser,
+        missing.map((m) => ({ id: `mermaid-${m.key}`, src: m.src })),
+        theme,
+      );
       missing.forEach((m, n) => {
         results[m.i] = rendered[n];
         this.cache.set(m.key, rendered[n]);

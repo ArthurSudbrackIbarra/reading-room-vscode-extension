@@ -1,7 +1,7 @@
 // The viewer toolbar:
-// [☰] │ [↑] [n / N] [↓] │ [−] [zoom ▾] [+] [↺] │ [highlighter] [● ● ● ● ●] │ [pencil] [T] [eraser] [🔖 ▾]     [🎧] [◐] [⟳] [⤢] [⤓ ▾]
+// [☰] │ [↑] [n / N] [↓] │ [−] [zoom ▾] [+] │ [highlighter] [● ● ● ● ●] │ [pencil] [T] [remove] [🔖 ▾] │ [↶]     [🎧] [◐] [⟳] [⤢] [⤓ ▾]
 // The three annotation tools show their color in a band under their icon: the highlight color,
-// the ink, the text color. The eraser deletes any of what they make. Groups are divided by a
+// the ink, the text color. The remove tool deletes any of what they make. Groups are divided by a
 // line with the same space on both sides; when the toolbar wraps, the line at the end of a row
 // is hidden.
 import type { Ink } from '../src/shared/colors';
@@ -9,7 +9,7 @@ import type { SoundState } from '../src/shared/sounds';
 import { HIGHLIGHT_COLORS, HIGHLIGHT_HEX, MAX_ZOOM, MIN_ZOOM, type DocumentKind, type HighlightColor, type PageTheme, type ZoomValue } from '../src/shared/types';
 import { h, icon, iconButton, placeFloating } from './dom';
 import { setInk } from './drawings';
-import { drawIcon, eraserIcon, highlighterIcon, textIcon } from './icons';
+import { drawIcon, highlighterIcon, removeIcon, textIcon } from './icons';
 import { headphonesIcon } from './sounds';
 
 export interface ToolbarActions {
@@ -19,13 +19,14 @@ export interface ToolbarActions {
   goToPage(page: number): void;
   zoomIn(): void;
   zoomOut(): void;
-  resetZoom(): void;
   setZoom(zoom: ZoomValue): void;
   toggleTool(): void;
   setColor(color: HighlightColor): void;
   toggleDrawing(): void;
   toggleText(): void;
-  toggleEraser(): void;
+  toggleRemove(): void;
+  /** Takes back the last change (or, while typing, the last typing). */
+  undo(): void;
   placeMarker(): void;
   goToMarker(): void;
   removeMarker(): void;
@@ -44,8 +45,8 @@ const DRAW_TITLE = 'Draw on the page: pen, lines, arrows, rectangles, ellipses';
 const DRAW_ON_TITLE = 'Drawing is on (Esc to stop)';
 const TEXT_TITLE = 'Add text: click on the page and type';
 const TEXT_ON_TITLE = 'Adding text is on (Esc to stop)';
-const ERASER_TITLE = 'Eraser: click or drag over highlights, drawings and text boxes to delete them';
-const ERASER_ON_TITLE = 'Erasing is on: what a click would delete is shown faded (Esc to stop)';
+const REMOVE_TITLE = 'Remove: click a highlight, drawing or text box to delete it, or drag over several';
+const REMOVE_ON_TITLE = 'Removing is on: what a click would delete is shown faded (Esc to stop)';
 const DOWNLOAD_TITLE = 'Download PDF (with highlights, notes, drawings and text)';
 
 const ZOOM_OPTIONS: { value: string; label: string }[] = [
@@ -132,26 +133,27 @@ export class Toolbar {
   );
   private readonly swatches = new Map<HighlightColor, HTMLButtonElement>();
   private readonly swatchGroup: HTMLElement;
-  private readonly drawButton = h(
+  private readonly drawButton = h('button', { class: 'mpv-btn mpv-draw-button', type: 'button', title: DRAW_TITLE, 'aria-label': DRAW_TITLE, 'aria-pressed': 'false' }, drawIcon());
+  private readonly textButton = h('button', { class: 'mpv-btn mpv-text-button', type: 'button', title: TEXT_TITLE, 'aria-label': TEXT_TITLE, 'aria-pressed': 'false' }, textIcon());
+  private readonly removeButton = h(
     'button',
-    { class: 'mpv-btn mpv-draw-button', type: 'button', title: DRAW_TITLE, 'aria-label': DRAW_TITLE, 'aria-pressed': 'false' },
-    drawIcon(),
+    { class: 'mpv-btn mpv-remove-button', type: 'button', title: REMOVE_TITLE, 'aria-label': REMOVE_TITLE, 'aria-pressed': 'false' },
+    removeIcon(),
   );
-  private readonly textButton = h(
-    'button',
-    { class: 'mpv-btn mpv-text-button', type: 'button', title: TEXT_TITLE, 'aria-label': TEXT_TITLE, 'aria-pressed': 'false' },
-    textIcon(),
-  );
-  private readonly eraserButton = h(
-    'button',
-    { class: 'mpv-btn mpv-eraser-button', type: 'button', title: ERASER_TITLE, 'aria-label': ERASER_TITLE, 'aria-pressed': 'false' },
-    eraserIcon(),
-  );
+  private readonly undoButton = iconButton('discard', 'Undo', { class: 'mpv-btn mpv-undo-button' });
   private readonly markerButton = iconButton('bookmark', 'Mark where you stopped reading: click this, then click a line');
   private readonly markerMenu: DropDown;
   private readonly soundsButton = h(
     'button',
-    { class: 'mpv-btn mpv-sounds-button', type: 'button', title: 'Reading sounds', 'aria-label': 'Reading sounds', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', hidden: true },
+    {
+      class: 'mpv-btn mpv-sounds-button',
+      type: 'button',
+      title: 'Reading sounds',
+      'aria-label': 'Reading sounds',
+      'aria-haspopup': 'dialog',
+      'aria-expanded': 'false',
+      hidden: true,
+    },
     headphonesIcon(),
   );
   private readonly themeButton = iconButton('color-mode', 'Dark pages');
@@ -164,7 +166,6 @@ export class Toolbar {
     const next = iconButton('arrow-down', 'Next page');
     const zoomOut = iconButton('zoom-out', 'Zoom out (Ctrl+-)');
     const zoomIn = iconButton('zoom-in', 'Zoom in (Ctrl+=)');
-    const zoomReset = iconButton('discard', 'Reset zoom to fit width (Ctrl+0)');
     const download = iconButton('download', DOWNLOAD_TITLE);
 
     this.zoomSelect.append(this.customZoom, ...ZOOM_OPTIONS.map((o) => h('option', { value: o.value, text: o.label })));
@@ -200,12 +201,13 @@ export class Toolbar {
     const divided = 'mpv-group mpv-divided';
     this.element = h(
       'header',
-      { class: 'mpv-toolbar', role: 'toolbar', 'aria-label': 'Document viewer' },
+      { class: 'mpv-toolbar', role: 'toolbar', 'aria-label': 'Reading Room' },
       h('div', { class: divided }, this.listButton),
       h('div', { class: divided }, prev, h('div', { class: 'mpv-page' }, this.pageInput, this.pageCount), next),
-      h('div', { class: divided }, zoomOut, this.zoomSelect, zoomIn, zoomReset),
+      h('div', { class: divided }, zoomOut, this.zoomSelect, zoomIn),
       h('div', { class: divided }, this.toolButton, colors),
-      h('div', { class: 'mpv-group' }, this.drawButton, this.textButton, this.eraserButton, h('div', { class: 'mpv-split' }, this.markerButton, this.markerMenu.toggle)),
+      h('div', { class: divided }, this.drawButton, this.textButton, this.removeButton, h('div', { class: 'mpv-split' }, this.markerButton, this.markerMenu.toggle)),
+      h('div', { class: 'mpv-group' }, this.undoButton),
       h('div', { class: 'mpv-spacer' }),
       h(
         'div',
@@ -223,11 +225,13 @@ export class Toolbar {
     next.addEventListener('click', () => actions.nextPage());
     zoomOut.addEventListener('click', () => actions.zoomOut());
     zoomIn.addEventListener('click', () => actions.zoomIn());
-    zoomReset.addEventListener('click', () => actions.resetZoom());
     this.toolButton.addEventListener('click', () => actions.toggleTool());
     this.drawButton.addEventListener('click', () => actions.toggleDrawing());
     this.textButton.addEventListener('click', () => actions.toggleText());
-    this.eraserButton.addEventListener('click', () => actions.toggleEraser());
+    this.removeButton.addEventListener('click', () => actions.toggleRemove());
+    // The button does not take the keyboard: while typing in a text box, it undoes the typing.
+    this.undoButton.addEventListener('pointerdown', (e) => e.preventDefault());
+    this.undoButton.addEventListener('click', () => actions.undo());
     // A divider never starts a row; one that ends a row is hidden (its space is kept, so
     // hiding it cannot change where the toolbar wraps).
     new ResizeObserver(() => hideDividersAtRowEnds(this.element)).observe(this.element);
@@ -307,9 +311,16 @@ export class Toolbar {
     this.dimSwatches();
   }
 
-  setEraser(active: boolean): void {
-    this.setPressed(this.eraserButton, active, active ? ERASER_ON_TITLE : ERASER_TITLE);
+  setRemoving(active: boolean): void {
+    this.setPressed(this.removeButton, active, active ? REMOVE_ON_TITLE : REMOVE_TITLE);
     this.dimSwatches();
+  }
+
+  /** What the undo button would take back (`label`), or nothing. */
+  setUndo(label: string | undefined, shortcut: string): void {
+    this.undoButton.disabled = label === undefined;
+    this.undoButton.title = label === undefined ? 'Nothing to undo' : `Undo: ${label} (${shortcut})`;
+    this.undoButton.setAttribute('aria-label', this.undoButton.title);
   }
 
   /** The band under the pencil shows the current ink. */
@@ -329,9 +340,9 @@ export class Toolbar {
     button.setAttribute('aria-label', title);
   }
 
-  /** While drawing, adding text or erasing, the highlight colors step back (they still work). */
+  /** While drawing, adding text or removing, the highlight colors step back (they still work). */
   private dimSwatches(): void {
-    const busy = [this.drawButton, this.textButton, this.eraserButton].some((button) => button.classList.contains('mpv-active'));
+    const busy = [this.drawButton, this.textButton, this.removeButton].some((button) => button.classList.contains('mpv-active'));
     this.swatchGroup.classList.toggle('mpv-dimmed', busy);
   }
 

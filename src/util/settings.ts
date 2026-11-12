@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { PageSize } from '../shared/types';
 
-export const SECTION = 'markdownPdfViewer';
+export const SECTION = 'readingRoom';
 
 export interface Settings {
   defaultOpenMode: 'side' | 'full';

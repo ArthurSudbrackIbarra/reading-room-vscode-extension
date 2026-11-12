@@ -34,8 +34,25 @@ const ids = (list: { id: string }[]) => list.map((x) => x.id).sort();
 describe('drawings in the store', () => {
   it('persist in a companion file and read back in a new instance', async () => {
     const ref = winRef('C:\\Notes\\draw.md');
-    const pen = makeDrawing({ tool: 'pen', points: [[1, 2], [3, 4], [6, 5]], textModelHash: 'hash-1' });
-    const rect = makeDrawing({ tool: 'rect', color: 'blue', width: 'thick', pageIndex: 2, points: [[10, 10], [90, 60]] });
+    const pen = makeDrawing({
+      tool: 'pen',
+      points: [
+        [1, 2],
+        [3, 4],
+        [6, 5],
+      ],
+      textModelHash: 'hash-1',
+    });
+    const rect = makeDrawing({
+      tool: 'rect',
+      color: 'blue',
+      width: 'thick',
+      pageIndex: 2,
+      points: [
+        [10, 10],
+        [90, 60],
+      ],
+    });
     const first = newStore();
     await first.update(ref, (r) => {
       r.highlights.push(makeHighlight('next to a drawing'));
@@ -71,7 +88,13 @@ describe('drawings in the store', () => {
 
   it('keep a document that has only drawings, and remove both files when the last one goes', async () => {
     const ref = winRef('C:\\Notes\\only-drawings.md');
-    const d = makeDrawing({ tool: 'ellipse', points: [[0, 0], [40, 20]] });
+    const d = makeDrawing({
+      tool: 'ellipse',
+      points: [
+        [0, 0],
+        [40, 20],
+      ],
+    });
     const store = newStore();
     await store.update(ref, (r) => r.drawings.push(d));
     await store.flush();
@@ -220,7 +243,23 @@ describe('drawings in the store', () => {
     const long = makeDrawing({ tool: 'pen', points: Array.from({ length: MAX_STROKE_POINTS * 2 }, (_, i): [number, number] => [i * 0.2, Math.sin(i) * 9]) });
     writeFileSync(
       drawingsFile(ref),
-      JSON.stringify({ schemaVersion: 1, uri: ref.uri, drawings: [good, { ...good }, { id: 'bad', tool: 'laser' }, { ...makeDrawing(), points: [[NaN, 1], [2, 3]] }, long] }),
+      JSON.stringify({
+        schemaVersion: 1,
+        uri: ref.uri,
+        drawings: [
+          good,
+          { ...good },
+          { id: 'bad', tool: 'laser' },
+          {
+            ...makeDrawing(),
+            points: [
+              [NaN, 1],
+              [2, 3],
+            ],
+          },
+          long,
+        ],
+      }),
     );
     const reported: number[] = [];
     const record = await newStore({ onSimplified: (_ref, count) => reported.push(count) }).get(ref);
@@ -233,7 +272,17 @@ describe('drawings in the store', () => {
 describe('downgrade to 0.4.x and back', () => {
   it('drawings survive 0.4.x reading and writing the record', async () => {
     const ref = winRef('C:\\Notes\\round-trip.md');
-    const drawings = [makeDrawing({ tool: 'pen', points: [[1, 1], [2, 3], [4, 2]] }), makeDrawing({ tool: 'ellipse' })];
+    const drawings = [
+      makeDrawing({
+        tool: 'pen',
+        points: [
+          [1, 1],
+          [2, 3],
+          [4, 2],
+        ],
+      }),
+      makeDrawing({ tool: 'ellipse' }),
+    ];
     const current = newStore();
     await current.update(ref, (r) => {
       r.highlights.push(makeHighlight('from 0.5'));

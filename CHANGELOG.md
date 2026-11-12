@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.0 — 2026-11-12
+
+- **A new name: Reading Room.** The extension grew from a PDF preview into a place to read and study, and is now named and described that way. Everything that carried the old name follows:
+  - Commands are under **Reading Room** in the Command Palette. The two that open a file are **Open in Reading Room to the Side** (`Ctrl+K Shift+R`, was `Ctrl+K Shift+P`) and **Open in Reading Room** (`Ctrl+Shift+Alt+R`, was `Ctrl+Shift+Alt+P`); the title-bar button is a book.
+  - Settings are `readingRoom.*` (were `markdownPdfViewer.*`), and the extension id is `local.reading-room`.
+  - **Your annotations and your own sounds come along**: the first time Reading Room starts, it copies them from the storage of Document Viewer & Highlighter (which is left as it is). Small preferences, such as the last colors and the volume, start fresh. Uninstall the old extension so that only one of them opens PDF files.
+- **An undo button** in the toolbar, where the reset-zoom button was (its icon looked like undo). It takes back the last change, or the typing while you type in a text box; its tooltip says what it will take back, and it is dimmed when there is nothing. The reset-zoom button, its command and `Ctrl+0` are gone: **Fit Width** in the zoom list does the same.
+- **The eraser shows what it rubs out, also while you drag**: a ring follows the pointer and stays while the button is down (the round cursor used to vanish as soon as you pressed). With the eraser picked, the three widths of the drawing bar are its three **sizes** (small, medium, large), shown as circles, and the ring is exactly as large as what is rubbed out. The size is remembered apart from the pen's width.
+- **The remove tool has its own look**: the toolbar's eraser, which deletes whole highlights, drawings and text boxes, is now called **Remove** and shows a pointer with an ×, as does its cursor on the page. It no longer looks like the eraser of the drawing bar, which rubs out part of a drawing.
+- **"DRAW MODE" and "TEXT MODE"** in words at the start of the second row, instead of the mode's icon repeated there, which looked like one more tool.
+- **What is on is easier to see**: a tool that is on, and what is picked in the second row (the drawing tool, the width or eraser size, bold, italic, underline, the alignment), has a light blue fill and a blue border, in every color theme. The ring around the picked highlight color uses the same blue.
+- **Fixed: a highlight that took the whole last line.** A selection that ended right in front of a differently styled piece of text (bold words, a link, inline code) was extended to the end of that piece, often the rest of the line. It now ends where the selection ends.
+- **README for readers**: the README now holds what someone using the extension needs. Building from source, the source layout, how annotations are anchored and the format of the stored files moved to `docs/DEVELOPMENT.md`.
+- **For development**: ESLint and Prettier are set up (`npm run lint`, `npm run format`, `npm run check`), the code is formatted with Prettier, and VS Code formats on save.
+
 ## 0.8.0 — 2026-11-11
 
 - **Annotations survive changes to the document.** Highlights, notes, the reading marker, drawings and text boxes now follow their content through any change of the file: edits in VS Code, a formatter, `git checkout`, another program, a replaced PDF.

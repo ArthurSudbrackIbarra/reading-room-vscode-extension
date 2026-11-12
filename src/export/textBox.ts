@@ -207,7 +207,14 @@ export function textBoxAppearance(text: TextDrawing, page: PageGeometry, layout?
     const runs = textRuns(text.text, text.spans, start, start + trimmed.length).map((run) => {
       const font = fontNameOf(run);
       const encoded = encodeText(run.text, font);
-      return { font, underline: run.underline, codes: encoded.codes, width: (encoded.width * size) / 1000, replaced: encoded.replaced, spaces: (run.text.match(/ /g) ?? []).length };
+      return {
+        font,
+        underline: run.underline,
+        codes: encoded.codes,
+        width: (encoded.width * size) / 1000,
+        replaced: encoded.replaced,
+        spaces: (run.text.match(/ /g) ?? []).length,
+      };
     });
     return { trimmed, runs, width: runs.reduce((sum, run) => sum + run.width, 0) };
   });

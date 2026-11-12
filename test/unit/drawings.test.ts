@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_STROKE_POINTS, MAX_TEXT_LENGTH, MAX_TEXT_SIZE, MIN_TEXT_BOX_WIDTH, MIN_TEXT_SIZE, applyTextStyle, normalizeText, sanitizeDrawing, sanitizeTextStyle, textStyleOf } from '../../src/shared/drawings';
+import {
+  MAX_STROKE_POINTS,
+  MAX_TEXT_LENGTH,
+  MAX_TEXT_SIZE,
+  MIN_TEXT_BOX_WIDTH,
+  MIN_TEXT_SIZE,
+  applyTextStyle,
+  normalizeText,
+  sanitizeDrawing,
+  sanitizeTextStyle,
+  textStyleOf,
+} from '../../src/shared/drawings';
 import { makeDrawing as make, makeText } from './helpers';
 
 const makeDrawing: typeof make = (overrides = {}) => make({ id: 'd-1', ...overrides });
@@ -24,10 +35,29 @@ describe('sanitizeDrawing', () => {
   });
 
   it('keeps a pen stroke drawn with straight lines (what the eraser leaves), on pen strokes only', () => {
-    const piece = makeDrawing({ tool: 'pen', points: [[10, 10], [40, 10], [40, 30]], polyline: true });
+    const piece = makeDrawing({
+      tool: 'pen',
+      points: [
+        [10, 10],
+        [40, 10],
+        [40, 30],
+      ],
+      polyline: true,
+    });
     expect(sanitizeDrawing(piece)).toEqual(piece);
     expect(sanitizeDrawing({ ...makeDrawing({ tool: 'pen' }), polyline: 'yes' })).not.toHaveProperty('polyline');
-    expect(sanitizeDrawing({ ...makeDrawing({ tool: 'line', points: [[0, 0], [5, 5]] }), polyline: true })).not.toHaveProperty('polyline');
+    expect(
+      sanitizeDrawing({
+        ...makeDrawing({
+          tool: 'line',
+          points: [
+            [0, 0],
+            [5, 5],
+          ],
+        }),
+        polyline: true,
+      }),
+    ).not.toHaveProperty('polyline');
   });
 
   it('refuses unknown tools, inks and widths', () => {
@@ -46,9 +76,25 @@ describe('sanitizeDrawing', () => {
 
   it('refuses numbers that are not finite coordinates', () => {
     for (const bad of [NaN, Infinity, -Infinity, 1e9, '12', null]) {
-      expect(sanitizeDrawing({ ...makeDrawing(), points: [[bad, 1], [2, 3]] })).toBeUndefined();
+      expect(
+        sanitizeDrawing({
+          ...makeDrawing(),
+          points: [
+            [bad, 1],
+            [2, 3],
+          ],
+        }),
+      ).toBeUndefined();
     }
-    expect(sanitizeDrawing({ ...makeDrawing(), points: [[1, 2, 3], [4, 5]] })).toBeUndefined();
+    expect(
+      sanitizeDrawing({
+        ...makeDrawing(),
+        points: [
+          [1, 2, 3],
+          [4, 5],
+        ],
+      }),
+    ).toBeUndefined();
     expect(sanitizeDrawing({ ...makeDrawing(), pageIndex: -1 })).toBeUndefined();
     expect(sanitizeDrawing({ ...makeDrawing(), pageIndex: 1.5 })).toBeUndefined();
     expect(sanitizeDrawing({ ...makeDrawing(), id: '' })).toBeUndefined();
@@ -59,21 +105,63 @@ describe('sanitizeDrawing', () => {
 
   it('wants two points for lines, arrows and shapes, and one or more for the pen', () => {
     expect(sanitizeDrawing(makeDrawing({ points: [[1, 2]] }))).toBeUndefined();
-    expect(sanitizeDrawing(makeDrawing({ tool: 'arrow', points: [[1, 2], [3, 4], [5, 6]] }))).toBeUndefined();
+    expect(
+      sanitizeDrawing(
+        makeDrawing({
+          tool: 'arrow',
+          points: [
+            [1, 2],
+            [3, 4],
+            [5, 6],
+          ],
+        }),
+      ),
+    ).toBeUndefined();
     expect(sanitizeDrawing(makeDrawing({ tool: 'pen', points: [] }))).toBeUndefined();
     expect(sanitizeDrawing(makeDrawing({ tool: 'pen', points: [[1, 2]] }))?.points).toEqual([[1, 2]]);
   });
 
   it('rounds to two decimals, stores boxes by their corners and drops repeated pen points', () => {
-    expect(sanitizeDrawing(makeDrawing({ points: [[1.23456, 2.0049], [3.999, 4]] }))?.points).toEqual([
+    expect(
+      sanitizeDrawing(
+        makeDrawing({
+          points: [
+            [1.23456, 2.0049],
+            [3.999, 4],
+          ],
+        }),
+      )?.points,
+    ).toEqual([
       [1.23, 2],
       [4, 4],
     ]);
-    expect(sanitizeDrawing(makeDrawing({ tool: 'rect', points: [[100, 10], [20, 50]] }))?.points).toEqual([
+    expect(
+      sanitizeDrawing(
+        makeDrawing({
+          tool: 'rect',
+          points: [
+            [100, 10],
+            [20, 50],
+          ],
+        }),
+      )?.points,
+    ).toEqual([
       [20, 10],
       [100, 50],
     ]);
-    expect(sanitizeDrawing(makeDrawing({ tool: 'pen', points: [[1, 1], [1, 1], [2, 2], [2, 2.001]] }))?.points).toEqual([
+    expect(
+      sanitizeDrawing(
+        makeDrawing({
+          tool: 'pen',
+          points: [
+            [1, 1],
+            [1, 1],
+            [2, 2],
+            [2, 2.001],
+          ],
+        }),
+      )?.points,
+    ).toEqual([
       [1, 1],
       [2, 2],
     ]);
@@ -122,7 +210,10 @@ describe('text boxes', () => {
     expect(sanitizeDrawing({ ...text, spans: [] })).not.toHaveProperty('spans');
     expect(sanitizeDrawing({ ...text, spans: 'bold' })).not.toHaveProperty('spans');
     // Trailing white space goes, and the spans with it.
-    expect(sanitizeDrawing({ ...text, text: 'abc   ', spans: [{ start: 1, end: 6, underline: true }] })).toMatchObject({ text: 'abc', spans: [{ start: 1, end: 3, underline: true }] });
+    expect(sanitizeDrawing({ ...text, text: 'abc   ', spans: [{ start: 1, end: 6, underline: true }] })).toMatchObject({
+      text: 'abc',
+      spans: [{ start: 1, end: 3, underline: true }],
+    });
     // Cleaning that moves characters (a tab becomes four spaces) drops the spans rather than misplace them.
     expect(sanitizeDrawing({ ...text, text: 'a' + String.fromCharCode(9) + 'bc', spans: [{ start: 2, end: 4, bold: true }] })).not.toHaveProperty('spans');
   });
@@ -154,7 +245,16 @@ describe('text boxes', () => {
 
   it('want one point and some text', () => {
     expect(sanitizeDrawing(makeText({ points: [] }))).toBeUndefined();
-    expect(sanitizeDrawing(makeText({ points: [[1, 2], [3, 4]] }))).toBeUndefined();
+    expect(
+      sanitizeDrawing(
+        makeText({
+          points: [
+            [1, 2],
+            [3, 4],
+          ],
+        }),
+      ),
+    ).toBeUndefined();
     expect(sanitizeDrawing(makeText({ text: '' }))).toBeUndefined();
     expect(sanitizeDrawing(makeText({ text: ' \n\t ' }))).toBeUndefined();
     expect(sanitizeDrawing({ ...makeText(), text: 42 })).toBeUndefined();

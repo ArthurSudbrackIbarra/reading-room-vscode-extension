@@ -7,9 +7,11 @@ import { scenario } from './scenario';
 
 const TITLE = 'Reading notes';
 const INTRO = 'This report describes two experiments on the reading habits of students in their first year at the university. It was written over one summer and revised twice.';
-const P1 = 'In the first experiment the quick brown fox jumps over the lazy dog while the students take notes by hand. The notes are collected at the end of the hour and compared with the text.';
+const P1 =
+  'In the first experiment the quick brown fox jumps over the lazy dog while the students take notes by hand. The notes are collected at the end of the hour and compared with the text.';
 const HEADING = 'Results';
-const P2 = 'The second experiment repeats the first one with a longer text about rivers and lakes. Every student writes a short summary of it, and the summaries are graded by two teachers.';
+const P2 =
+  'The second experiment repeats the first one with a longer text about rivers and lakes. Every student writes a short summary of it, and the summaries are graded by two teachers.';
 const P3 = 'Both experiments show that notes taken by hand are remembered longer than typed notes. The difference is small but it is stable across all groups of students.';
 const BASE = [TITLE, INTRO, P1, HEADING, P2, P3].join('\n\n');
 const LONG_PARAGRAPH = `A paragraph that was added later. ${'It has many more words than the others and takes a lot of room. '.repeat(12)}`.trim();
@@ -282,7 +284,11 @@ describe('whole-document events', () => {
 
   it('B3: the file changed while the viewer was closed, with and without a snapshot', async () => {
     for (const noSnapshots of [false, true]) {
-      const world = await base('closed').highlight('h', 'quick brown fox').highlight('gone', 'graded by two teachers').draw('circle', { shape: 'ellipse', around: 'quick brown fox' }).run();
+      const world = await base('closed')
+        .highlight('h', 'quick brown fox')
+        .highlight('gone', 'graded by two teachers')
+        .draw('circle', { shape: 'ellipse', around: 'quick brown fox' })
+        .run();
       await world.edit((t) => insertAbove(t).replace(', and the summaries are graded by two teachers', ''), { noSnapshots });
       world.checkHighlight('h', { status: 'anchored', text: 'quick brown fox' });
       world.checkHighlight('gone', { status: 'orphaned', reason: 'deleted' });
@@ -365,13 +371,21 @@ describe('drawings', () => {
   });
 
   it('E5: a margin bracket stretches when lines are added inside its span, and shrinks back', async () => {
-    const world = await base('bracket').draw('bracket', { shape: 'bracket', beside: ['In the first experiment', 'hour and compared'] }).expect('bracket', { mode: 'span' }).run();
+    const world = await base('bracket')
+      .draw('bracket', { shape: 'bracket', beside: ['In the first experiment', 'hour and compared'] })
+      .expect('bracket', { mode: 'span' })
+      .run();
     const height = () => {
       const b = world.shownBox('bracket')!.box;
       return b[3] - b[1];
     };
     const before = height();
-    await world.edit((t) => t.replace('by hand. The notes', 'by hand. Some more sentences are added here in the middle of the paragraph, enough of them to make it two lines longer than it was before. The notes'));
+    await world.edit((t) =>
+      t.replace(
+        'by hand. The notes',
+        'by hand. Some more sentences are added here in the middle of the paragraph, enough of them to make it two lines longer than it was before. The notes',
+      ),
+    );
     expect(height()).toBeGreaterThan(before + 20);
     const first = world.doc.layout.lineOf(world.doc.text.indexOf('In the first experiment'))!.line.box;
     const last = world.doc.layout.lineOf(world.doc.text.indexOf('hour and compared'))!.line.box;
@@ -413,7 +427,12 @@ describe('drawings', () => {
 
   it('E2: a drawing on an image scales with it, is flagged when its shape changes, and orphans without it', async () => {
     const withImage = (size: string) => [TITLE, INTRO, `[image ${size}]`, P1, P2].join('\n\n');
-    const world = await scenario('image').doc(withImage('200x100')).layout({ charsPerLine: 60, linesPerPage: 30 }).draw('box', { shape: 'rect', onImage: 0 }).expect('box', { mode: 'block', insideImage: 0 }).run();
+    const world = await scenario('image')
+      .doc(withImage('200x100'))
+      .layout({ charsPerLine: 60, linesPerPage: 30 })
+      .draw('box', { shape: 'rect', onImage: 0 })
+      .expect('box', { mode: 'block', insideImage: 0 })
+      .run();
     const width = () => {
       const b = world.shownBox('box')!.box;
       return b[2] - b[0];

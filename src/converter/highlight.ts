@@ -49,11 +49,7 @@ export async function prepareHighlighter(langs: Iterable<string>, warn: (message
     const id = resolveLanguage(lang);
     if (id && !loaded.has(id)) wanted.add(id);
   }
-  await Promise.all(
-    [...wanted].map((id) =>
-      highlighter.loadLanguage(id).catch((err: unknown) => warn(`Could not load the syntax grammar for "${id}": ${String(err)}`)),
-    ),
-  );
+  await Promise.all([...wanted].map((id) => highlighter.loadLanguage(id).catch((err: unknown) => warn(`Could not load the syntax grammar for "${id}": ${String(err)}`))));
   const available = new Set<string>(highlighter.getLoadedLanguages());
 
   return {

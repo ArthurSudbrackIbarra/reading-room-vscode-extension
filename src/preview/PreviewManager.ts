@@ -17,10 +17,10 @@ import type { RenderService } from './RenderService';
 import { SoundCoordinator } from './SoundCoordinator';
 import { PDF_VIEW_TYPE, VIEW_TYPE, availableSounds, webviewOptions } from './webviewHtml';
 
-const UI_STATE_KEY = 'markdownPdfViewer.ui';
-const SOUND_STATE_KEY = 'markdownPdfViewer.sound';
-const FOCUS_CONTEXT = 'markdownPdfViewer.viewerFocused';
-const SOUND_CONTEXT = 'markdownPdfViewer.soundPlaying';
+const UI_STATE_KEY = 'readingRoom.ui';
+const SOUND_STATE_KEY = 'readingRoom.sound';
+const FOCUS_CONTEXT = 'readingRoom.viewerFocused';
+const SOUND_CONTEXT = 'readingRoom.soundPlaying';
 const CACHE_PRUNE_DELAY_MS = 20_000;
 
 /** PDF files open in the viewer as a (read-only) custom editor. */
@@ -70,6 +70,7 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
       drawTool: isDrawTool(saved.drawTool) ? saved.drawTool : DEFAULT_DRAW_TOOL,
       inkColor: sanitizeInk(saved.inkColor) ?? DEFAULT_INK,
       inkWidth: isInkWidth(saved.inkWidth) ? saved.inkWidth : DEFAULT_INK_WIDTH,
+      eraserWidth: isInkWidth(saved.eraserWidth) ? saved.eraserWidth : DEFAULT_INK_WIDTH,
       textStyle: sanitizeTextStyle(saved.textStyle),
       recentColors: (Array.isArray(saved.recentColors) ? saved.recentColors : [])
         .map(normalizeHex)
@@ -151,7 +152,9 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
     const version = e.document.version;
     setTimeout(() => {
       if (panel.isDisposed || e.document.version !== version) return;
-      const editor = vscode.window.visibleTextEditors.find((ed) => ed.document === e.document && ed === vscode.window.activeTextEditor) ?? vscode.window.visibleTextEditors.find((ed) => ed.document === e.document);
+      const editor =
+        vscode.window.visibleTextEditors.find((ed) => ed.document === e.document && ed === vscode.window.activeTextEditor) ??
+        vscode.window.visibleTextEditors.find((ed) => ed.document === e.document);
       panel.addCopyHint(hintFor(duplicate, editor ? e.document.offsetAt(editor.selection.active) : undefined));
     }, 40);
   }
@@ -338,7 +341,7 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
       } catch (err) {
         this.log.error(`Could not move highlight data for ${oldUri.toString()}: ${String(err)}`);
         void vscode.window.showWarningMessage(
-          `Document Viewer could not move the highlights of ${oldUri.path.split('/').pop()} to its new name. Use "Reattach Highlights from Another File…" to recover them.`,
+          `Reading Room could not move the highlights of ${oldUri.path.split('/').pop()} to its new name. Use "Reattach Annotations from Another File…" to recover them.`,
         );
       }
     }

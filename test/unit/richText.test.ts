@@ -87,7 +87,16 @@ describe('styled parts of a text', () => {
   });
 
   it('clean spans from a file: inside the text, sorted, merged, styled', () => {
-    expect(sanitizeSpans([{ start: 5, end: 8, bold: true }, { start: 0, end: 5, bold: true }, { start: 2, end: 3 }], 6)).toEqual([{ start: 0, end: 6, bold: true }]);
+    expect(
+      sanitizeSpans(
+        [
+          { start: 5, end: 8, bold: true },
+          { start: 0, end: 5, bold: true },
+          { start: 2, end: 3 },
+        ],
+        6,
+      ),
+    ).toEqual([{ start: 0, end: 6, bold: true }]);
     expect(sanitizeSpans([{ start: -1, end: 3, bold: true }, { start: 1.5, end: 3, bold: true }, null, 'x'], 6)).toBeUndefined();
     expect(sanitizeSpans({ start: 0, end: 2, bold: true }, 6)).toBeUndefined();
     expect(sameSpans(sanitizeSpans([{ start: 0, end: 2, italic: true, bold: true }], 4), [{ start: 0, end: 2, bold: true, italic: true }])).toBe(true);

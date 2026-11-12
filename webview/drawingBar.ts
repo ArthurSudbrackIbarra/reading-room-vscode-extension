@@ -1,26 +1,16 @@
 // The mode bars: a second toolbar row, docked under the main one, shown only while drawing or
 // adding text. Same height, button size, group spacing and dividers as the main toolbar. Each
-// starts with its mode's icon, as wide as a button, so its first divider is right under the
-// toolbar's first one; Done is at the right.
-//  ✎ │ [pen] [line] [arrow] [rect] [ellipse] [eraser] │ [● ▾] │ [─] [━] [▬]              [✓ Done]
-//  T │ [12 ▾] │ [B] [I] [U] │ [≡] [≡] [≡] [≡] │ [● ▾]                                    [✓ Done]
+// starts with the name of its mode in words (not an icon, which would look like one more tool);
+// both names take the same room, so the two bars line up with each other. Done is at the right.
+//  DRAW MODE │ [pen] [line] [arrow] [rect] [ellipse] [eraser] │ [● ▾] │ [─] [━] [▬]      [✓ Done]
+//  TEXT MODE │ [12 ▾] │ [B] [I] [U] │ [≡] [≡] [≡] [≡] │ [● ▾]                            [✓ Done]
+// With the eraser picked, the three widths are its three sizes.
 // The controls of the color, widths and text style are shared with the popovers.
 import type { Ink } from '../src/shared/colors';
-import {
-  ALIGN_NAMES,
-  DRAWING_TOOLS,
-  INK_WIDTHS,
-  TEXT_ALIGNS,
-  TEXT_SIZES,
-  WIDTH_NAMES,
-  type DrawTool,
-  type InkWidth,
-  type TextAlign,
-  type TextStyle,
-} from '../src/shared/drawings';
+import { ALIGN_NAMES, DRAWING_TOOLS, INK_WIDTHS, TEXT_ALIGNS, TEXT_SIZES, WIDTH_NAMES, type DrawTool, type InkWidth, type TextAlign, type TextStyle } from '../src/shared/drawings';
 import { ColorButton } from './colorPicker';
 import { h } from './dom';
-import { alignIcon, boldIcon, checkIcon, italicIcon, letterIcon, pencilIcon, rubberIcon, toolIcon, underlineIcon, widthIcon } from './icons';
+import { alignIcon, boldIcon, checkIcon, italicIcon, rubberIcon, sizeIcon, toolIcon, underlineIcon, widthIcon } from './icons';
 import { hideDividersAtRowEnds } from './toolbar';
 
 export const TOOL_TITLES: Record<DrawTool, string> = {
@@ -29,7 +19,7 @@ export const TOOL_TITLES: Record<DrawTool, string> = {
   arrow: 'Arrow (A): Shift snaps the angle',
   rect: 'Rectangle (R): Shift draws a square',
   ellipse: 'Ellipse (O): Shift draws a circle',
-  eraser: 'Eraser (E): drag over a drawing to rub out the part under it',
+  eraser: 'Eraser (E): drag over a drawing to rub out the part under the ring',
 };
 
 /** Keys that pick a tool while drawing. */
@@ -70,11 +60,24 @@ export function keepEditorFocus(el: HTMLElement): void {
 }
 
 function radio(label: string, value: string, content: SVGSVGElement, extra: Record<string, string> = {}): HTMLButtonElement {
-  return h('button', { class: 'mpv-btn', type: 'button', role: 'radio', title: label, 'aria-label': label, 'aria-checked': 'false', tabindex: -1, 'data-value': value, ...extra }, content);
+  return h(
+    'button',
+    { class: 'mpv-btn', type: 'button', role: 'radio', title: label, 'aria-label': label, 'aria-checked': 'false', tabindex: -1, 'data-value': value, ...extra },
+    content,
+  );
 }
 
-/** Stroke width radios (lines of 1, 2 and 4 px). */
-export function widthRadios(onPick: (width: InkWidth) => void): { group: HTMLElement; set(width: InkWidth): void } {
+const ERASER_SIZE_NAMES: Record<InkWidth, string> = { thin: 'Small', medium: 'Medium', thick: 'Large' };
+
+export interface WidthRadios {
+  group: HTMLElement;
+  set(width: InkWidth): void;
+  /** What the three radios pick: the width of a stroke (lines), or the size of the eraser (circles). */
+  setKind(kind: 'stroke' | 'eraser'): void;
+}
+
+/** Stroke width radios (lines of 1, 2 and 4 px); for the eraser, its three sizes. */
+export function widthRadios(onPick: (width: InkWidth) => void): WidthRadios {
   const group = h('div', { class: 'mpv-group', role: 'radiogroup', 'aria-label': 'Stroke width' });
   const buttons = new Map<InkWidth, HTMLButtonElement>();
   for (const width of INK_WIDTHS) {
@@ -83,7 +86,22 @@ export function widthRadios(onPick: (width: InkWidth) => void): { group: HTMLEle
     group.append(button);
   }
   bindRadios([...buttons], onPick);
-  return { group, set: (width) => checkRadio(buttons, width) };
+  let shown: 'stroke' | 'eraser' = 'stroke';
+  return {
+    group,
+    set: (width) => checkRadio(buttons, width),
+    setKind(kind) {
+      if (kind === shown) return;
+      shown = kind;
+      group.setAttribute('aria-label', kind === 'eraser' ? 'Eraser size' : 'Stroke width');
+      for (const [width, button] of buttons) {
+        const title = kind === 'eraser' ? `${ERASER_SIZE_NAMES[width]} eraser` : `${WIDTH_NAMES[width]} stroke`;
+        button.title = title;
+        button.setAttribute('aria-label', title);
+        button.replaceChildren(kind === 'eraser' ? sizeIcon(width) : widthIcon(width));
+      }
+    },
+  };
 }
 
 export interface TextStyleControls {
@@ -149,9 +167,9 @@ export function textStyleControls(onChange: (patch: Partial<TextStyle>) => void)
   };
 }
 
-/** What a bar is for, at its start: the mode's icon in a box as wide as a button (not a button itself). */
-function modeLabel(icon: SVGSVGElement, title: string): HTMLElement {
-  return h('div', { class: 'mpv-group mpv-divided' }, h('span', { class: 'mpv-modebar-label', title, 'aria-hidden': 'true' }, icon));
+/** What a bar is for, at its start: the name of the mode, in words (the bar's own label says it to screen readers). */
+function modeLabel(text: string): HTMLElement {
+  return h('div', { class: 'mpv-group mpv-divided' }, h('span', { class: 'mpv-modebar-label', 'aria-hidden': 'true', text }));
 }
 
 /** A mode bar: its label, its groups with a divider after each but the last, and Done at the right. */
@@ -181,7 +199,7 @@ export class DrawingBar {
   readonly element: HTMLElement;
   readonly color: ColorButton;
   private readonly tools = new Map<DrawTool, HTMLButtonElement>();
-  private readonly widths: ReturnType<typeof widthRadios>;
+  private readonly widths: WidthRadios;
 
   constructor(actions: DrawingBarActions) {
     const toolGroup = h('div', { class: 'mpv-group', role: 'radiogroup', 'aria-label': 'Drawing tool' });
@@ -196,7 +214,7 @@ export class DrawingBar {
     this.element = modeBar(
       'mpv-drawbar',
       'Drawing tools',
-      modeLabel(pencilIcon(), 'Drawing tools'),
+      modeLabel('Draw mode'),
       [toolGroup, h('div', { class: 'mpv-group' }, this.color.element), this.widths.group],
       doneButton('Stop drawing (Esc)', () => actions.done()),
     );
@@ -210,8 +228,10 @@ export class DrawingBar {
     return !this.element.hidden;
   }
 
+  /** Marks the tool. While it is the eraser, the widths are its sizes. */
   setTool(tool: DrawTool): void {
     checkRadio(this.tools, tool);
+    this.widths.setKind(tool === 'eraser' ? 'eraser' : 'stroke');
   }
 
   setColor(color: Ink): void {
@@ -246,7 +266,7 @@ export class TextBar {
     this.element = modeBar(
       'mpv-textbar',
       'Text tools',
-      modeLabel(letterIcon(), 'Text tools'),
+      modeLabel('Text mode'),
       [h('div', { class: 'mpv-group' }, this.controls.size), this.controls.format, this.controls.align, h('div', { class: 'mpv-group' }, this.color.element)],
       doneButton('Stop adding text (Esc)', () => actions.done()),
     );

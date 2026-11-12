@@ -73,8 +73,8 @@ const DOT_PX = 1.5;
 /** How far from a stroke (pixels, beyond half its width) a click or the eraser of erase mode still hits it. */
 const HIT_PX = 5;
 const ERASER_PX = 7;
-/** Radius (pixels) of the eraser of draw mode, which rubs out what is under it (its cursor is this circle). */
-const RUBBER_PX = 8;
+/** Radius (pixels) of the eraser of draw mode, by its size: it rubs out what is under the ring that follows the pointer. */
+export const RUBBER_PX: Record<InkWidth, number> = { thin: 4, medium: 8, thick: 16 };
 /** What the rubber leaves is dropped when it is shorter than this (pixels): crumbs. */
 const CRUMB_PX = 2.5;
 /** Size of the resize handles of a selected text box, and how far around them a press still grabs them (pixels). */
@@ -308,6 +308,11 @@ export class DrawingController {
   private toolValue: DrawTool = DEFAULT_DRAW_TOOL;
   private colorValue: Ink = DEFAULT_INK;
   private widthValue: InkWidth = DEFAULT_INK_WIDTH;
+  private eraserWidthValue: InkWidth = DEFAULT_INK_WIDTH;
+  /** The ring that shows what the eraser of draw mode rubs out: it follows the pointer, also while the button is down. */
+  private readonly ring = document.createElement('div');
+  /** Where the pointer was last seen over the pages (client coordinates). */
+  private pointerAt?: [number, number];
   private textStyleValue: TextStyle = { ...DEFAULT_TEXT_STYLE };
   private selected?: string;
   private gesture?: Gesture;
@@ -342,7 +347,18 @@ export class DrawingController {
     c.addEventListener('pointercancel', (e) => {
       if (e.pointerId === this.gesture?.pointerId) this.cancelGesture();
     });
-    c.addEventListener('pointerleave', () => this.setEraseHover(undefined));
+    const pointerLeft = () => {
+      this.setEraseHover(undefined);
+      this.pointerAt = undefined;
+      this.placeRing();
+    };
+    c.addEventListener('pointerleave', pointerLeft);
+    // The pointer can also leave the whole viewer in one step (to another part of VS Code).
+    document.documentElement.addEventListener('pointerleave', pointerLeft);
+    window.addEventListener('blur', pointerLeft);
+    this.ring.className = 'mpv-rubber-ring';
+    this.ring.hidden = true;
+    document.body.append(this.ring);
     // The page moves under a still pointer: the shape follows the pointer, not the page.
     c.addEventListener('scroll', () => this.followPointer(), { passive: true });
     new ResizeObserver(() => this.placeEditor()).observe(c);
@@ -678,6 +694,7 @@ export class DrawingController {
     document.body.classList.toggle('mpv-text-mode', mode === 'text');
     document.body.classList.toggle('mpv-erase-mode', mode === 'erase');
     document.body.dataset.drawTool = this.toolValue;
+    this.placeRing();
   }
 
   get tool(): DrawTool {
@@ -692,9 +709,15 @@ export class DrawingController {
     return this.widthValue;
   }
 
+  /** The size of the eraser of draw mode. */
+  get eraserWidth(): InkWidth {
+    return this.eraserWidthValue;
+  }
+
   setTool(tool: DrawTool): void {
     this.toolValue = tool;
     document.body.dataset.drawTool = tool;
+    this.placeRing();
   }
 
   setColor(color: Ink): void {
@@ -703,6 +726,32 @@ export class DrawingController {
 
   setWidth(width: InkWidth): void {
     this.widthValue = width;
+  }
+
+  setEraserWidth(width: InkWidth): void {
+    this.eraserWidthValue = width;
+    this.placeRing();
+  }
+
+  /**
+   * Shows the eraser's ring at the pointer (as large as what it rubs out), or hides it: it is
+   * there while the eraser of draw mode is over a page, and for the whole of a rubbing gesture.
+   */
+  private placeRing(): void {
+    const at = this.gesture?.kind === 'rub' ? this.gesture.client : this.pointerAt;
+    const rubbing = this.gesture?.kind === 'rub';
+    const erasing = this.modeValue === 'draw' && this.toolValue === 'eraser';
+    const overPage = at !== undefined && (rubbing || document.elementFromPoint(at[0], at[1])?.closest(`.${CAPTURE}`) != null);
+    document.body.classList.toggle('mpv-rubbing', rubbing);
+    if (!erasing || !at || !overPage) {
+      this.ring.hidden = true;
+      return;
+    }
+    const size = 2 * RUBBER_PX[this.eraserWidthValue];
+    this.ring.style.width = `${size}px`;
+    this.ring.style.height = `${size}px`;
+    this.ring.style.transform = `translate(${at[0] - size / 2}px, ${at[1] - size / 2}px)`;
+    this.ring.hidden = false;
   }
 
   /** The style new text boxes get. */
@@ -1129,6 +1178,8 @@ export class DrawingController {
       if (this.toolValue === 'eraser') {
         const gesture: RubGesture = { kind: 'rub', pointerId: e.pointerId, pageIndex, originals: new Map(), pieces: new Set(), full: false, client };
         this.gesture = gesture;
+        this.pointerAt = client;
+        this.placeRing();
         this.rubTo(gesture, e.clientX, e.clientY);
       } else {
         if (this.drawings.size >= MAX_DRAWINGS) {
@@ -1153,9 +1204,28 @@ export class DrawingController {
     const hitId = (target?.closest?.('.mpv-drawing') as SVGElement | null)?.dataset.id;
     if (!hitId) {
       if (this.selected) this.select(undefined);
+      if (target?.closest('.textLayer')) this.textSelectionStarted();
       return;
     }
     this.startPress(e, this.pick(e.clientX, e.clientY) ?? hitId, false);
+  }
+
+  /**
+   * A press on the text of a page starts a text selection. Until the button is released, drawings
+   * and text boxes let the pointer through: a selection dragged across one would otherwise jump
+   * to the end of the page (they are above the text, and after it in the document).
+   */
+  private textSelectionStarted(): void {
+    document.body.classList.add('mpv-selecting-text');
+    const done = () => {
+      document.body.classList.remove('mpv-selecting-text');
+      window.removeEventListener('pointerup', done, true);
+      window.removeEventListener('pointercancel', done, true);
+      window.removeEventListener('blur', done);
+    };
+    window.addEventListener('pointerup', done, true);
+    window.addEventListener('pointercancel', done, true);
+    window.addEventListener('blur', done);
   }
 
   /** Text mode: a press edits or moves a text box, grabs a handle, or starts a new box. */
@@ -1235,6 +1305,11 @@ export class DrawingController {
 
   private onPointerMove(e: PointerEvent): void {
     const g = this.gesture;
+    this.pointerAt = [e.clientX, e.clientY];
+    if (this.modeValue === 'draw' && this.toolValue === 'eraser' && (!g || e.pointerId === g.pointerId)) {
+      if (g) g.client = [e.clientX, e.clientY];
+      this.placeRing();
+    }
     if (!g) {
       if (this.modeValue === 'erase' && e.buttons === 0) this.hoverEraser(e.clientX, e.clientY);
       if (this.modeValue === 'text' && e.buttons === 0) this.hoverText(e);
@@ -1278,6 +1353,9 @@ export class DrawingController {
     if (!g || e.pointerId !== g.pointerId) return;
     this.release(g.pointerId);
     this.gesture = undefined;
+    // A finger or a pen that lifts leaves no pointer over the page.
+    this.pointerAt = e.pointerType === 'mouse' ? [e.clientX, e.clientY] : undefined;
+    this.placeRing();
     queueMicrotask(() => this.gestureEnded());
     if (g.kind === 'draw') {
       if (g.tool !== 'pen') g.shift = e.shiftKey;
@@ -1302,6 +1380,7 @@ export class DrawingController {
     this.gesture = undefined;
     this.gestureEnded();
     this.release(g.pointerId);
+    this.placeRing();
     this.preview = undefined;
     if (g.kind === 'rub') {
       // What was rubbed out comes back.
@@ -1532,7 +1611,11 @@ export class DrawingController {
     const erased = [...g.erased].map((id) => this.drawings.get(id)).filter((d): d is Drawing => d !== undefined);
     this.syncErasingHighlights();
     for (const page of g.pages) this.redraw(page);
-    if (erased.length > 0 || g.highlights.size > 0) this.events.erased(erased.map((d) => structuredClone(d)), [...g.highlights]);
+    if (erased.length > 0 || g.highlights.size > 0)
+      this.events.erased(
+        erased.map((d) => structuredClone(d)),
+        [...g.highlights],
+      );
   }
 
   /** In erase mode, what is under the pointer dims before a click deletes it. */
@@ -1556,7 +1639,7 @@ export class DrawingController {
     const from = g.last ?? p;
     g.last = p;
     const px = this.pxPerUnit(g.pageIndex);
-    const radius = RUBBER_PX / px;
+    const radius = RUBBER_PX[this.eraserWidthValue] / px;
     // Discs close together along the way from the last position stand in for the swept path.
     const steps = Math.min(400, Math.ceil(Math.hypot(p[0] - from[0], p[1] - from[1]) / (radius / 3)));
     let changed = false;

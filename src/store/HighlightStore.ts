@@ -21,16 +21,7 @@ import { sanitizeAnchor, sanitizeState, type AnchorState, type TextAnchor } from
 import { sanitizeBinding, type DrawingBinding } from '../anchoring/binding';
 import { TEXT_MODEL_VERSION } from '../anchoring/textModel';
 import { sanitizeDrawing, type Drawing } from '../shared/drawings';
-import {
-  MAX_NOTE_LENGTH,
-  isHighlightColor,
-  isReadingMarker,
-  isZoomValue,
-  type Highlight,
-  type ReadingMarker,
-  type StoredRecord,
-  type ViewState,
-} from '../shared/types';
+import { MAX_NOTE_LENGTH, isHighlightColor, isReadingMarker, isZoomValue, type Highlight, type ReadingMarker, type StoredRecord, type ViewState } from '../shared/types';
 import { ensureDir, moveAside, moveFile, removeFile, writeFileAtomic, type AtomicWriteHooks } from './atomicWrite';
 
 export interface DocumentRef {
@@ -229,9 +220,7 @@ export function sanitizeRecord(raw: unknown, ref: DocumentRef): StoredRecord {
   const r = raw as Partial<StoredRecord>;
   const view: ViewState = {};
   if (r.view && isZoomValue(r.view.zoom)) view.zoom = r.view.zoom;
-  const highlights = Array.isArray(r.highlights)
-    ? r.highlights.map(sanitizeHighlight).filter((h): h is Highlight => h !== undefined)
-    : [];
+  const highlights = Array.isArray(r.highlights) ? r.highlights.map(sanitizeHighlight).filter((h): h is Highlight => h !== undefined) : [];
   const marker = sanitizeMarker(r.marker);
   const extra: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) if (!RECORD_FIELDS.has(key) && value !== undefined) extra[key] = value;
@@ -303,9 +292,21 @@ export function sanitizeAnchorsFile(raw: unknown): AnchorsFile {
     }
   }
   if (isObject(raw.marker) && typeof raw.marker.for === 'string') {
-    const marker = sanitizeMarker({ pageIndex: 0, y: 0, createdAt: raw.marker.for, anchor: raw.marker.anchor, rel: raw.marker.rel, state: sameModel ? raw.marker.state : undefined });
+    const marker = sanitizeMarker({
+      pageIndex: 0,
+      y: 0,
+      createdAt: raw.marker.for,
+      anchor: raw.marker.anchor,
+      rel: raw.marker.rel,
+      state: sameModel ? raw.marker.state : undefined,
+    });
     if (marker && (marker.anchor || marker.state)) {
-      out.marker = { for: raw.marker.for, ...(marker.anchor ? { anchor: marker.anchor } : {}), ...(marker.rel ? { rel: marker.rel } : {}), ...(marker.state ? { state: marker.state } : {}) };
+      out.marker = {
+        for: raw.marker.for,
+        ...(marker.anchor ? { anchor: marker.anchor } : {}),
+        ...(marker.rel ? { rel: marker.rel } : {}),
+        ...(marker.state ? { state: marker.state } : {}),
+      };
     }
   }
   if (isObject(raw.drawings)) {
@@ -385,7 +386,10 @@ function anchorsFileText(record: StoredRecord): string | undefined {
   const drawings: Record<string, unknown> = {};
   for (const d of record.drawings) if (d.binding) drawings[d.id] = { binding: d.binding, ...(d.anchorStates ? { states: d.anchorStates } : {}) };
   const m = record.marker;
-  const marker = m && (m.anchor || m.state) ? { for: m.createdAt, ...(m.anchor ? { anchor: m.anchor } : {}), ...(m.rel ? { rel: m.rel } : {}), ...(m.state ? { state: m.state } : {}) } : undefined;
+  const marker =
+    m && (m.anchor || m.state)
+      ? { for: m.createdAt, ...(m.anchor ? { anchor: m.anchor } : {}), ...(m.rel ? { rel: m.rel } : {}), ...(m.state ? { state: m.state } : {}) }
+      : undefined;
   if (Object.keys(highlights).length === 0 && Object.keys(drawings).length === 0 && !marker && !record.pages?.length) return undefined;
   return `${JSON.stringify({
     schemaVersion: ANCHORS_SCHEMA_VERSION,
@@ -576,7 +580,10 @@ export class HighlightStore {
     } catch {
       return;
     }
-    const aside = names.filter((n) => n.startsWith(`${key}.`) && /\.corrupt-\d+\.json$/.test(n)).sort().reverse();
+    const aside = names
+      .filter((n) => n.startsWith(`${key}.`) && /\.corrupt-\d+\.json$/.test(n))
+      .sort()
+      .reverse();
     for (const name of aside) {
       const file = `${this.options.dir}/${name}`;
       const read = await this.readJson(file);
@@ -1037,9 +1044,7 @@ export class HighlightStore {
     const sep = from.scheme === 'file' ? (this.platform === 'win32' ? '\\' : '/') : '/';
     let moved = 0;
     for (const { record } of await this.list()) {
-      const ref: DocumentRef = record.fsPath
-        ? { uri: record.uri, scheme: 'file', fsPath: record.fsPath }
-        : { uri: record.uri, scheme: from.scheme };
+      const ref: DocumentRef = record.fsPath ? { uri: record.uri, scheme: 'file', fsPath: record.fsPath } : { uri: record.uri, scheme: from.scheme };
       const normalized = normalizeKeyPath(ref, this.platform);
       if (!normalized.startsWith(fromPrefix + sep)) continue;
       const original = ref.scheme === 'file' && ref.fsPath ? ref.fsPath : ref.uri;

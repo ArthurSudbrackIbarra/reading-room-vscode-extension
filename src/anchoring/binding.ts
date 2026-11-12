@@ -163,7 +163,14 @@ export function inferBinding(target: BindTarget, layout: DocumentLayout, options
   if (!geometry) return undefined;
   const base = { page: target.page, pageSize: [geometry.width, geometry.height] as [number, number], frame: [...geometry.transform] as Matrix };
   const manual = options.prefer ? { manual: true as const } : {};
-  const pageBinding = (): Omit<DrawingBinding, 'for'> => ({ mode: 'page', ...manual, anchors: [], ref: [], ...base, ...(options.pagePrint ? { pagePrint: options.pagePrint } : {}) });
+  const pageBinding = (): Omit<DrawingBinding, 'for'> => ({
+    mode: 'page',
+    ...manual,
+    anchors: [],
+    ref: [],
+    ...base,
+    ...(options.pagePrint ? { pagePrint: options.pagePrint } : {}),
+  });
   if (options.prefer === 'page') return pageBinding();
 
   const { box } = target;
@@ -507,10 +514,16 @@ async function findImage(binding: DrawingBinding, located: Located[], layout: Do
   if (after?.resolution.status === 'anchored' && after.page !== undefined && after.boxes?.length) {
     const top = after.boxes[0][1];
     const page = after.page;
-    const above = nearest((await imagesOf(page)).filter((b) => b[3] <= top + 2 && clear(page, b[3], top)), 3);
+    const above = nearest(
+      (await imagesOf(page)).filter((b) => b[3] <= top + 2 && clear(page, b[3], top)),
+      3,
+    );
     if (above) return { page, box: above };
     if (clear(page, 0, top)) {
-      const previous = nearest((await imagesOf(page - 1)).filter((b) => clear(page - 1, b[3], Number.MAX_SAFE_INTEGER)), 3);
+      const previous = nearest(
+        (await imagesOf(page - 1)).filter((b) => clear(page - 1, b[3], Number.MAX_SAFE_INTEGER)),
+        3,
+      );
       if (previous) return { page: page - 1, box: previous };
     }
   }
@@ -518,10 +531,16 @@ async function findImage(binding: DrawingBinding, located: Located[], layout: Do
   if (before?.resolution.status === 'anchored' && before.page !== undefined && before.boxes?.length) {
     const bottom = before.boxes[before.boxes.length - 1][3];
     const page = before.page;
-    const below = nearest((await imagesOf(page)).filter((b) => b[1] >= bottom - 2 && clear(page, bottom, b[1])), 1);
+    const below = nearest(
+      (await imagesOf(page)).filter((b) => b[1] >= bottom - 2 && clear(page, bottom, b[1])),
+      1,
+    );
     if (below) return { page, box: below };
     if (clear(page, bottom, Number.MAX_SAFE_INTEGER)) {
-      const next = nearest((await imagesOf(page + 1)).filter((b) => clear(page + 1, 0, b[1])), 1);
+      const next = nearest(
+        (await imagesOf(page + 1)).filter((b) => clear(page + 1, 0, b[1])),
+        1,
+      );
       if (next) return { page: page + 1, box: next };
     }
   }
@@ -550,7 +569,9 @@ export function placeDrawing<T extends Drawing>(
   let mapped = drawing.points.map((p) => placement.map!(applyMatrix(binding.frame, p)));
   const xs = mapped.map((p) => p[0]);
   const ys = mapped.map((p) => p[1]);
-  const box: Box = size ? [mapped[0][0], mapped[0][1], mapped[0][0] + size.width, mapped[0][1] + size.height] : [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  const box: Box = size
+    ? [mapped[0][0], mapped[0][1], mapped[0][0] + size.width, mapped[0][1] + size.height]
+    : [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
   const shift = (low: number, high: number, limit: number): number => (high - low >= limit ? -low : low < 0 ? -low : high > limit ? limit - high : 0);
   const dx = shift(box[0], box[2], target.width);
   const dy = shift(box[1], box[3], target.height);
@@ -568,7 +589,10 @@ export function placeDrawing<T extends Drawing>(
       [Math.max(ax, bx), Math.max(ay, by)],
     ];
   }
-  const same = placement.page === drawing.pageIndex && points.length === drawing.points.length && points.every((p, i) => Math.abs(p[0] - drawing.points[i][0]) <= 0.011 && Math.abs(p[1] - drawing.points[i][1]) <= 0.011);
+  const same =
+    placement.page === drawing.pageIndex &&
+    points.length === drawing.points.length &&
+    points.every((p, i) => Math.abs(p[0] - drawing.points[i][0]) <= 0.011 && Math.abs(p[1] - drawing.points[i][1]) <= 0.011);
   if (same) return { drawing, clipped };
   return { drawing: { ...drawing, pageIndex: placement.page, points }, clipped };
 }
@@ -590,7 +614,10 @@ export function sanitizeBinding(value: unknown): DrawingBinding | undefined {
   if (Math.abs(frame[0] * frame[3] - frame[1] * frame[2]) < 1e-9) return undefined;
   const size = b.pageSize;
   if (!Array.isArray(size) || size.length !== 2 || !size.every((n) => typeof n === 'number' && Number.isFinite(n) && n > 0)) return undefined;
-  const anchors = (Array.isArray(b.anchors) ? b.anchors : []).map(sanitizeAnchor).filter((a): a is TextAnchor => a !== undefined).slice(0, 2);
+  const anchors = (Array.isArray(b.anchors) ? b.anchors : [])
+    .map(sanitizeAnchor)
+    .filter((a): a is TextAnchor => a !== undefined)
+    .slice(0, 2);
   const ref = (Array.isArray(b.ref) ? b.ref : []).filter(isBox).slice(0, 2);
   const mode = b.mode as BindingMode;
   const needed = mode === 'page' ? 0 : mode === 'span' ? 2 : 1;
@@ -609,7 +636,15 @@ export function sanitizeBinding(value: unknown): DrawingBinding | undefined {
   if (b.review === true) binding.review = true;
   if (typeof b.pagePrint === 'string') binding.pagePrint = b.pagePrint.slice(0, 128);
   const image = b.image as Record<string, unknown> | undefined;
-  if (image && typeof image.ordinal === 'number' && Number.isInteger(image.ordinal) && image.ordinal >= 0 && typeof image.aspect === 'number' && image.aspect > 0 && Number.isFinite(image.aspect)) {
+  if (
+    image &&
+    typeof image.ordinal === 'number' &&
+    Number.isInteger(image.ordinal) &&
+    image.ordinal >= 0 &&
+    typeof image.aspect === 'number' &&
+    image.aspect > 0 &&
+    Number.isFinite(image.aspect)
+  ) {
     binding.image = { ordinal: image.ordinal, aspect: image.aspect };
   }
   return binding;

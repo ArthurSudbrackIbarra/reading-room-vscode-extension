@@ -26,7 +26,9 @@ function mulberry32(seed: number): () => number {
 
 const random = mulberry32(42);
 const LETTERS = 'etaoinshrdlucmfwypvbgkqjxz';
-const VOCABULARY = Array.from({ length: 3000 }, () => Array.from({ length: 2 + Math.floor(random() * 8) }, () => LETTERS[Math.floor(random() * random() * LETTERS.length)]).join(''));
+const VOCABULARY = Array.from({ length: 3000 }, () =>
+  Array.from({ length: 2 + Math.floor(random() * 8) }, () => LETTERS[Math.floor(random() * random() * LETTERS.length)]).join(''),
+);
 
 function paragraph(): string {
   const words: string[] = [];
@@ -81,7 +83,16 @@ describe('performance', () => {
         color: 'red',
         width: 'thin',
         pageIndex: part.page,
-        points: (i % 2 ? [[box[0] - 2, box[3] + 2], [box[2] + 2, box[1] - 2]] : [[box[0], box[3] + 1], [box[2], box[3] + 1]]).map((p) => toPdfSpace(geometry, p as PdfPoint)),
+        points: (i % 2
+          ? [
+              [box[0] - 2, box[3] + 2],
+              [box[2] + 2, box[1] - 2],
+            ]
+          : [
+              [box[0], box[3] + 1],
+              [box[2], box[3] + 1],
+            ]
+        ).map((p) => toPdfSpace(geometry, p as PdfPoint)),
         createdAt: '2026-11-11T00:00:00.000Z',
         updatedAt: '2026-11-11T00:00:00.000Z',
       })!;
@@ -118,7 +129,9 @@ describe('performance', () => {
     const runMs = performance.now() - started;
     expect(result!.highlights.size).toBe(500);
     expect([...result!.drawings.values()].every((d) => d.status === 'anchored')).toBe(true);
-    console.log(`PERF typical: diff ${diffMs.toFixed(0)} ms, 500 highlights ${engineMs.toFixed(0)} ms, whole run (500 highlights + 200 drawings) ${runMs.toFixed(0)} ms, longest stretch between pauses ${longest.toFixed(0)} ms`);
+    console.log(
+      `PERF typical: diff ${diffMs.toFixed(0)} ms, 500 highlights ${engineMs.toFixed(0)} ms, whole run (500 highlights + 200 drawings) ${runMs.toFixed(0)} ms, longest stretch between pauses ${longest.toFixed(0)} ms`,
+    );
     expect(engineMs).toBeLessThan(1500);
     expect(runMs).toBeLessThan(3000);
   }, 60_000);
@@ -136,7 +149,9 @@ describe('performance', () => {
     const [results, ms] = time(() => highlights.map((h) => resolveAnchor(h.anchor, h.state, ctx, { fuzzy: false })));
     expect(results.every((r) => r.status === 'anchored')).toBe(true);
     // And quotes that are not there at all: the quick pass says so; the slow search runs later, in the background.
-    const gone = highlights.slice(0, 20).map((h) => ({ ...h.anchor, exact: `${h.anchor.exact} zzzz qqqq`, prefix: 'not in the text at all, nowhere', suffix: 'nor is this piece of context' }));
+    const gone = highlights
+      .slice(0, 20)
+      .map((h) => ({ ...h.anchor, exact: `${h.anchor.exact} zzzz qqqq`, prefix: 'not in the text at all, nowhere', suffix: 'nor is this piece of context' }));
     const [quick, quickMs] = time(() => gone.map((a) => resolveAnchor(a, undefined, ctx, { fuzzy: false })));
     expect(quick.every((r) => r.status === 'orphaned')).toBe(true);
     const [, fuzzyMs] = time(() => gone.slice(0, 5).map((a) => resolveAnchor(a, undefined, ctx)));

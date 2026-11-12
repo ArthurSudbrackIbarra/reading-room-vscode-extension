@@ -48,11 +48,7 @@ export function highlighterIcon(): SVGSVGElement {
 /** The Draw toggle: a pencil at 45°, above the band (in the current ink). */
 export function drawIcon(): SVGSVGElement {
   return icon16(
-    [
-      ['path', { ...STROKE, d: 'M11.1.9 13.7 3.5 6.4 10.8 2.6 11.9 3.7 8.1Z' }],
-      ['path', { ...STROKE, d: 'M9.5 2.5 12.1 5.1M3.7 8.1 6.4 10.8' }],
-      BAND,
-    ],
+    [['path', { ...STROKE, d: 'M11.1.9 13.7 3.5 6.4 10.8 2.6 11.9 3.7 8.1Z' }], ['path', { ...STROKE, d: 'M9.5 2.5 12.1 5.1M3.7 8.1 6.4 10.8' }], BAND],
     'mpv-band-icon',
   );
 }
@@ -74,15 +70,15 @@ export function toolIcon(tool: DrawingTool): SVGSVGElement {
   return icon16(TOOL_ICONS[tool]);
 }
 
-/** The eraser of the toolbar (it deletes whole things): a block at 45° on a line. */
-export function eraserIcon(): SVGSVGElement {
+/** The remove tool of the toolbar (a click deletes a whole highlight, drawing or text box): a pointer with an ×. */
+export function removeIcon(): SVGSVGElement {
   return icon16([
-    ['path', { ...STROKE, d: 'M5.8 13.1 2.1 9.4 8.6 2.9 12.3 6.6Z' }],
-    ['path', { ...STROKE, d: 'M4.7 6.8 8.4 10.5M5.8 13.1h8.1' }],
+    ['path', { ...STROKE, d: 'M2.3 1.6v9.6l2.6-2.4 1.9 4.1 1.7-.8-1.9-4h3.5Z' }],
+    ['path', { ...STROKE, 'stroke-width': '1.5', d: 'M10.9 10.9l3.4 3.4M14.3 10.9l-3.4 3.4' }],
   ]);
 }
 
-/** The eraser of the drawing bar (it rubs out part of a drawing): the block, on a pen stroke with a gap. */
+/** The eraser of the drawing bar (it rubs out part of a drawing): a block at 45°, on a pen stroke with a gap. */
 export function rubberIcon(): SVGSVGElement {
   return icon16([
     ['path', { ...STROKE, d: 'M6.6 11.3 2.9 7.6 8.6 1.9 12.3 5.6Z' }],
@@ -91,23 +87,18 @@ export function rubberIcon(): SVGSVGElement {
   ]);
 }
 
-/** The names of the mode bars, as icons: a pencil for the drawing tools, a T for the text tools. */
-export function pencilIcon(): SVGSVGElement {
-  return icon16([
-    ['path', { ...STROKE, d: 'M11.1 2.4 13.1 4.4 5.4 12.1 2.4 13.1 3.4 10.1Z' }],
-    ['path', { ...STROKE, d: 'M9.6 3.9 11.6 5.9' }],
-  ]);
-}
-
-export function letterIcon(): SVGSVGElement {
-  return icon16([['path', { ...STROKE, 'stroke-width': '1.5', d: 'M3.3 3.4h9.4M8 3.4v9.4' }]]);
-}
-
 const WIDTH_PX: Record<InkWidth, string> = { thin: '1', medium: '2', thick: '4' };
 
 /** A stroke width: a horizontal line of 1, 2 or 4 px. */
 export function widthIcon(width: InkWidth): SVGSVGElement {
   return icon16([['path', { fill: 'none', stroke: 'currentColor', 'stroke-linecap': 'round', 'stroke-width': WIDTH_PX[width], d: 'M3 8h10' }]]);
+}
+
+const SIZE_R: Record<InkWidth, string> = { thin: '1.9', medium: '3.5', thick: '5.6' };
+
+/** A size of the eraser: a circle, small, medium or large. */
+export function sizeIcon(width: InkWidth): SVGSVGElement {
+  return icon16([['circle', { ...STROKE, cx: '8', cy: '8', r: SIZE_R[width] }]]);
 }
 
 export function boldIcon(): SVGSVGElement {

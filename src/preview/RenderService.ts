@@ -146,9 +146,12 @@ export class RenderService implements vscode.Disposable {
       if (!this.notifying.has(name)) {
         this.notifying.add(name);
         void this.promptForBrowser(err)
-          .then((fixed) => {
-            if (fixed) this.browserFixed.fire();
-          }, () => undefined)
+          .then(
+            (fixed) => {
+              if (fixed) this.browserFixed.fire();
+            },
+            () => undefined,
+          )
           .finally(() => this.notifying.delete(name));
       }
       throw new RenderError(errorMessage(err), true);
@@ -163,7 +166,7 @@ export class RenderService implements vscode.Disposable {
 
     if (name === 'InvalidChromiumPathError') {
       const choice = await vscode.window.showErrorMessage(
-        `Document Viewer: the browser path in the "${SECTION}.chromiumPath" setting does not exist: ${settings.chromiumPath}`,
+        `Reading Room: the browser path in the "${SECTION}.chromiumPath" setting does not exist: ${settings.chromiumPath}`,
         'Clear the Setting',
         'Choose Browser…',
         'Open Settings',
@@ -181,7 +184,7 @@ export class RenderService implements vscode.Disposable {
       const failed = err as { executablePath?: string; source?: string };
       const actions = failed.source === 'downloaded' ? ['Show Log'] : ['Download Chromium', 'Choose Browser…', 'Show Log'];
       const choice = await vscode.window.showErrorMessage(
-        `Document Viewer could not start ${failed.executablePath ?? 'the browser'}. This can happen when a company policy blocks headless browsers. ${errorMessage(err)}`,
+        `Reading Room could not start ${failed.executablePath ?? 'the browser'}. This can happen when a company policy blocks headless browsers. ${errorMessage(err)}`,
         ...actions,
       );
       if (choice === 'Download Chromium') return this.downloadBrowser();
@@ -193,7 +196,7 @@ export class RenderService implements vscode.Disposable {
     // BrowserNotFoundError
     if (settings.chromiumDownload === 'never') {
       const choice = await vscode.window.showErrorMessage(
-        'Document Viewer needs Chrome, Edge or Chromium to convert Markdown and text files to PDF, and none was found. Install one of them, or set the path in the settings.',
+        'Reading Room needs Chrome, Edge or Chromium to convert Markdown and text files to PDF, and none was found. Install one of them, or set the path in the settings.',
         'Choose Browser…',
         'Open Settings',
       );
@@ -202,7 +205,7 @@ export class RenderService implements vscode.Disposable {
       throw new RenderError('No Chrome, Edge or Chromium installation was found.', true);
     }
     const choice = await vscode.window.showWarningMessage(
-      'Document Viewer needs Chrome, Edge or Chromium to convert Markdown and text files to PDF, and none was found.',
+      'Reading Room needs Chrome, Edge or Chromium to convert Markdown and text files to PDF, and none was found.',
       {
         modal: true,
         detail:
@@ -231,24 +234,21 @@ export class RenderService implements vscode.Disposable {
   async downloadBrowser(): Promise<boolean> {
     const converter = await this.converter();
     try {
-      await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: 'Downloading Chromium for Document Viewer', cancellable: false },
-        async (progress) => {
-          let reported = 0;
-          await converter.downloadBrowser((downloaded, total) => {
-            if (!total) return;
-            const percent = Math.min(100, (downloaded / total) * 100);
-            if (percent - reported >= 1 || percent === 100) {
-              progress.report({
-                increment: percent - reported,
-                message: `${Math.round(downloaded / 1048576)} of ${Math.round(total / 1048576)} MB`,
-              });
-              reported = percent;
-            }
-          });
-        },
-      );
-      void vscode.window.showInformationMessage('Chromium was downloaded. Document Viewer will use it from now on.');
+      await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Downloading Chromium for Reading Room', cancellable: false }, async (progress) => {
+        let reported = 0;
+        await converter.downloadBrowser((downloaded, total) => {
+          if (!total) return;
+          const percent = Math.min(100, (downloaded / total) * 100);
+          if (percent - reported >= 1 || percent === 100) {
+            progress.report({
+              increment: percent - reported,
+              message: `${Math.round(downloaded / 1048576)} of ${Math.round(total / 1048576)} MB`,
+            });
+            reported = percent;
+          }
+        });
+      });
+      void vscode.window.showInformationMessage('Chromium was downloaded. Reading Room will use it from now on.');
       return true;
     } catch (err) {
       this.log.error(`Downloading Chromium failed: ${errorMessage(err)}`);

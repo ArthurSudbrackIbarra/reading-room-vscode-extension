@@ -109,7 +109,20 @@ describe('feature-test.md', () => {
 
   it('contains every section: tables, code, math, diagrams, footnotes, alerts', () => {
     const t = info.text;
-    for (const needle of ['Right aligned', 'apples', 'Whiteboard pen', 'describe', 'dataclass', 'Markdown file', 'Extension host', 'NOTE', 'CAUTION', 'The first footnote', 'ação', 'A centered HTML block']) {
+    for (const needle of [
+      'Right aligned',
+      'apples',
+      'Whiteboard pen',
+      'describe',
+      'dataclass',
+      'Markdown file',
+      'Extension host',
+      'NOTE',
+      'CAUTION',
+      'The first footnote',
+      'ação',
+      'A centered HTML block',
+    ]) {
       expect(t, needle).toContain(needle);
     }
     // KaTeX output (text of the formulas)

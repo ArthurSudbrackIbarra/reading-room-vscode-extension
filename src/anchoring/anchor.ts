@@ -55,7 +55,8 @@ export interface AnchorState {
   resolvedIn?: string;
 }
 
-const MARK = /[\p{M}\u200d\ufe0e\ufe0f]/u;
+/** A combining mark, a zero-width joiner or a variation selector: it belongs to the character before it. */
+const MARK = /\p{M}|\u200d|\ufe0e|\ufe0f/u;
 
 function isLowSurrogate(code: number): boolean {
   return code >= 0xdc00 && code <= 0xdfff;
@@ -101,7 +102,9 @@ function wordHashes(text: string): number[] {
 }
 
 export function fingerprintAt(text: string, start: number, end: number): { before: number[]; after: number[] } {
-  const before = wordHashes(text.slice(Math.max(0, start - FINGERPRINT_REACH), start)).reverse().slice(0, FINGERPRINT_WORDS);
+  const before = wordHashes(text.slice(Math.max(0, start - FINGERPRINT_REACH), start))
+    .reverse()
+    .slice(0, FINGERPRINT_WORDS);
   const after = wordHashes(text.slice(end, end + FINGERPRINT_REACH)).slice(0, FINGERPRINT_WORDS);
   return { before, after };
 }
@@ -125,9 +128,7 @@ function containment(stored: number[], here: number[]): number | undefined {
 export function fingerprintSimilarity(anchor: TextAnchor, text: string, start: number, end: number): number | undefined {
   if (!anchor.fingerprint) return undefined;
   const here = fingerprintAt(text, start, end);
-  const parts = [containment(anchor.fingerprint.before, here.before), containment(anchor.fingerprint.after, here.after)].filter(
-    (n): n is number => n !== undefined,
-  );
+  const parts = [containment(anchor.fingerprint.before, here.before), containment(anchor.fingerprint.after, here.after)].filter((n): n is number => n !== undefined);
   if (parts.length === 0) return undefined;
   // Both sides have to agree: in a short text the words after one place are the words before another.
   return Math.min(...parts);

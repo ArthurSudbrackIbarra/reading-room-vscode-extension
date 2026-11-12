@@ -107,7 +107,7 @@ class App {
   private readonly drawingPopover: DrawingPopover;
   private readonly textPopover: TextPopover;
   private readonly colorPicker = new ColorPicker();
-  private readonly undoStack = new UndoStack();
+  private readonly undoStack = new UndoStack(500, () => this.showUndo());
   private readonly sounds?: ReadingSounds;
   /** Show how drawing works the first time draw mode turns on (once per VS Code session). */
   private drawHint = false;
@@ -151,13 +151,13 @@ class App {
       goToPage: (n) => this.viewer.goToPage(n),
       zoomIn: () => this.viewer.zoomIn(),
       zoomOut: () => this.viewer.zoomOut(),
-      resetZoom: () => this.viewer.resetZoom(),
       setZoom: (z) => this.viewer.applyZoom(z),
       toggleTool: () => this.setTool(!this.toolActive, true),
       setColor: (c) => this.pickColor(c),
       toggleDrawing: () => this.setMode(this.drawings.active ? 'off' : 'draw'),
       toggleText: () => this.setMode(this.drawings.textActive ? 'off' : 'text'),
-      toggleEraser: () => this.setMode(this.drawings.erasing ? 'off' : 'erase'),
+      toggleRemove: () => this.setMode(this.drawings.erasing ? 'off' : 'erase'),
+      undo: () => this.undoOrRedo(true),
       placeMarker: () => this.toggleMarkerPlacement(),
       goToMarker: () => this.goToMarker(),
       removeMarker: () => this.removeMarker(),
@@ -212,7 +212,8 @@ class App {
       placeDrawing: (id) => this.placeDrawing(id),
       acceptDrawing: (id) => {
         const shown = this.drawings.get(id);
-        if (shown) void this.commitDrawings(isTextDrawing(shown) ? 'Keep text box here' : 'Keep drawing here', [{ ...shown, updatedAt: new Date().toISOString() }], [], { rebase: true });
+        if (shown)
+          void this.commitDrawings(isTextDrawing(shown) ? 'Keep text box here' : 'Keep drawing here', [{ ...shown, updatedAt: new Date().toISOString() }], [], { rebase: true });
       },
       removeAllDrawings: () => this.command('deleteAllDrawings'),
       removeAllTextBoxes: () => this.command('deleteAllTextBoxes'),
@@ -220,7 +221,8 @@ class App {
     });
     this.drawingBar = new DrawingBar({
       setTool: (tool) => this.setDrawStyle({ tool }),
-      setWidth: (width) => this.setDrawStyle({ width }),
+      // With the eraser picked, the widths are its sizes.
+      setWidth: (width) => this.setDrawStyle(this.drawings.tool === 'eraser' ? { eraserWidth: width } : { width }),
       pickColor: (anchor) =>
         this.colorPicker.toggle(anchor, {
           label: 'Ink color',
@@ -288,7 +290,10 @@ class App {
       moved: (_before, after) => void this.commitDrawings(isTextDrawing(after) ? 'Move text box' : 'Move drawing', [after]),
       resized: (_before, after) => void this.commitDrawings('Resize text box', [after]),
       textCommitted: (before, after) => this.onTextCommitted(before, after),
-      editingChanged: () => this.showTextStyle(),
+      editingChanged: () => {
+        this.showTextStyle();
+        this.showUndo();
+      },
       editRequested: (id, x, y) => this.editText(id, x, y),
       selectionChanged: (id, popover) => this.onDrawingSelected(id, popover),
       changed: () => this.renderList(),
@@ -368,6 +373,7 @@ class App {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') setTimeout(() => this.viewer.refit(), 50);
     });
+    this.showUndo();
   }
 
   async start(): Promise<void> {
@@ -465,8 +471,7 @@ class App {
         break;
       case 'zoom':
         if (msg.action === 'in') this.viewer.zoomIn();
-        else if (msg.action === 'out') this.viewer.zoomOut();
-        else this.viewer.resetZoom();
+        else this.viewer.zoomOut();
         break;
       case 'highlights':
         // Other annotations (a rename, Reattach): everything is resolved again against the document shown.
@@ -493,7 +498,7 @@ class App {
       case 'toggleText':
         this.setMode(this.drawings.textActive ? 'off' : 'text');
         break;
-      case 'toggleEraser':
+      case 'toggleRemove':
         this.setMode(this.drawings.erasing ? 'off' : 'erase');
         break;
       case 'fullView':
@@ -560,8 +565,7 @@ class App {
           : new Uint8Array(raw as ArrayLike<number>);
     if (data.byteLength === 0) throw new Error('The viewer received an empty PDF.');
     const saved = getState();
-    const restore: ViewLocation | undefined =
-      !this.hasDocument && saved?.pageNumber ? { pageNumber: saved.pageNumber, fraction: saved.fraction ?? 0 } : undefined;
+    const restore: ViewLocation | undefined = !this.hasDocument && saved?.pageNumber ? { pageNumber: saved.pageNumber, fraction: saved.fraction ?? 0 } : undefined;
     if (restore) this.restoredLocation = true;
     // The new PDF is opened and read, and every annotation is placed in it, before anything on
     // screen changes: the previous PDF stays, with its annotations, under the progress bar.
@@ -826,7 +830,8 @@ class App {
       this.drawingPopover.setAttached(now);
       this.textPopover.setAttached(now);
       // An image was asked for and there is none under it: say what it follows instead.
-      if (now !== to) this.toast.show(to === 'image' ? 'There is no image here to attach it to. It follows the text.' : 'There is no text here to attach it to. It stays on the page.');
+      if (now !== to)
+        this.toast.show(to === 'image' ? 'There is no image here to attach it to. It follows the text.' : 'There is no text here to attach it to. It stays on the page.');
     });
   }
 
@@ -1241,7 +1246,7 @@ class App {
     if (moved !== 0) this.container.scrollTop += moved;
     this.toolbar.setDrawing(mode === 'draw');
     this.toolbar.setText(mode === 'text');
-    this.toolbar.setEraser(mode === 'erase');
+    this.toolbar.setRemoving(mode === 'erase');
     this.showTextStyle();
     if (barFocused && !bars.some((bar) => !bar.hidden && bar.contains(document.activeElement))) this.container.focus({ preventScroll: true });
     if (mode === 'draw' && this.drawHint) {
@@ -1257,11 +1262,11 @@ class App {
     if (mode === 'erase' && this.eraseHint) {
       this.eraseHint = false;
       post({ type: 'eraseHintShown' });
-      this.toast.show('Click a highlight, drawing or text box to delete it, or drag over several. Esc stops erasing.', { durationMs: 7000 });
+      this.toast.show('Click a highlight, drawing or text box to delete it, or drag over several. Esc stops removing.', { durationMs: 7000 });
     }
   }
 
-  /** Changes the drawing tool, ink or width (remembered for all files unless `notify` is false). */
+  /** Changes the drawing tool, ink, width or eraser size (remembered for all files unless `notify` is false). */
   private setDrawStyle(style: Partial<DrawStyle>, notify = true): void {
     if (style.tool) {
       this.drawings.setTool(style.tool);
@@ -1272,11 +1277,17 @@ class App {
       this.drawingBar.setColor(style.color);
       this.toolbar.setInk(style.color);
     }
-    if (style.width) {
-      this.drawings.setWidth(style.width);
-      this.drawingBar.setWidth(style.width);
-    }
+    if (style.width) this.drawings.setWidth(style.width);
+    if (style.eraserWidth) this.drawings.setEraserWidth(style.eraserWidth);
+    // The three widths show the stroke's, or the eraser's size while it is the tool.
+    this.drawingBar.setWidth(this.drawings.tool === 'eraser' ? this.drawings.eraserWidth : this.drawings.width);
     if (notify) post({ type: 'drawStyleChanged', style });
+  }
+
+  /** The undo button says what it would take back: the last change, or the typing in a text box. */
+  private showUndo(): void {
+    const label = this.drawings.editing ? 'typing' : this.undoStack.nextUndo;
+    this.toolbar.setUndo(label, `${MOD_KEY}+Z`);
   }
 
   private onDrawingSelected(id: string | undefined, popover: boolean): void {
@@ -1561,7 +1572,7 @@ class App {
   }
 
   private bindDiagnostics(): void {
-    // Anything the strict CSP blocks ends up in the extension's log ("Document Viewer: Show Log").
+    // Anything the strict CSP blocks ends up in the extension's log ("Reading Room: Show Log").
     document.addEventListener('securitypolicyviolation', (e) => {
       log('warn', `CSP blocked ${e.blockedURI || 'inline content'} (${e.effectiveDirective})`);
     });
@@ -1581,6 +1592,6 @@ if (root) {
   const config = JSON.parse(root.dataset.config ?? '{}') as Config;
   const app = new App(root, config);
   // For diagnostics from the webview developer tools (only this extension's code runs here).
-  (window as unknown as { documentViewer: App }).documentViewer = app;
+  (window as unknown as { readingRoom: App }).readingRoom = app;
   void app.start();
 }

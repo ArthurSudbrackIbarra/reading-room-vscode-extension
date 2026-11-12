@@ -1,8 +1,8 @@
 {
-  "name": "markdown-pdf-viewer",
-  "displayName": "Document Viewer & Highlighter",
-  "description": "Read Markdown, text and PDF files as PDFs inside VS Code. Highlight in five colors, add notes, draw, type and erase on the page, mark where you stopped reading, play relaxing rain, fireplace or your own sounds, undo with Ctrl+Z, and download with all of it as PDF annotations.",
-  "version": "0.8.0",
+  "name": "reading-room",
+  "displayName": "Reading Room",
+  "description": "A quiet place to read and study inside VS Code. Open PDF, Markdown and text files as pages, highlight them, write notes, draw and type on them, keep your place, play rain or a fireplace while you read, and download it all as a PDF.",
+  "version": "0.9.0",
   "publisher": "local",
   "license": "MIT",
   "repository": {
@@ -15,22 +15,23 @@
     "vscode": "^1.110.0"
   },
   "categories": [
+    "Education",
     "Visualization",
     "Other"
   ],
   "keywords": [
+    "reading",
+    "study",
     "pdf",
     "markdown",
-    "txt",
-    "viewer",
     "reader",
+    "viewer",
     "highlight",
     "annotation",
     "notes",
     "drawing",
     "text box",
     "bookmark",
-    "reading",
     "ambient sounds"
   ],
   "main": "./dist/extension.js",
@@ -46,385 +47,362 @@
   },
   "activationEvents": [
     "onStartupFinished",
-    "onWebviewPanel:markdownPdfViewer.preview",
-    "onCustomEditor:markdownPdfViewer.pdf"
+    "onWebviewPanel:readingRoom.preview",
+    "onCustomEditor:readingRoom.pdf"
   ],
   "contributes": {
     "commands": [
       {
-        "command": "markdownPdfViewer.openPreviewToSide",
-        "title": "Open PDF Preview to the Side",
-        "category": "Document Viewer",
-        "icon": "$(file-pdf)"
+        "command": "readingRoom.openPreviewToSide",
+        "title": "Open in Reading Room to the Side",
+        "icon": "$(book)"
       },
       {
-        "command": "markdownPdfViewer.openPreview",
-        "title": "Open PDF Preview",
-        "category": "Document Viewer",
-        "icon": "$(file-pdf)"
+        "command": "readingRoom.openPreview",
+        "title": "Open in Reading Room",
+        "icon": "$(book)"
       },
       {
-        "command": "markdownPdfViewer.showSource",
+        "command": "readingRoom.showSource",
         "title": "Open Source File",
-        "category": "Document Viewer",
+        "category": "Reading Room",
         "icon": "$(go-to-file)"
       },
       {
-        "command": "markdownPdfViewer.toggleFullView",
-        "title": "Toggle PDF Full View",
-        "category": "Document Viewer",
+        "command": "readingRoom.toggleFullView",
+        "title": "Toggle Full View",
+        "category": "Reading Room",
         "icon": "$(screen-full)"
       },
       {
-        "command": "markdownPdfViewer.refresh",
-        "title": "Refresh PDF",
-        "category": "Document Viewer",
+        "command": "readingRoom.refresh",
+        "title": "Refresh the Document",
+        "category": "Reading Room",
         "icon": "$(refresh)"
       },
       {
-        "command": "markdownPdfViewer.download",
-        "title": "Download PDF",
-        "category": "Document Viewer",
+        "command": "readingRoom.download",
+        "title": "Download as PDF",
+        "category": "Reading Room",
         "icon": "$(desktop-download)"
       },
       {
-        "command": "markdownPdfViewer.downloadWithoutHighlights",
-        "title": "Download PDF without Annotations",
-        "category": "Document Viewer"
+        "command": "readingRoom.downloadWithoutHighlights",
+        "title": "Download as PDF without Annotations",
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.zoomIn",
-        "title": "Zoom In (PDF)",
-        "category": "Document Viewer"
+        "command": "readingRoom.zoomIn",
+        "title": "Zoom In",
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.zoomOut",
-        "title": "Zoom Out (PDF)",
-        "category": "Document Viewer"
+        "command": "readingRoom.zoomOut",
+        "title": "Zoom Out",
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.zoomReset",
-        "title": "Reset Zoom (PDF)",
-        "category": "Document Viewer"
-      },
-      {
-        "command": "markdownPdfViewer.toggleHighlightTool",
+        "command": "readingRoom.toggleHighlightTool",
         "title": "Toggle Highlight Tool",
-        "category": "Document Viewer"
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.toggleHighlightsList",
+        "command": "readingRoom.toggleHighlightsList",
         "title": "Toggle Annotations List",
-        "category": "Document Viewer"
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.toggleDrawing",
-        "title": "Toggle Drawing",
-        "category": "Document Viewer"
+        "command": "readingRoom.toggleDrawing",
+        "title": "Toggle Draw Mode",
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.toggleText",
-        "title": "Toggle Adding Text",
-        "category": "Document Viewer"
+        "command": "readingRoom.toggleText",
+        "title": "Toggle Text Mode",
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.toggleEraser",
-        "title": "Toggle Eraser",
-        "category": "Document Viewer"
+        "command": "readingRoom.toggleRemoveTool",
+        "title": "Toggle Remove Tool",
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.toggleDarkMode",
+        "command": "readingRoom.toggleDarkMode",
         "title": "Toggle Light/Dark Pages",
-        "category": "Document Viewer",
+        "category": "Reading Room",
         "icon": "$(color-mode)"
       },
       {
-        "command": "markdownPdfViewer.undo",
+        "command": "readingRoom.undo",
         "title": "Undo Highlight, Note, Marker, Drawing or Text Change",
-        "category": "Document Viewer"
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.redo",
+        "command": "readingRoom.redo",
         "title": "Redo Highlight, Note, Marker, Drawing or Text Change",
-        "category": "Document Viewer"
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.markReadingPosition",
+        "command": "readingRoom.markReadingPosition",
         "title": "Mark Where I Stopped Reading",
-        "category": "Document Viewer",
+        "category": "Reading Room",
         "icon": "$(bookmark)"
       },
       {
-        "command": "markdownPdfViewer.goToReadingPosition",
+        "command": "readingRoom.goToReadingPosition",
         "title": "Go to Where I Stopped Reading",
-        "category": "Document Viewer"
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.removeReadingPosition",
+        "command": "readingRoom.removeReadingPosition",
         "title": "Remove the Reading Marker",
-        "category": "Document Viewer"
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.toggleSounds",
+        "command": "readingRoom.toggleSounds",
         "title": "Play/Pause Reading Sounds",
-        "category": "Document Viewer",
+        "category": "Reading Room",
         "icon": "$(unmute)"
       },
       {
-        "command": "markdownPdfViewer.addSounds",
+        "command": "readingRoom.addSounds",
         "title": "Add Reading Sounds from Files…",
-        "category": "Document Viewer"
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.reattachHighlights",
-        "title": "Reattach Highlights from Another File…",
-        "category": "Document Viewer"
+        "command": "readingRoom.reattachHighlights",
+        "title": "Reattach Annotations from Another File…",
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.deleteAllHighlights",
+        "command": "readingRoom.deleteAllHighlights",
         "title": "Delete All Highlights for This File",
-        "category": "Document Viewer"
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.deleteAllDrawings",
+        "command": "readingRoom.deleteAllDrawings",
         "title": "Delete All Drawings for This File",
-        "category": "Document Viewer"
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.deleteAllTextBoxes",
+        "command": "readingRoom.deleteAllTextBoxes",
         "title": "Delete All Text Boxes for This File",
-        "category": "Document Viewer"
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.revealDataFolder",
-        "title": "Reveal Highlight Data Folder",
-        "category": "Document Viewer"
+        "command": "readingRoom.revealDataFolder",
+        "title": "Reveal Annotation Data Folder",
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.clearCache",
-        "title": "Clear Cached PDFs",
-        "category": "Document Viewer"
+        "command": "readingRoom.clearCache",
+        "title": "Clear Cached Pages",
+        "category": "Reading Room"
       },
       {
-        "command": "markdownPdfViewer.showLog",
+        "command": "readingRoom.showLog",
         "title": "Show Log",
-        "category": "Document Viewer"
+        "category": "Reading Room"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "markdownPdfViewer.openPreviewToSide",
-          "alt": "markdownPdfViewer.openPreview",
+          "command": "readingRoom.openPreviewToSide",
+          "alt": "readingRoom.openPreview",
           "group": "navigation",
-          "when": "(resourceLangId == markdown || resourceFilename =~ /\\.txt$/i) && config.markdownPdfViewer.defaultOpenMode != 'full'"
+          "when": "(resourceLangId == markdown || resourceFilename =~ /\\.txt$/i) && config.readingRoom.defaultOpenMode != 'full'"
         },
         {
-          "command": "markdownPdfViewer.openPreview",
-          "alt": "markdownPdfViewer.openPreviewToSide",
+          "command": "readingRoom.openPreview",
+          "alt": "readingRoom.openPreviewToSide",
           "group": "navigation",
-          "when": "(resourceLangId == markdown || resourceFilename =~ /\\.txt$/i) && config.markdownPdfViewer.defaultOpenMode == 'full'"
+          "when": "(resourceLangId == markdown || resourceFilename =~ /\\.txt$/i) && config.readingRoom.defaultOpenMode == 'full'"
         },
         {
-          "command": "markdownPdfViewer.showSource",
+          "command": "readingRoom.showSource",
           "group": "navigation",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+          "when": "activeWebviewPanelId == 'readingRoom.preview'"
         }
       ],
       "explorer/context": [
         {
-          "command": "markdownPdfViewer.openPreviewToSide",
+          "command": "readingRoom.openPreviewToSide",
           "group": "navigation@90",
           "when": "resourceLangId == markdown || resourceExtname =~ /^\\.(txt|pdf)$/i"
         }
       ],
       "commandPalette": [
         {
-          "command": "markdownPdfViewer.openPreviewToSide",
+          "command": "readingRoom.openPreviewToSide",
           "when": "editorLangId == markdown || resourceFilename =~ /\\.txt$/i || resourceLangId == markdown || resourceFilename =~ /\\.txt$/i"
         },
         {
-          "command": "markdownPdfViewer.openPreview",
+          "command": "readingRoom.openPreview",
           "when": "editorLangId == markdown || resourceFilename =~ /\\.txt$/i || resourceLangId == markdown || resourceFilename =~ /\\.txt$/i"
         },
         {
-          "command": "markdownPdfViewer.showSource",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+          "command": "readingRoom.showSource",
+          "when": "activeWebviewPanelId == 'readingRoom.preview'"
         },
         {
-          "command": "markdownPdfViewer.toggleFullView",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview'"
+          "command": "readingRoom.toggleFullView",
+          "when": "activeWebviewPanelId == 'readingRoom.preview'"
         },
         {
-          "command": "markdownPdfViewer.refresh",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.refresh",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.download",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.download",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.downloadWithoutHighlights",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.downloadWithoutHighlights",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.zoomIn",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.zoomIn",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.zoomOut",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.zoomOut",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.zoomReset",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.toggleHighlightTool",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.toggleHighlightTool",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.toggleHighlightsList",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.toggleHighlightsList",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.toggleDrawing",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.toggleDrawing",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.toggleText",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.toggleText",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.toggleRemoveTool",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.toggleEraser",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.toggleDarkMode",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.toggleDarkMode",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.undo",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.undo",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.redo",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.redo",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.markReadingPosition",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.markReadingPosition",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.goToReadingPosition",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.goToReadingPosition",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.removeReadingPosition",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.removeReadingPosition",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.toggleSounds",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf' || readingRoom.soundPlaying"
         },
         {
-          "command": "markdownPdfViewer.toggleSounds",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf' || markdownPdfViewer.soundPlaying"
+          "command": "readingRoom.reattachHighlights",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.reattachHighlights",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.deleteAllHighlights",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.deleteAllHighlights",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.deleteAllDrawings",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "markdownPdfViewer.deleteAllDrawings",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
-        },
-        {
-          "command": "markdownPdfViewer.deleteAllTextBoxes",
-          "when": "activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf'"
+          "command": "readingRoom.deleteAllTextBoxes",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         }
       ]
     },
     "keybindings": [
       {
-        "command": "markdownPdfViewer.openPreviewToSide",
-        "key": "ctrl+k shift+p",
-        "mac": "cmd+k shift+p",
+        "command": "readingRoom.openPreviewToSide",
+        "key": "ctrl+k shift+r",
+        "mac": "cmd+k shift+r",
         "when": "editorLangId == markdown || resourceFilename =~ /\\.txt$/i"
       },
       {
-        "command": "markdownPdfViewer.openPreview",
-        "key": "ctrl+shift+alt+p",
-        "mac": "cmd+shift+alt+p",
+        "command": "readingRoom.openPreview",
+        "key": "ctrl+shift+alt+r",
+        "mac": "cmd+shift+alt+r",
         "when": "editorLangId == markdown || resourceFilename =~ /\\.txt$/i"
       },
       {
-        "command": "markdownPdfViewer.zoomIn",
+        "command": "readingRoom.zoomIn",
         "key": "ctrl+=",
         "mac": "cmd+=",
-        "when": "(activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf') && markdownPdfViewer.viewerFocused"
+        "when": "(activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf') && readingRoom.viewerFocused"
       },
       {
-        "command": "markdownPdfViewer.zoomIn",
+        "command": "readingRoom.zoomIn",
         "key": "ctrl+shift+=",
         "mac": "cmd+shift+=",
-        "when": "(activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf') && markdownPdfViewer.viewerFocused"
+        "when": "(activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf') && readingRoom.viewerFocused"
       },
       {
-        "command": "markdownPdfViewer.zoomIn",
+        "command": "readingRoom.zoomIn",
         "key": "ctrl+numpad_add",
         "mac": "cmd+numpad_add",
-        "when": "(activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf') && markdownPdfViewer.viewerFocused"
+        "when": "(activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf') && readingRoom.viewerFocused"
       },
       {
-        "command": "markdownPdfViewer.zoomOut",
+        "command": "readingRoom.zoomOut",
         "key": "ctrl+-",
         "mac": "cmd+-",
-        "when": "(activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf') && markdownPdfViewer.viewerFocused"
+        "when": "(activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf') && readingRoom.viewerFocused"
       },
       {
-        "command": "markdownPdfViewer.zoomOut",
+        "command": "readingRoom.zoomOut",
         "key": "ctrl+shift+-",
         "mac": "cmd+shift+-",
-        "when": "(activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf') && markdownPdfViewer.viewerFocused"
+        "when": "(activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf') && readingRoom.viewerFocused"
       },
       {
-        "command": "markdownPdfViewer.zoomOut",
+        "command": "readingRoom.zoomOut",
         "key": "ctrl+numpad_subtract",
         "mac": "cmd+numpad_subtract",
-        "when": "(activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf') && markdownPdfViewer.viewerFocused"
-      },
-      {
-        "command": "markdownPdfViewer.zoomReset",
-        "key": "ctrl+0",
-        "mac": "cmd+0",
-        "when": "(activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf') && markdownPdfViewer.viewerFocused"
-      },
-      {
-        "command": "markdownPdfViewer.zoomReset",
-        "key": "ctrl+numpad0",
-        "mac": "cmd+numpad0",
-        "when": "(activeWebviewPanelId == 'markdownPdfViewer.preview' || activeCustomEditorId == 'markdownPdfViewer.pdf') && markdownPdfViewer.viewerFocused"
+        "when": "(activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf') && readingRoom.viewerFocused"
       }
     ],
     "configuration": {
-      "title": "Document Viewer",
+      "title": "Reading Room",
       "properties": {
-        "markdownPdfViewer.defaultOpenMode": {
+        "readingRoom.defaultOpenMode": {
           "type": "string",
           "enum": [
             "side",
             "full"
           ],
           "enumDescriptions": [
-            "The title-bar button opens the PDF next to the Markdown or text editor. Alt+click opens it in the current editor group.",
-            "The title-bar button opens the PDF in the current editor group. Alt+click opens it to the side."
+            "The title-bar button opens the pages next to the Markdown or text editor. Alt+click opens them in the current editor group.",
+            "The title-bar button opens the pages in the current editor group. Alt+click opens them to the side."
           ],
           "default": "side",
           "scope": "application",
-          "description": "What the PDF button in the editor title bar does on a plain click."
+          "description": "What the Reading Room button in the editor title bar does on a plain click."
         },
-        "markdownPdfViewer.pageSize": {
+        "readingRoom.pageSize": {
           "type": "string",
           "enum": [
             "A4",
@@ -432,33 +410,33 @@
           ],
           "default": "A4",
           "scope": "application",
-          "description": "Paper size of the PDF made from Markdown and text files."
+          "description": "Paper size of the pages made from Markdown and text files."
         },
-        "markdownPdfViewer.pageNumbers": {
+        "readingRoom.pageNumbers": {
           "type": "boolean",
           "default": true,
           "scope": "application",
           "description": "Print page numbers (\"n / N\") at the bottom of every page."
         },
-        "markdownPdfViewer.renderOnSave": {
+        "readingRoom.renderOnSave": {
           "type": "boolean",
           "default": true,
           "scope": "application",
           "description": "Convert Markdown and text files again automatically when they are saved."
         },
-        "markdownPdfViewer.allowRemoteImages": {
+        "readingRoom.allowRemoteImages": {
           "type": "boolean",
           "default": true,
           "scope": "application",
-          "description": "Download http(s) images referenced by the Markdown and embed them in the PDF."
+          "description": "Download http(s) images referenced by the Markdown and show them on the pages."
         },
-        "markdownPdfViewer.chromiumPath": {
+        "readingRoom.chromiumPath": {
           "type": "string",
           "default": "",
           "scope": "machine",
           "description": "Path to a Chrome, Edge or Chromium executable. Leave empty to detect an installed browser automatically."
         },
-        "markdownPdfViewer.chromiumDownload": {
+        "readingRoom.chromiumDownload": {
           "type": "string",
           "enum": [
             "ask",
@@ -472,15 +450,15 @@
           "scope": "application",
           "description": "What to do when no Chrome, Edge or Chromium installation is found."
         },
-        "markdownPdfViewer.cacheDays": {
+        "readingRoom.cacheDays": {
           "type": "integer",
           "default": 7,
           "minimum": 0,
           "maximum": 365,
           "scope": "application",
-          "description": "How many days a converted PDF is kept after it was last opened, so reopening an unchanged Markdown or text file shows it instantly instead of converting it again. The cache lives in VS Code's storage for this extension, never in your folders. 0 turns the cache off and deletes it."
+          "description": "How many days the pages made from a Markdown or text file are kept after it was last opened, so reopening an unchanged file shows it instantly instead of converting it again. The cache lives in VS Code's storage for this extension, never in your folders. 0 turns the cache off and deletes it."
         },
-        "markdownPdfViewer.textSnapshots": {
+        "readingRoom.textSnapshots": {
           "type": "boolean",
           "default": true,
           "scope": "application",
@@ -490,8 +468,8 @@
     },
     "customEditors": [
       {
-        "viewType": "markdownPdfViewer.pdf",
-        "displayName": "Document Viewer",
+        "viewType": "readingRoom.pdf",
+        "displayName": "Reading Room",
         "selector": [
           {
             "filenamePattern": "*.pdf"
@@ -506,6 +484,11 @@
     "build:dev": "node esbuild.mjs --dev",
     "watch": "node esbuild.mjs --dev --watch",
     "typecheck": "tsc -p . --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
     "test": "vitest run",
     "test:converter": "node esbuild.mjs && vitest run --config vitest.converter.config.mts",
     "package": "vsce package --githubBranch main",
@@ -514,6 +497,7 @@
   },
   "devDependencies": {
     "@cantoo/pdf-lib": "2.11.1",
+    "@eslint/js": "10.0.1",
     "@mdit/plugin-alert": "2.1.0",
     "@mdit/plugin-tasklist": "1.2.0",
     "@puppeteer/browsers": "3.2.6",
@@ -527,7 +511,10 @@
     "@vscode/vsce": "4.1.0",
     "approx-string-match": "2.0.1",
     "esbuild": "0.28.2",
+    "eslint": "10.14.0",
+    "eslint-config-prettier": "10.1.8",
     "github-slugger": "2.0.0",
+    "globals": "17.14.0",
     "katex": "0.19.1",
     "markdown-it": "15.0.3",
     "markdown-it-anchor": "10.1.0",
@@ -536,9 +523,11 @@
     "markdown-it-front-matter": "0.2.4",
     "mermaid": "12.3.0",
     "pdfjs-dist": "6.5.438",
+    "prettier": "3.10.1",
     "puppeteer-core": "25.16.0",
     "shiki": "4.6.0",
     "typescript": "6.0.3",
+    "typescript-eslint": "8.72.2",
     "vitest": "5.1.0"
   },
   "overrides": {

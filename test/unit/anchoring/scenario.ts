@@ -174,8 +174,8 @@ let drawingSeq = 0;
 /** Builds a drawing from a description, in PDF units of its page. */
 export function makeShape(doc: TestDocument, id: string, spec: DrawSpec): Drawing {
   const now = new Date(Date.UTC(2026, 10, 11, 12, 0, ++drawingSeq)).toISOString();
-  let page = 0;
-  let tool: Drawing['tool'] = 'pen';
+  let page: number;
+  let tool: Drawing['tool'];
   let points: PdfPoint[] = [];
   let text: string | undefined;
   const ink = (...p: PdfPoint[]) => (points = p);
@@ -343,7 +343,8 @@ export class World {
     const binding = await bindDrawing(drawing, this.doc, { images: (p) => this.doc.images[p] ?? [], textSize: () => TEXT_BOX_SIZE, prefer });
     this.drawings.set(id, { drawing, binding });
     this.readerActed();
-    const near = 'around' in spec ? spec.around : 'under' in spec ? spec.under : 'over' in spec ? spec.over : 'beside' in spec && typeof spec.beside === 'string' ? spec.beside : undefined;
+    const near =
+      'around' in spec ? spec.around : 'under' in spec ? spec.under : 'over' in spec ? spec.over : 'beside' in spec && typeof spec.beside === 'string' ? spec.beside : undefined;
     if (near) {
       const text = boxOfText(this.doc, near);
       const box = drawingBox(drawing, this.doc.layout.geometry(drawing.pageIndex)!, TEXT_BOX_SIZE);
@@ -469,7 +470,10 @@ export class World {
       expect(shown?.page, `${label} page`).toBe(text.page);
       const [x0, y0, x1, y1] = shown!.box;
       const slack = 3.5;
-      expect(x0 <= text.box[0] + slack && y0 <= text.box[1] + slack && x1 >= text.box[2] - slack && y1 >= text.box[3] - slack, `${label} box ${JSON.stringify(shown!.box)} covers ${JSON.stringify(text.box)}`).toBe(true);
+      expect(
+        x0 <= text.box[0] + slack && y0 <= text.box[1] + slack && x1 >= text.box[2] - slack && y1 >= text.box[3] - slack,
+        `${label} box ${JSON.stringify(shown!.box)} covers ${JSON.stringify(text.box)}`,
+      ).toBe(true);
       // And not much more than it.
       expect(x1 - x0, `${label} width`).toBeLessThanOrEqual(text.box[2] - text.box[0] + 16);
     }
@@ -477,7 +481,10 @@ export class World {
       const text = boxOfText(this.doc, e.underlines);
       expect(shown?.page, `${label} page`).toBe(text.page);
       const [x0, y0, x1, y1] = shown!.box;
-      expect(Math.abs(x0 - text.box[0]) <= 3.5 && Math.abs(x1 - text.box[2]) <= 3.5 && y0 >= text.box[3] - 3 && y1 <= text.box[3] + 5, `${label} box ${JSON.stringify(shown!.box)} underlines ${JSON.stringify(text.box)}`).toBe(true);
+      expect(
+        Math.abs(x0 - text.box[0]) <= 3.5 && Math.abs(x1 - text.box[2]) <= 3.5 && y0 >= text.box[3] - 3 && y1 <= text.box[3] + 5,
+        `${label} box ${JSON.stringify(shown!.box)} underlines ${JSON.stringify(text.box)}`,
+      ).toBe(true);
     }
     if (e.follows !== undefined) {
       const made = this.made.get(id)!;
@@ -489,13 +496,19 @@ export class World {
     if (e.insideImage !== undefined) {
       const image = this.doc.images[shown!.page][e.insideImage];
       const [x0, y0, x1, y1] = shown!.box;
-      expect(x0 >= image[0] - 1 && y0 >= image[1] - 1 && x1 <= image[2] + 1 && y1 <= image[3] + 1, `${label} box ${JSON.stringify(shown!.box)} inside ${JSON.stringify(image)}`).toBe(true);
+      expect(
+        x0 >= image[0] - 1 && y0 >= image[1] - 1 && x1 <= image[2] + 1 && y1 <= image[3] + 1,
+        `${label} box ${JSON.stringify(shown!.box)} inside ${JSON.stringify(image)}`,
+      ).toBe(true);
     }
     if (e.endsNear) {
       const geometry = this.doc.layout.geometry(r.shown!.pageIndex)!;
       r.shown!.points.forEach((p, i) => {
         const text = boxOfText(this.doc, e.endsNear![i]);
-        const [x, y] = [geometry.transform[0] * p[0] + geometry.transform[2] * p[1] + geometry.transform[4], geometry.transform[1] * p[0] + geometry.transform[3] * p[1] + geometry.transform[5]];
+        const [x, y] = [
+          geometry.transform[0] * p[0] + geometry.transform[2] * p[1] + geometry.transform[4],
+          geometry.transform[1] * p[0] + geometry.transform[3] * p[1] + geometry.transform[5],
+        ];
         const dx = x < text.box[0] ? text.box[0] - x : x > text.box[2] ? x - text.box[2] : 0;
         const dy = y < text.box[1] ? text.box[1] - y : y > text.box[3] ? y - text.box[3] : 0;
         expect(Math.hypot(dx, dy), `${label} end ${i} near "${e.endsNear![i]}"`).toBeLessThanOrEqual(4);
@@ -545,13 +558,17 @@ export function assertInvariants(world: World, result: RunResult): void {
     const label = `highlight ${id}`;
     if (r.status === 'anchored') {
       expect(r.kind, label).toBeDefined();
-      expect(Number.isInteger(r.start) && Number.isInteger(r.end) && r.start! >= 0 && r.end! > r.start! && r.end! <= length, `${label} range ${r.start}-${r.end} of ${length}`).toBe(true);
+      expect(
+        Number.isInteger(r.start) && Number.isInteger(r.end) && r.start! >= 0 && r.end! > r.start! && r.end! <= length,
+        `${label} range ${r.start}-${r.end} of ${length}`,
+      ).toBe(true);
       const parts = doc.layout.rangeBoxes(r.start!, r.end!);
       expect(parts.length, `${label} has boxes`).toBeGreaterThan(0);
       for (const part of parts) {
         const size = doc.layout.pageSize(part.page)!;
         expect(part.page >= 0 && part.page < doc.layout.pageCount, label).toBe(true);
-        for (const b of part.boxes) expect(b.every(Number.isFinite) && b[0] >= -0.01 && b[1] >= -0.01 && b[2] <= size[0] + 0.01 && b[3] <= size[1] + 0.01, `${label} box ${JSON.stringify(b)}`).toBe(true);
+        for (const b of part.boxes)
+          expect(b.every(Number.isFinite) && b[0] >= -0.01 && b[1] >= -0.01 && b[2] <= size[0] + 0.01 && b[3] <= size[1] + 0.01, `${label} box ${JSON.stringify(b)}`).toBe(true);
       }
       expect(r.state.found?.hash, label).toBe(result.hash);
     } else {
@@ -571,7 +588,9 @@ export function assertInvariants(world: World, result: RunResult): void {
       const geometry = doc.layout.geometry(page)!;
       const box = drawingBox(r.shown!, geometry, TEXT_BOX_SIZE);
       expect(box.every(Number.isFinite), `${label} box`).toBe(true);
-      expect(box[0] >= -1.5 && box[1] >= -1.5 && box[2] <= geometry.width + 1.5 && box[3] <= geometry.height + 1.5, `${label} box ${JSON.stringify(box)} inside the page`).toBe(true);
+      expect(box[0] >= -1.5 && box[1] >= -1.5 && box[2] <= geometry.width + 1.5 && box[3] <= geometry.height + 1.5, `${label} box ${JSON.stringify(box)} inside the page`).toBe(
+        true,
+      );
       // What is shown is still a valid drawing.
       expect(sanitizeDrawing(structuredClone(r.shown)), label).toBeDefined();
     } else {

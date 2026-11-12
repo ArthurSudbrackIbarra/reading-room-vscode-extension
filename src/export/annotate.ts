@@ -33,7 +33,7 @@ export interface AnnotatedPdf {
   replacedChars: number;
 }
 
-const AUTHOR = 'Document Viewer';
+const AUTHOR = 'Reading Room';
 
 export class EncryptedPdfError extends Error {
   constructor() {
@@ -88,9 +88,7 @@ function fmt(n: number): string {
 
 function pdfDate(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `D:${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(
-    date.getUTCMinutes(),
-  )}${pad(date.getUTCSeconds())}Z`;
+  return `D:${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`;
 }
 
 function unionRect(rects: PdfRect[]): PdfRect {
@@ -282,9 +280,7 @@ export async function paintPageBackground(pdfBytes: Uint8Array, color: string): 
   const [r, g, b] = hexToRgb(color);
   for (const page of doc.getPages()) {
     const { x, y, width, height } = page.getMediaBox();
-    const background = context.register(
-      context.flateStream(`q ${fmt(r)} ${fmt(g)} ${fmt(b)} rg ${fmt(x)} ${fmt(y)} ${fmt(width)} ${fmt(height)} re f Q`),
-    );
+    const background = context.register(context.flateStream(`q ${fmt(r)} ${fmt(g)} ${fmt(b)} rg ${fmt(x)} ${fmt(y)} ${fmt(width)} ${fmt(height)} re f Q`));
     const contents = page.node.get(PDFName.of('Contents'));
     const resolved = contents instanceof PDFRef ? context.lookup(contents) : contents;
     if (resolved instanceof PDFArray) {

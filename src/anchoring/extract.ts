@@ -58,11 +58,22 @@ export interface OpCodes {
 
 function multiply(m: Matrix, n: Matrix): Matrix {
   // Apply n first, then m.
-  return [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
+  return [
+    m[0] * n[0] + m[2] * n[1],
+    m[1] * n[0] + m[3] * n[1],
+    m[0] * n[2] + m[2] * n[3],
+    m[1] * n[2] + m[3] * n[3],
+    m[0] * n[4] + m[2] * n[5] + m[4],
+    m[1] * n[4] + m[3] * n[5] + m[5],
+  ];
 }
 
 function isMatrix(value: unknown): value is Matrix {
-  return (Array.isArray(value) || ArrayBuffer.isView(value)) && (value as ArrayLike<unknown>).length === 6 && Array.from(value as ArrayLike<unknown>).every((n) => typeof n === 'number' && Number.isFinite(n));
+  return (
+    (Array.isArray(value) || ArrayBuffer.isView(value)) &&
+    (value as ArrayLike<unknown>).length === 6 &&
+    Array.from(value as ArrayLike<unknown>).every((n) => typeof n === 'number' && Number.isFinite(n))
+  );
 }
 
 /** Smallest side (points) of an image a drawing can be bound to. */

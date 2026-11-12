@@ -2,15 +2,7 @@
 // (diff mapping) and unknown (search). Layout, drawings and the marker are in the scenario tests.
 import { describe, expect, it } from 'vitest';
 import { clusterEnd, clusterStart, createAnchor, fingerprintSimilarity, WIDE_CONTEXT } from '../../../src/anchoring/anchor';
-import {
-  categoryOf,
-  compareWithQuote,
-  DISTINCTIVE_LENGTH,
-  EDITED_MIN_SURVIVOR,
-  PARTIAL_MIN_CHARS,
-  PARTIAL_MIN_SURVIVOR,
-  resolveAnchor,
-} from '../../../src/anchoring/resolve';
+import { categoryOf, compareWithQuote, DISTINCTIVE_LENGTH, EDITED_MIN_SURVIVOR, PARTIAL_MIN_CHARS, PARTIAL_MIN_SURVIVOR, resolveAnchor } from '../../../src/anchoring/resolve';
 import { hashText, TEXT_MODEL_VERSION } from '../../../src/anchoring/textModel';
 import { step, textOf, track } from './track';
 
@@ -207,7 +199,7 @@ describe('moves and duplicates', () => {
     expect(step(t2, above)).toMatchObject({ status: 'anchored', start: above.lastIndexOf('quick brown fox') });
   });
 
-  it('A14b: with the editor\'s hint, stays on the original when an unedited copy is pasted above and then edited', () => {
+  it("A14b: with the editor's hint, stays on the original when an unedited copy is pasted above and then edited", () => {
     const sentence = BASE.slice(BASE.indexOf('In the first'), BASE.indexOf('In the second'));
     const doubled = BASE.replace(sentence, sentence + sentence);
     const t = track(BASE, 'quick brown fox');
@@ -340,7 +332,10 @@ describe('search without the old text', () => {
     const text = `${'Filler sentence number one is here. '.repeat(40)}The committee approved the annual budget on Tuesday evening. ${'More filler follows after it. '.repeat(40)}`;
     const t = track(text, 'approved the annual budget on Tuesday');
     // Context rewritten and a word changed: only the fuzzy search can find it.
-    const edited = text.replace('The committee approved the annual budget on Tuesday evening.', 'Our board approved the yearly budget on Tuesday night!').replace(/Filler sentence number one is here\. /g, 'Other words. ').replace(/More filler follows after it\. /g, 'Else. ');
+    const edited = text
+      .replace('The committee approved the annual budget on Tuesday evening.', 'Our board approved the yearly budget on Tuesday night!')
+      .replace(/Filler sentence number one is here\. /g, 'Other words. ')
+      .replace(/More filler follows after it\. /g, 'Else. ');
     const r = step(t, edited, { noSnapshot: true });
     expect(r).toMatchObject({ status: 'anchored', kind: 'edited', via: 'fuzzy' });
     expect(textOf(edited, r)).toContain('approved the yearly budget on Tuesday');

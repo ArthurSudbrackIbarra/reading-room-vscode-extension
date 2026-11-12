@@ -46,7 +46,17 @@ writeFileSync(pdfPath, result.pdf);
 
 const pdfjs = await import(pathToFileURL(join(root, 'node_modules/pdfjs-dist/legacy/build/pdf.mjs')).href);
 const doc = await pdfjs.getDocument({ data: new Uint8Array(result.pdf), verbosity: 0 }).promise;
-const summary = { pdf: pdfPath, bytes: result.pdf.length, pages: doc.numPages, title: result.title, elapsedMs: elapsed, timings: result.timings, warnings: result.warnings, links: [], outline: [] };
+const summary = {
+  pdf: pdfPath,
+  bytes: result.pdf.length,
+  pages: doc.numPages,
+  title: result.title,
+  elapsedMs: elapsed,
+  timings: result.timings,
+  warnings: result.warnings,
+  links: [],
+  outline: [],
+};
 for (let p = 1; p <= doc.numPages; p++) {
   const page = await doc.getPage(p);
   for (const a of await page.getAnnotations()) {

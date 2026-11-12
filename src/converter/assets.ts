@@ -121,7 +121,11 @@ export function createRequestHandler(ctx: RequestContext): (request: HTTPRequest
           return;
         }
         if (url.pathname.startsWith(EXT_PREFIX + '/')) {
-          const rel = url.pathname.slice(EXT_PREFIX.length + 1).split('/').map(safeDecode).join(sep);
+          const rel = url.pathname
+            .slice(EXT_PREFIX.length + 1)
+            .split('/')
+            .map(safeDecode)
+            .join(sep);
           const file = resolve(join(assetsRoot, rel));
           if (!file.startsWith(assetsRoot + sep)) throw new Error('asset path escapes the assets folder');
           await respond(request, 200, mimeFor(file), await readFile(file));

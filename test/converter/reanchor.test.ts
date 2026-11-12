@@ -64,7 +64,8 @@ async function render(source: string, _options: unknown, renderId: number): Prom
 
 const world = (source = BASE) => World.from(source, render);
 const LONG = `Added later. ${'This paragraph was written after the others and is long enough to push everything below it further down the page. '.repeat(70)}`.trim();
-const FOX = 'The quick brown fox jumps over the lazy dog while the otters watch from the far bank. This sentence is here because every test document needs it. The otters did not seem to mind the fox at all.';
+const FOX =
+  'The quick brown fox jumps over the lazy dog while the otters watch from the far bank. This sentence is here because every test document needs it. The otters did not seem to mind the fox at all.';
 const insertAbove = (t: string) => t.replace('## Morning routine', `${LONG}\n\n## Morning routine`);
 const pageOf = (w: World, text: string) => w.doc.model.pageOf(w.doc.text.indexOf(text));
 
@@ -84,7 +85,16 @@ describe('the fixture', () => {
   it('renders to several pages with text, a picture, a table over pages, math, code, a diagram and footnotes', async () => {
     const w = await world();
     expect(w.doc.layout.pageCount).toBeGreaterThanOrEqual(3);
-    for (const text of ['Field notes on river otters', 'The quick brown fox jumps over the lazy dog', 'Crayfish caught', 'mean_catch', 'Gravel bar', 'Counted by two observers', 'The diet changes with the season', 'Small fish, mostly minnows']) {
+    for (const text of [
+      'Field notes on river otters',
+      'The quick brown fox jumps over the lazy dog',
+      'Crayfish caught',
+      'mean_catch',
+      'Gravel bar',
+      'Counted by two observers',
+      'The diet changes with the season',
+      'Small fish, mostly minnows',
+    ]) {
       expect(w.doc.text, text).toContain(text);
     }
     // Page numbers are in the bottom margin and not part of the text.
@@ -149,7 +159,12 @@ describe('edits on a real render', () => {
     w.checkHighlight('swap', { status: 'orphaned', reason: 'replaced', candidate: 'Twenty days are too few' });
     w.checkDrawing('circle', { status: 'anchored', boxCovers: 'quick dark brown fox' });
     await w.edit(() => BASE);
-    const quotes: Record<string, string> = { h: 'quick brown fox', part: 'oldest female leads the group', gone: 'We counted the visits for nineteen days in a row', swap: 'Three weeks are not enough' };
+    const quotes: Record<string, string> = {
+      h: 'quick brown fox',
+      part: 'oldest female leads the group',
+      gone: 'We counted the visits for nineteen days in a row',
+      swap: 'Three weeks are not enough',
+    };
     for (const [id, text] of Object.entries(quotes)) {
       w.checkHighlight(id, { status: 'anchored', text });
       expect(['exact', 'shifted']).toContain(w.last!.highlights.get(id)!.kind);
@@ -277,7 +292,12 @@ describe('edits on a real render', () => {
       // not always their order in the PDF (the browser may write a boxed block, like the note,
       // before or after its neighbors depending on the page break), and the head of a table is
       // repeated on every page the table is on. Annotations follow all the same.
-      const sameWords = (text: string) => text.replace(/Day Fish caught Crayfish caught Remarks ?/g, '').split(' ').sort().join(' ');
+      const sameWords = (text: string) =>
+        text
+          .replace(/Day Fish caught Crayfish caught Remarks ?/g, '')
+          .split(' ')
+          .sort()
+          .join(' ');
       expect(sameWords(w.doc.text)).toBe(sameWords(a4));
       w.checkHighlight('h', { status: 'anchored', text: 'quick brown fox' });
       w.checkDrawing('circle', { status: 'anchored' });
@@ -328,7 +348,9 @@ describe('edits on a real render', () => {
     // The rectangle is still over the formula, on its page.
     const mathNow = formula();
     const mathResult = w.last!.drawings.get('onMath')!;
-    expect(`${mathResult.status} ${mathResult.reason ?? ''} ${w.drawings.get('onMath')!.binding?.mode} ${JSON.stringify(w.drawings.get('onMath')!.binding?.anchors.map((a) => a.exact))}`).toMatch(/^anchored/);
+    expect(
+      `${mathResult.status} ${mathResult.reason ?? ''} ${w.drawings.get('onMath')!.binding?.mode} ${JSON.stringify(w.drawings.get('onMath')!.binding?.anchors.map((a) => a.exact))}`,
+    ).toMatch(/^anchored/);
     const shown = w.shownBox('onMath')!;
     expect(shown.page).toBe(mathNow.page);
     expect(Math.abs(shown.box[1] - (mathNow.box[1] - 4.5))).toBeLessThanOrEqual(3);
@@ -352,7 +374,12 @@ describe('edits on a real render', () => {
       return b[3] - b[1];
     };
     const before = height();
-    await w.edit((t) => t.replace('The oldest female leads the group', 'After a long look around the bank, which can take several minutes when the wind carries a strange smell, the oldest female leads the group'));
+    await w.edit((t) =>
+      t.replace(
+        'The oldest female leads the group',
+        'After a long look around the bank, which can take several minutes when the wind carries a strange smell, the oldest female leads the group',
+      ),
+    );
     w.checkDrawing('arrow', { status: 'anchored', endsNear: ['before sunrise', 'flat stone'] });
     expect(height()).toBeGreaterThan(before + 8);
     await w.edit(() => BASE);
@@ -400,7 +427,11 @@ describe('plain text files', () => {
       w.addHighlight('fox', 'quick brown fox');
       await w.addDrawing('circle', { shape: 'ellipse', around: 'clearest days' });
       await w.resolve({}, true);
-      await w.edit((t) => t.replace('The weir is twelve metres wide', 'Measured twice with a tape and once by pacing along the top, the weir is twelve metres wide').replace('Notes on the weir', 'More notes on the weir'));
+      await w.edit((t) =>
+        t
+          .replace('The weir is twelve metres wide', 'Measured twice with a tape and once by pacing along the top, the weir is twelve metres wide')
+          .replace('Notes on the weir', 'More notes on the weir'),
+      );
       w.checkHighlight('deep', { status: 'anchored', kind: 'shifted', text: 'deep enough that the bottom cannot be seen' });
       w.checkHighlight('art', { status: 'anchored', text: '( o.o )' });
       w.checkHighlight('cell', { status: 'anchored', text: '12 m' });

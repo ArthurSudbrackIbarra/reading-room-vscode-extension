@@ -8,10 +8,7 @@ const FLATNESS = 0.04;
 
 function cubicAt(a: PdfPoint, b: PdfPoint, c: PdfPoint, d: PdfPoint, t: number): PdfPoint {
   const u = 1 - t;
-  return [
-    u * u * u * a[0] + 3 * u * u * t * b[0] + 3 * u * t * t * c[0] + t * t * t * d[0],
-    u * u * u * a[1] + 3 * u * u * t * b[1] + 3 * u * t * t * c[1] + t * t * t * d[1],
-  ];
+  return [u * u * u * a[0] + 3 * u * u * t * b[0] + 3 * u * t * t * c[0] + t * t * t * d[0], u * u * u * a[1] + 3 * u * u * t * b[1] + 3 * u * t * t * c[1] + t * t * t * d[1]];
 }
 
 /** The subpaths of a path as polylines within `tolerance` of it; a closed one ends on its first point. */

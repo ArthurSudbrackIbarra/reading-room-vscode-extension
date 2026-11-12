@@ -2,7 +2,7 @@
 // over the target. A crash at any point leaves either the old or the new file, never a mix.
 // This module and export/ are the only places that write files (see test/unit/writeGuard.test.ts).
 import { randomBytes } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { cpSync, existsSync, promises as fs, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 
 const RETRYABLE = new Set(['EPERM', 'EBUSY', 'EACCES', 'EAGAIN']);
@@ -86,4 +86,23 @@ export async function removeFile(path: string): Promise<void> {
 /** Sets a file's modification time (the PDF cache uses it as "last used"). */
 export async function touchFile(path: string, time: Date = new Date()): Promise<void> {
   await fs.utimes(path, time, time);
+}
+
+/**
+ * Copies a folder to a place where there is none yet (the data an earlier name of this extension
+ * left in its own storage folder). The copy is made under a temporary name and renamed when it is
+ * complete, so a crash leaves nothing half-made. The source is never changed. Synchronous on
+ * purpose: it runs once, before anything reads the storage. True if a copy was made.
+ */
+export function copyFolderOnce(source: string, target: string): boolean {
+  if (existsSync(target) || !existsSync(source)) return false;
+  const temp = `${target}.copy-${process.pid}-${randomBytes(4).toString('hex')}`;
+  try {
+    cpSync(source, temp, { recursive: true });
+    renameSync(temp, target);
+    return true;
+  } catch (err) {
+    rmSync(temp, { recursive: true, force: true });
+    throw err;
+  }
 }

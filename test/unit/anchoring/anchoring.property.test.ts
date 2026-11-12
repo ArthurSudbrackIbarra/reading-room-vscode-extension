@@ -165,13 +165,21 @@ function runCase(seed: number): void {
     const start = first.at.get(ids[0])![0];
     const end = first.at.get(ids[ids.length - 1])![1];
     const anchor = createAnchor(first.text, hashText(first.text), start, end);
-    annotations.push({ ids, before: first.order.slice(Math.max(0, at - CONTEXT), at), after: first.order.slice(at + ids.length, at + ids.length + CONTEXT), anchor, frozen: JSON.stringify(anchor), start });
+    annotations.push({
+      ids,
+      before: first.order.slice(Math.max(0, at - CONTEXT), at),
+      after: first.order.slice(at + ids.length, at + ids.length + CONTEXT),
+      anchor,
+      frozen: JSON.stringify(anchor),
+      start,
+    });
   }
 
   const context = (text: string, known: Map<string, string>): ResolveContext => ({ current: { text, hash: hashText(text) }, oldText: (h) => known.get(h), diffs: new Map() });
   const check = (r: Resolution, text: string, a: Annotation, label: string): void => {
     if (r.status === 'anchored') {
-      if (!(Number.isInteger(r.start) && Number.isInteger(r.end) && r.start! >= 0 && r.end! > r.start! && r.end! <= text.length)) throw new Error(`${label}: bad range ${r.start}-${r.end}`);
+      if (!(Number.isInteger(r.start) && Number.isInteger(r.end) && r.start! >= 0 && r.end! > r.start! && r.end! <= text.length))
+        throw new Error(`${label}: bad range ${r.start}-${r.end}`);
       if (!r.kind) throw new Error(`${label}: anchored without a kind`);
     } else if (!r.reason || r.start !== undefined) {
       throw new Error(`${label}: orphaned without a reason, or with a position`);
@@ -243,11 +251,17 @@ function runCase(seed: number): void {
             explain(texts.get(previous.found.hash)!, now.text, previous.found.start, previous.found.end, expected);
             console.log('P4 got', JSON.stringify(now.text.slice(r.start! - 70, r.end! + 70)));
           }
-          throw new Error(`${label}: untouched "${a.anchor.exact}" expected at ${expected}, got ${r.status} ${r.kind ?? r.reason} at ${r.start} via ${r.via} [${a.history?.join(' ')}] prefix ${a.anchor.prefix.length} suffix ${a.anchor.suffix.length}`);
+          throw new Error(
+            `${label}: untouched "${a.anchor.exact}" expected at ${expected}, got ${r.status} ${r.kind ?? r.reason} at ${r.start} via ${r.via} [${a.history?.join(' ')}] prefix ${a.anchor.prefix.length} suffix ${a.anchor.suffix.length}`,
+          );
         }
         // P6: straight from the first version, the same place.
         const direct = resolveAnchor(a.anchor, undefined, context(now.text, new Map([[hashText(first.text), first.text]])));
-        const directWithState = resolveAnchor(a.anchor, { status: 'anchored', kind: 'exact', found: { hash: hashText(first.text), v: 1, length: first.text.length, start: a.start, end: a.start + a.anchor.exact.length } }, context(now.text, new Map([[hashText(first.text), first.text]])));
+        const directWithState = resolveAnchor(
+          a.anchor,
+          { status: 'anchored', kind: 'exact', found: { hash: hashText(first.text), v: 1, length: first.text.length, start: a.start, end: a.start + a.anchor.exact.length } },
+          context(now.text, new Map([[hashText(first.text), first.text]])),
+        );
         for (const d of [direct, directWithState]) {
           if (d.status !== 'anchored' || d.start !== expected) {
             if (process.env.ANCHORING_PROPERTY_SEED) explain(first.text, now.text, a.start, a.start + a.anchor.exact.length, expected);
@@ -279,11 +293,14 @@ function runCase(seed: number): void {
         const ex = a.anchor.exact;
         const hits: number[] = [];
         for (let at = t.indexOf(ex); at !== -1; at = t.indexOf(ex, at + 1)) {
-          if (t.slice(Math.max(0, at - a.anchor.prefix.length), at) === a.anchor.prefix && t.slice(at + ex.length, at + ex.length + a.anchor.suffix.length) === a.anchor.suffix) hits.push(at);
+          if (t.slice(Math.max(0, at - a.anchor.prefix.length), at) === a.anchor.prefix && t.slice(at + ex.length, at + ex.length + a.anchor.suffix.length) === a.anchor.suffix)
+            hits.push(at);
         }
         console.log('BACK hits', JSON.stringify(hits), 'again', JSON.stringify(resolveAnchor(a.anchor, a.stepped, context(back.text, texts))).slice(0, 300));
       }
-      throw new Error(`back (${log.join(', ')}): "${a.anchor.exact}" expected exact at ${a.start}, got ${r.status} ${r.kind ?? r.reason} at ${r.start} via ${r.via} [${a.history?.join(' ')}]`);
+      throw new Error(
+        `back (${log.join(', ')}): "${a.anchor.exact}" expected exact at ${a.start}, got ${r.status} ${r.kind ?? r.reason} at ${r.start} via ${r.via} [${a.history?.join(' ')}]`,
+      );
     }
   }
 }
@@ -294,7 +311,18 @@ function explain(oldText: string, newText: string, start: number, end: number, e
   const near = diff.segments.filter((s) => (s.a1 > start - 120 && s.a0 < end + 120) || (s.b1 > expected - 120 && s.b0 < expected + 120));
   console.log('EXPLAIN old', JSON.stringify(oldText.slice(start - 60, end + 60)));
   console.log('EXPLAIN new', JSON.stringify(newText.slice(expected - 60, expected + (end - start) + 60)));
-  for (const s of near) console.log('EXPLAIN seg', s.equal ? '=' : '~', s.a0, s.a1, s.b0, s.b1, JSON.stringify(oldText.slice(s.a0, s.a1).slice(0, 50)), '=>', JSON.stringify(newText.slice(s.b0, s.b1).slice(0, 50)));
+  for (const s of near)
+    console.log(
+      'EXPLAIN seg',
+      s.equal ? '=' : '~',
+      s.a0,
+      s.a1,
+      s.b0,
+      s.b1,
+      JSON.stringify(oldText.slice(s.a0, s.a1).slice(0, 50)),
+      '=>',
+      JSON.stringify(newText.slice(s.b0, s.b1).slice(0, 50)),
+    );
   console.log('EXPLAIN map', JSON.stringify(mapRange(diff, oldText, newText, start, end)));
 }
 

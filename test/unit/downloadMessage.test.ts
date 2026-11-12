@@ -24,7 +24,9 @@ describe('the download message', () => {
 
   it('H2: counts orphaned highlights, and how many of them have a note', () => {
     expect(downloadNotes({ ...none, highlights: 2, orphanedHighlights: 1 })[1]).toBe('1 orphaned highlight was left out: its text is not in this version');
-    expect(downloadNotes({ ...none, highlights: 2, orphanedHighlights: 1, orphanedNotes: 1 })[1]).toBe('1 orphaned highlight was left out (1 with a note): its text is not in this version');
+    expect(downloadNotes({ ...none, highlights: 2, orphanedHighlights: 1, orphanedNotes: 1 })[1]).toBe(
+      '1 orphaned highlight was left out (1 with a note): its text is not in this version',
+    );
     expect(downloadNotes({ ...none, orphanedHighlights: 4, orphanedNotes: 2 })[1]).toBe('4 orphaned highlights were left out (2 with a note): their text is not in this version');
   });
 

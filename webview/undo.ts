@@ -56,13 +56,18 @@ export class UndoStack {
   private readonly done: UndoStep[] = [];
   private readonly undone: UndoStep[] = [];
 
-  constructor(private readonly limit = 500) {}
+  /** `onChange`: called whenever what can be undone or redone changed. */
+  constructor(
+    private readonly limit = 500,
+    private readonly onChange?: () => void,
+  ) {}
 
   /** Records an edit that was just applied. Clears the redo history. */
   record(op: EditOp, label: string): void {
     this.done.push({ op: structuredClone(op), label });
     if (this.done.length > this.limit) this.done.shift();
     this.undone.length = 0;
+    this.onChange?.();
   }
 
   /** The operation that reverts the last edit (already moved to the redo history), if any. */
@@ -70,6 +75,7 @@ export class UndoStack {
     const step = this.done.pop();
     if (!step) return undefined;
     this.undone.push(step);
+    this.onChange?.();
     return { op: inverse(structuredClone(step.op)), label: step.label };
   }
 
@@ -78,7 +84,13 @@ export class UndoStack {
     const step = this.undone.pop();
     if (!step) return undefined;
     this.done.push(step);
+    this.onChange?.();
     return { op: structuredClone(step.op), label: step.label };
+  }
+
+  /** What the next undo would take back, e.g. "Delete highlight". */
+  get nextUndo(): string | undefined {
+    return this.done[this.done.length - 1]?.label;
   }
 
   get canUndo(): boolean {
@@ -92,5 +104,6 @@ export class UndoStack {
   clear(): void {
     this.done.length = 0;
     this.undone.length = 0;
+    this.onChange?.();
   }
 }

@@ -21,13 +21,12 @@ export class FileLinkLayer {
   }
 
   private async render(pageIndex: number): Promise<void> {
-    const view = this.viewer.pageView(pageIndex) as (ReturnType<Viewer['pageView']> & { pdfPage?: { view: number[]; getAnnotations(o: object): Promise<LinkAnnotationLike[]> } }) | undefined;
+    const view = this.viewer.pageView(pageIndex) as
+      (ReturnType<Viewer['pageView']> & { pdfPage?: { view: number[]; getAnnotations(o: object): Promise<LinkAnnotationLike[]> } }) | undefined;
     const pdfPage = view?.pdfPage;
     if (!view?.div || !pdfPage) return;
     const annotations = await pdfPage.getAnnotations({ intent: 'display' });
-    const links = annotations.filter(
-      (a) => a.subtype === 'Link' && !a.url && !a.dest && !a.action && typeof a.unsafeUrl === 'string' && /^file:/i.test(a.unsafeUrl) && a.rect,
-    );
+    const links = annotations.filter((a) => a.subtype === 'Link' && !a.url && !a.dest && !a.action && typeof a.unsafeUrl === 'string' && /^file:/i.test(a.unsafeUrl) && a.rect);
     view.div.querySelector(':scope > .mpv-link-layer')?.remove();
     if (links.length === 0) return;
     const [x0, y0, x1, y1] = pdfPage.view;

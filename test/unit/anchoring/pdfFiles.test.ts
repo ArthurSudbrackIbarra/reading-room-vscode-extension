@@ -93,7 +93,12 @@ describe('reading a PDF', () => {
     expect(part.page).toBe(2);
     const geometry = v1.layout.geometry(2)!;
     // Back to PDF units: the text was drawn at x = 60, baseline y = 680 - 4 * 22 = 592, 12 pt.
-    const corners = ([[part.boxes[0][0], part.boxes[0][1]], [part.boxes[0][2], part.boxes[0][3]]] as PdfPoint[]).map((p) => toPdfSpace(geometry, p));
+    const corners = (
+      [
+        [part.boxes[0][0], part.boxes[0][1]],
+        [part.boxes[0][2], part.boxes[0][3]],
+      ] as PdfPoint[]
+    ).map((p) => toPdfSpace(geometry, p));
     const xs = corners.map((c) => c[0]);
     const ys = corners.map((c) => c[1]);
     expect(Math.min(...xs)).toBeCloseTo(60, 0);
@@ -113,7 +118,9 @@ describe('reading a PDF', () => {
     const a = toPdfSpace(geometry, [part.boxes[0][0], part.boxes[0][1]]);
     const b = toPdfSpace(geometry, [part.boxes[0][2], part.boxes[0][3]]);
     const rect: PdfRect = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
-    const out = await addHighlightAnnotations(bytes1, [{ id: 'h', color: 'yellow', text: 'Line 5 of the turned page', createdAt: '2026-11-11T00:00:00.000Z', pages: [{ pageIndex: 2, rects: [rect] }] }]);
+    const out = await addHighlightAnnotations(bytes1, [
+      { id: 'h', color: 'yellow', text: 'Line 5 of the turned page', createdAt: '2026-11-11T00:00:00.000Z', pages: [{ pageIndex: 2, rects: [rect] }] },
+    ]);
     const exported = await pdfjs.getDocument({ data: out.slice(), verbosity: 0 }).promise;
     const page = await exported.getPage(3);
     const [annotation] = (await page.getAnnotations()).filter((x: { subtype: string }) => x.subtype === 'Highlight');
@@ -144,7 +151,9 @@ describe('a PDF replaced on disk (B20)', () => {
     expect(v2.model.pageOf(r.start!)).toBe(2);
     // And when its page is removed, it is orphaned; the others are not touched.
     const v3 = await load(await makePdf(['intro', 'turned', 'picture']));
-    expect(resolveAnchor(anchor, r.state, { current: { text: v3.model.text, hash: v3.model.hash }, oldText: (h) => (h === v2.model.hash ? v2.model.text : undefined) })).toMatchObject({ status: 'orphaned', reason: 'deleted' });
+    expect(
+      resolveAnchor(anchor, r.state, { current: { text: v3.model.text, hash: v3.model.hash }, oldText: (h) => (h === v2.model.hash ? v2.model.text : undefined) }),
+    ).toMatchObject({ status: 'orphaned', reason: 'deleted' });
   });
 
   it('pages are matched by their text, and pages without text by how they look', async () => {
@@ -162,7 +171,16 @@ describe('a PDF replaced on disk (B20)', () => {
 
   it('E9: a drawing on a page without text stays on its page; it is orphaned when the page is gone and found when it is back', async () => {
     const geometry = v1.layout.geometry(3)!;
-    const drawing = sanitizeDrawing({ id: 'd', tool: 'rect', color: 'red', width: 'thin', pageIndex: 3, points: [toPdfSpace(geometry, [150, 320]), toPdfSpace(geometry, [250, 400])], createdAt: 'x', updatedAt: 'x' })!;
+    const drawing = sanitizeDrawing({
+      id: 'd',
+      tool: 'rect',
+      color: 'red',
+      width: 'thin',
+      pageIndex: 3,
+      points: [toPdfSpace(geometry, [150, 320]), toPdfSpace(geometry, [250, 400])],
+      createdAt: 'x',
+      updatedAt: 'x',
+    })!;
     const images = async (page: number) => pageImages((await v1.doc.getPage(page + 1)) as never, pdfjs.OPS as never);
     // Over the picture: bound to the image. Asked to stay on the page: bound to the page, with its fingerprint.
     expect((await bindDrawing(drawing, v1, { images }))!.mode).toBe('block');
@@ -196,7 +214,11 @@ describe('a PDF replaced on disk (B20)', () => {
     const marker = { page: 3, y: 0.4 };
     const v2 = await load(await makePdf(['extra', ...ORDER]));
     const map = alignPages(v1.signatures, v2.signatures);
-    const first = (await runs.run({ renderId: 2, model: v2.model, layout: v2.layout }, { highlights: [], drawings: [], marker }, { oldText: () => undefined, pageMap: (p) => map[p] }))!;
+    const first = (await runs.run(
+      { renderId: 2, model: v2.model, layout: v2.layout },
+      { highlights: [], drawings: [], marker },
+      { oldText: () => undefined, pageMap: (p) => map[p] },
+    ))!;
     expect(first.marker).toMatchObject({ page: 4, y: 0.4, approximate: false });
     // Its state remembers the page it is on now; the stored page is never rewritten.
     expect(first.marker!.state?.found?.page).toBe(4);
@@ -204,7 +226,11 @@ describe('a PDF replaced on disk (B20)', () => {
     // The page is gone: shown where it was (clamped to the document), and said to be approximate.
     const v3 = await load(await makePdf(['intro']));
     const map3 = alignPages(v2.signatures, v3.signatures);
-    const lost = (await runs.run({ renderId: 3, model: v3.model, layout: v3.layout }, { highlights: [], drawings: [], marker: { ...marker, state: first.marker!.state } }, { oldText: () => undefined, pageMap: (p) => map3[p] }))!;
+    const lost = (await runs.run(
+      { renderId: 3, model: v3.model, layout: v3.layout },
+      { highlights: [], drawings: [], marker: { ...marker, state: first.marker!.state } },
+      { oldText: () => undefined, pageMap: (p) => map3[p] },
+    ))!;
     expect(lost.marker).toMatchObject({ page: 0, stored: true, approximate: true });
   });
 });

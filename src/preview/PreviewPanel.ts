@@ -58,6 +58,8 @@ export interface UiState {
   drawTool: DrawTool;
   inkColor: Ink;
   inkWidth: InkWidth;
+  /** The size of the eraser of draw mode. */
+  eraserWidth: InkWidth;
   /** The style new text boxes get; text mode itself always starts off. */
   textStyle: TextStyle;
   /** Custom colors picked lately (newest first), offered again in the color picker. */
@@ -366,6 +368,7 @@ export class PreviewPanel implements vscode.Disposable {
         if (isDrawTool(style.tool)) patch.drawTool = style.tool;
         if (color) patch.inkColor = color;
         if (isInkWidth(style.width)) patch.inkWidth = style.width;
+        if (isInkWidth(style.eraserWidth)) patch.eraserWidth = style.eraserWidth;
         if (Object.keys(patch).length > 0) this.host.updateUiState(patch);
         break;
       }
@@ -476,7 +479,7 @@ export class PreviewPanel implements vscode.Disposable {
     if (refused > 0) {
       this.host.log.warn(`${count(refused, 'drawing')} of ${this.fileName} not saved: the file already has ${MAX_DRAWINGS} drawings`);
       void vscode.window.showWarningMessage(
-        `Document Viewer: ${this.fileName} already has ${MAX_DRAWINGS} drawings, the most one file can have, so ${count(refused, 'new drawing')} ${refused === 1 ? 'was' : 'were'} not saved. Delete some drawings to make room.`,
+        `Reading Room: ${this.fileName} already has ${MAX_DRAWINGS} drawings, the most one file can have, so ${count(refused, 'new drawing')} ${refused === 1 ? 'was' : 'were'} not saved. Delete some drawings to make room.`,
       );
     }
   }
@@ -495,7 +498,7 @@ export class PreviewPanel implements vscode.Disposable {
     if (readOnly && !this.readOnlyTold) {
       this.readOnlyTold = true;
       void vscode.window.showWarningMessage(
-        `Document Viewer: the annotations of ${this.fileName} were saved by a newer version of this extension. They are shown, but changes you make here are not stored. Update the extension to edit them.`,
+        `Reading Room: the annotations of ${this.fileName} were saved by a newer version of this extension. They are shown, but changes you make here are not stored. Update the extension to edit them.`,
       );
     }
     return { record, readOnly };
@@ -506,9 +509,7 @@ export class PreviewPanel implements vscode.Disposable {
     this.host.sounds.pageLoaded(this);
     const { record, readOnly } = await this.recordForViewer();
     const ui = this.host.uiState();
-    const margins = isConvertedKind(this.kind)
-      ? { top: PAGE_MARGINS_MM.top * MM_TO_PT, bottom: PAGE_MARGINS_MM.bottom * MM_TO_PT }
-      : { top: 0, bottom: 0 };
+    const margins = isConvertedKind(this.kind) ? { top: PAGE_MARGINS_MM.top * MM_TO_PT, bottom: PAGE_MARGINS_MM.bottom * MM_TO_PT } : { top: 0, bottom: 0 };
     void this.panel.webview.postMessage({
       type: 'init',
       init: {
@@ -523,7 +524,7 @@ export class PreviewPanel implements vscode.Disposable {
         theme: this.theme,
         toolActive: ui.toolActive,
         listOpen: ui.listOpen,
-        drawStyle: { tool: ui.drawTool, color: ui.inkColor, width: ui.inkWidth },
+        drawStyle: { tool: ui.drawTool, color: ui.inkColor, width: ui.inkWidth, eraserWidth: ui.eraserWidth },
         drawHint: this.host.drawHint(),
         textStyle: ui.textStyle,
         textHint: this.host.textHint(),
@@ -668,10 +669,12 @@ export class PreviewPanel implements vscode.Disposable {
     const settings = readSettings();
     if (!force && settings.cacheDays > 0) {
       const started = Date.now();
-      const hit = await this.host.pdfCache.get(this.cacheKey, theme, key, (path) => this.statPath(path)).catch((err: unknown) => {
-        this.host.log.warn(`Reading the PDF cache failed: ${String(err)}`);
-        return undefined;
-      });
+      const hit = await this.host.pdfCache
+        .get(this.cacheKey, theme, key, (path) => this.statPath(path))
+        .catch((err: unknown) => {
+          this.host.log.warn(`Reading the PDF cache failed: ${String(err)}`);
+          return undefined;
+        });
       if (this.disposed) return;
       if (hit) {
         const entry: ShownPdf = { key, pdf: hit.pdf, warnings: hit.warnings };
@@ -705,7 +708,7 @@ export class PreviewPanel implements vscode.Disposable {
       this.host.log.error(`Rendering ${this.uri.toString()} failed: ${message}`);
       this.post({ type: 'renderError', message, firstRender: !this.shown });
       if (!(err instanceof RenderError && err.reported)) {
-        void vscode.window.showErrorMessage(`Document Viewer: converting ${this.fileName} failed. ${message}`, 'Show Log').then((choice) => {
+        void vscode.window.showErrorMessage(`Reading Room: converting ${this.fileName} failed. ${message}`, 'Show Log').then((choice) => {
           if (choice) this.host.log.show(true);
         });
       }
@@ -812,7 +815,7 @@ export class PreviewPanel implements vscode.Disposable {
     if (this.kind !== 'pdf') await this.requestRender();
   }
 
-  zoom(action: 'in' | 'out' | 'reset'): void {
+  zoom(action: 'in' | 'out'): void {
     this.post({ type: 'zoom', action });
   }
 
@@ -828,8 +831,8 @@ export class PreviewPanel implements vscode.Disposable {
     this.post({ type: 'toggleDrawing' });
   }
 
-  toggleEraser(): void {
-    this.post({ type: 'toggleEraser' });
+  toggleRemove(): void {
+    this.post({ type: 'toggleRemove' });
   }
 
   toggleText(): void {
@@ -877,9 +880,7 @@ export class PreviewPanel implements vscode.Disposable {
 
   private sourceGroups(): vscode.TabGroup[] {
     const target = this.uri.toString();
-    return vscode.window.tabGroups.all.filter((g) =>
-      g.tabs.some((t) => t.input instanceof vscode.TabInputText && t.input.uri.toString() === target),
-    );
+    return vscode.window.tabGroups.all.filter((g) => g.tabs.some((t) => t.input instanceof vscode.TabInputText && t.input.uri.toString() === target));
   }
 
   isFullView(): boolean {
@@ -963,11 +964,11 @@ export class PreviewPanel implements vscode.Disposable {
       const local = this.uri.scheme === 'file' ? target : this.uri.with({ path: target.path, query: '', fragment: '' });
       const fragment = target.fragment;
       const fileUri = local.with({ fragment: '' });
-      let isDirectory = false;
+      let isDirectory: boolean;
       try {
         isDirectory = ((await vscode.workspace.fs.stat(fileUri)).type & vscode.FileType.Directory) !== 0;
       } catch {
-        void vscode.window.showWarningMessage(`Document Viewer: the linked file does not exist: ${fileUri.fsPath || fileUri.toString()}`);
+        void vscode.window.showWarningMessage(`Reading Room: the linked file does not exist: ${fileUri.fsPath || fileUri.toString()}`);
         return;
       }
       if (isDirectory) {
@@ -1065,10 +1066,7 @@ export class PreviewPanel implements vscode.Disposable {
     if (this.shown?.lightKey !== key) await this.requestRender();
     let light = this.cache.get('light');
     if (!light || light.key !== key) {
-      const hit =
-        readSettings().cacheDays > 0
-          ? await this.host.pdfCache.get(this.cacheKey, 'light', key, (path) => this.statPath(path)).catch(() => undefined)
-          : undefined;
+      const hit = readSettings().cacheDays > 0 ? await this.host.pdfCache.get(this.cacheKey, 'light', key, (path) => this.statPath(path)).catch(() => undefined) : undefined;
       if (hit) {
         light = { key, pdf: hit.pdf, warnings: hit.warnings };
       } else {
@@ -1092,7 +1090,7 @@ export class PreviewPanel implements vscode.Disposable {
     });
     if (!target) return;
     if (target.toString().toLowerCase() === this.uri.toString().toLowerCase()) {
-      void vscode.window.showErrorMessage('Document Viewer will not overwrite the document you are viewing. Choose another name.');
+      void vscode.window.showErrorMessage('Reading Room will not overwrite the document you are viewing. Choose another name.');
       return;
     }
     let skipped = 0;
@@ -1105,47 +1103,44 @@ export class PreviewPanel implements vscode.Disposable {
     let replacedChars = 0;
     let decrypted = false;
     try {
-      await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: 'Document Viewer: preparing the PDF…' },
-        async () => {
-          let bytes: Uint8Array;
-          let data: ExportReply | undefined;
-          if (withAnnotations) {
-            // The annotations must have been computed for the bytes being downloaded: the viewer
-            // answers for the render it shows, which must be the one made from the same text.
-            ({ bytes, data } = await pinnedExport<ExportReply>({
-              source: () => this.downloadSource(),
-              shown: () => (this.shown ? { renderId: this.shown.renderId, pin: this.shown.lightKey } : undefined),
-              requestExport: () => this.requestExportData(),
-              rerender: () => this.requestRender(),
-            }));
-          } else {
-            bytes = (await this.downloadSource()).bytes;
+      await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Reading Room: preparing the PDF…' }, async () => {
+        let bytes: Uint8Array;
+        let data: ExportReply | undefined;
+        if (withAnnotations) {
+          // The annotations must have been computed for the bytes being downloaded: the viewer
+          // answers for the render it shows, which must be the one made from the same text.
+          ({ bytes, data } = await pinnedExport<ExportReply>({
+            source: () => this.downloadSource(),
+            shown: () => (this.shown ? { renderId: this.shown.renderId, pin: this.shown.lightKey } : undefined),
+            requestExport: () => this.requestExportData(),
+            rerender: () => this.requestRender(),
+          }));
+        } else {
+          bytes = (await this.downloadSource()).bytes;
+        }
+        if (data) {
+          skipped = data.orphaned;
+          skippedNotes = Number(data.orphanedNotes) || 0;
+          orphanedDrawings = Number(data.orphanedDrawings) || 0;
+          included = data.highlights.length;
+          const drawings = (Array.isArray(data.drawings) ? data.drawings : []).map((d) => sanitizeDrawing(d)).filter((d): d is Drawing => d !== undefined);
+          const textLayouts = (Array.isArray(data.textLayouts) ? data.textLayouts : []).map(sanitizeTextLayout).filter((l): l is TextLayout => l !== undefined);
+          texts = drawings.filter(isTextDrawing).length;
+          drawn = drawings.length - texts;
+          skippedDrawings = data.skippedDrawings;
+          if (included + drawings.length > 0) {
+            decrypted = this.kind === 'pdf' && data.password !== undefined;
+            const result = await this.host.renderer.annotate(bytes, { highlights: data.highlights, drawings, textLayouts }, data.password);
+            bytes = result.pdf;
+            replacedChars = result.replacedChars;
           }
-          if (data) {
-            skipped = data.orphaned;
-            skippedNotes = Number(data.orphanedNotes) || 0;
-            orphanedDrawings = Number(data.orphanedDrawings) || 0;
-            included = data.highlights.length;
-            const drawings = (Array.isArray(data.drawings) ? data.drawings : []).map((d) => sanitizeDrawing(d)).filter((d): d is Drawing => d !== undefined);
-            const textLayouts = (Array.isArray(data.textLayouts) ? data.textLayouts : []).map(sanitizeTextLayout).filter((l): l is TextLayout => l !== undefined);
-            texts = drawings.filter(isTextDrawing).length;
-            drawn = drawings.length - texts;
-            skippedDrawings = data.skippedDrawings;
-            if (included + drawings.length > 0) {
-              decrypted = this.kind === 'pdf' && data.password !== undefined;
-              const result = await this.host.renderer.annotate(bytes, { highlights: data.highlights, drawings, textLayouts }, data.password);
-              bytes = result.pdf;
-              replacedChars = result.replacedChars;
-            }
-          }
-          await writeDownloadedPdf(target, bytes);
-        },
-      );
+        }
+        await writeDownloadedPdf(target, bytes);
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.host.log.error(`Download failed: ${message}`);
-      void vscode.window.showErrorMessage(`Document Viewer: the download failed. ${message}`, 'Show Log').then((c) => {
+      void vscode.window.showErrorMessage(`Reading Room: the download failed. ${message}`, 'Show Log').then((c) => {
         if (c) this.host.log.show(true);
       });
       return;
@@ -1174,7 +1169,8 @@ export class PreviewPanel implements vscode.Disposable {
     if (this.disposed) return;
     this.disposed = true;
     clearTimeout(this.renderTimer);
-    for (const waiter of this.exportWaiters.values()) waiter({ renderId: -1, hash: '', highlights: [], orphaned: 0, drawings: [], skippedDrawings: 0, error: 'The viewer was closed.' });
+    for (const waiter of this.exportWaiters.values())
+      waiter({ renderId: -1, hash: '', highlights: [], orphaned: 0, drawings: [], skippedDrawings: 0, error: 'The viewer was closed.' });
     this.exportWaiters.clear();
     this.watcher?.dispose();
     this.host.disposed(this);

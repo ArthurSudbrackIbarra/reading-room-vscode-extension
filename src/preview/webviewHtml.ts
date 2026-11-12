@@ -5,9 +5,9 @@ import { BUILT_IN_SOUNDS, type BuiltInSound } from '../shared/sounds';
 import type { DocumentKind } from '../shared/types';
 
 /** Preview panels for Markdown and text files. */
-export const VIEW_TYPE = 'markdownPdfViewer.preview';
+export const VIEW_TYPE = 'readingRoom.preview';
 /** Custom editor for PDF files. */
-export const PDF_VIEW_TYPE = 'markdownPdfViewer.pdf';
+export const PDF_VIEW_TYPE = 'readingRoom.pdf';
 
 /** `customSounds`: the folder of the reader's own reading sounds, which the viewer plays too. */
 export function webviewOptions(extensionUri: vscode.Uri, customSounds: vscode.Uri): vscode.WebviewPanelOptions & vscode.WebviewOptions {
@@ -75,7 +75,7 @@ export function buildWebviewHtml(webview: vscode.Webview, extensionUri: vscode.U
 <link rel="stylesheet" href="${asset('pdfjs/pdf_viewer.css')}">
 <link rel="stylesheet" href="${asset('codicons/codicon.css')}">
 <link rel="stylesheet" href="${asset('styles.css')}">
-<title>Document Viewer</title>
+<title>Reading Room</title>
 </head>
 <body>
 <div id="app" data-config="${escapeAttr(JSON.stringify(config))}"></div>

@@ -182,7 +182,7 @@ async function fetchRange(url, start, end) {
       if (data.length !== end - start + 1) throw new Error(`got ${data.length} of ${end - start + 1} bytes`);
       return data;
     } catch (err) {
-      if (attempt >= 4) throw new Error(`downloading ${url} (bytes ${start}-${end}) failed: ${err.message}`);
+      if (attempt >= 4) throw new Error(`downloading ${url} (bytes ${start}-${end}) failed: ${err.message}`, { cause: err });
       await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
     }
   }
@@ -231,7 +231,21 @@ async function download(sounds) {
 
 /** Integrated loudness (LUFS) and true peak (dBTP) of `seconds` of audio starting at `offset`. */
 async function measure(file, offset, seconds, filter = 'anull') {
-  const { stderr } = await run(FFMPEG, ['-hide_banner', '-nostats', '-ss', String(offset), '-t', String(seconds), '-i', file, '-af', `${filter},ebur128=peak=true`, '-f', 'null', '-']);
+  const { stderr } = await run(FFMPEG, [
+    '-hide_banner',
+    '-nostats',
+    '-ss',
+    String(offset),
+    '-t',
+    String(seconds),
+    '-i',
+    file,
+    '-af',
+    `${filter},ebur128=peak=true`,
+    '-f',
+    'null',
+    '-',
+  ]);
   const summary = stderr.slice(stderr.lastIndexOf('Summary:'));
   const match = /I:\s+(-?[\d.]+) LUFS/.exec(summary);
   if (!match) throw new Error(`could not measure the loudness of ${file}`);
@@ -302,12 +316,28 @@ async function build(sound, source) {
   await run(
     FFMPEG,
     [
-      '-hide_banner', '-v', 'error', '-y',
-      '-f', 'f32le', '-ac', '2', '-ar', String(RATE), '-i', '-',
-      '-c:a', 'libvorbis', '-q:a', String(QUALITY),
-      '-map_metadata', '-1',
-      '-metadata', `title=${sound.title} (reading sound loop)`,
-      '-metadata', `comment=From ${sound.page} (Creative Commons 0)`,
+      '-hide_banner',
+      '-v',
+      'error',
+      '-y',
+      '-f',
+      'f32le',
+      '-ac',
+      '2',
+      '-ar',
+      String(RATE),
+      '-i',
+      '-',
+      '-c:a',
+      'libvorbis',
+      '-q:a',
+      String(QUALITY),
+      '-map_metadata',
+      '-1',
+      '-metadata',
+      `title=${sound.title} (reading sound loop)`,
+      '-metadata',
+      `comment=From ${sound.page} (Creative Commons 0)`,
       target,
     ],
     { input: pcmBytes },

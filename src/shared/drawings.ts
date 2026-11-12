@@ -141,8 +141,26 @@ export type Drawing = InkDrawing | TextDrawing;
 
 /** The fields of a drawing this version knows; anything else in a stored drawing is kept as it is. */
 const KNOWN_FIELDS = new Set([
-  'id', 'tool', 'color', 'width', 'pageIndex', 'points', 'polyline', 'createdAt', 'updatedAt', 'textModelHash', 'binding', 'anchorStates',
-  'text', 'spans', 'boxWidth', 'size', 'align', 'bold', 'italic', 'underline',
+  'id',
+  'tool',
+  'color',
+  'width',
+  'pageIndex',
+  'points',
+  'polyline',
+  'createdAt',
+  'updatedAt',
+  'textModelHash',
+  'binding',
+  'anchorStates',
+  'text',
+  'spans',
+  'boxWidth',
+  'size',
+  'align',
+  'bold',
+  'italic',
+  'underline',
 ]);
 const MAX_UNKNOWN_FIELDS = 16;
 
@@ -258,10 +276,14 @@ export function sanitizeTextStyle(value: unknown, fallback: TextStyle = DEFAULT_
 
 /** Text as it may be in a text box: line breaks as "\n", tabs as four spaces, no other control characters. */
 export function cleanText(value: string): string {
-  return value
-    .replace(/\r\n?|[\u2028\u2029]/g, '\n')
-    .replace(/\t/g, '    ')
-    .replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, '');
+  return (
+    value
+      .replace(/\r\n?|[\u2028\u2029]/g, '\n')
+      .replace(/\t/g, '    ')
+      // Control characters have no place in a text box (line breaks were made uniform above).
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, '')
+  );
 }
 
 /** The text of a text box as stored: clean (see cleanText), and without trailing white space. */

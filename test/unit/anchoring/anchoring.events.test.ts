@@ -7,9 +7,11 @@ import { step, textOf, track } from './track';
 
 const TITLE = 'Reading notes';
 const INTRO = 'This report describes two experiments on the reading habits of students in their first year at the university. It was written over one summer and revised twice.';
-const P1 = 'In the first experiment the quick brown fox jumps over the lazy dog while the students take notes by hand. The notes are collected at the end of the hour and compared with the text.';
+const P1 =
+  'In the first experiment the quick brown fox jumps over the lazy dog while the students take notes by hand. The notes are collected at the end of the hour and compared with the text.';
 const HEADING = 'Results';
-const P2 = 'The second experiment repeats the first one with a longer text about rivers and lakes. Every student writes a short summary of it, and the summaries are graded by two teachers.';
+const P2 =
+  'The second experiment repeats the first one with a longer text about rivers and lakes. Every student writes a short summary of it, and the summaries are graded by two teachers.';
 const P3 = 'Both experiments show that notes taken by hand are remembered longer than typed notes. The difference is small but it is stable across all groups of students.';
 const BASE = [TITLE, INTRO, P1, HEADING, P2, P3].join('\n\n');
 const LONG_PARAGRAPH = `A paragraph that was added later. ${'It has many more words than the others and takes a lot of room. '.repeat(12)}`.trim();
@@ -164,7 +166,11 @@ describe('layout flips', () => {
   });
 
   it('E10: a highlight and a drawing on the same words move identically', async () => {
-    const world = await base('same words').highlight('h', 'quick brown fox').draw('circle', { shape: 'ellipse', around: 'quick brown fox' }).draw('under', { shape: 'underline', under: 'quick brown fox' }).run();
+    const world = await base('same words')
+      .highlight('h', 'quick brown fox')
+      .draw('circle', { shape: 'ellipse', around: 'quick brown fox' })
+      .draw('under', { shape: 'underline', under: 'quick brown fox' })
+      .run();
     const before = [offsetFrom(world, 'circle', 'quick brown fox'), offsetFrom(world, 'under', 'quick brown fox')];
     const edits: ((t: string) => string)[] = [insertAbove, (t) => t.replace(INTRO, ''), (t) => t.replace('In the first experiment the', 'Then the'), () => BASE];
     for (const edit of edits) {

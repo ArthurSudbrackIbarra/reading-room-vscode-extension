@@ -17,7 +17,7 @@ function linkifier(): Linkify {
 
 /** Normalizes line endings and drops a byte order mark. */
 export function normalizeText(text: string): string {
-  return text.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
+  return text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
 }
 
 export function plainTextToHtml(text: string): string {

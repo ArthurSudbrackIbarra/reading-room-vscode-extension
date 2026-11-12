@@ -1,6 +1,6 @@
 // Downloads: highlights and drawings become real PDF annotations. Read back with pdf.js, the way
 // other PDF readers would see them.
-import { PDFDict, PDFDocument, PDFName, PDFRawStream, PDFRef } from '@cantoo/pdf-lib';
+import { PDFDict, PDFDocument, PDFName, type PDFRawStream, type PDFRef } from '@cantoo/pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { describe, expect, it } from 'vitest';
 import { pdfPathOps, shapePath } from '../../src/shared/drawingGeometry';
@@ -40,12 +40,61 @@ async function annotationsByPage(bytes: Uint8Array): Promise<AnnotationData[][]>
 }
 
 const drawings: InkDrawing[] = [
-  makeDrawing({ id: 'pen', tool: 'pen', color: 'purple', width: 'thin', points: [[60, 700], [80, 720], [100, 705], [130, 730]] }),
+  makeDrawing({
+    id: 'pen',
+    tool: 'pen',
+    color: 'purple',
+    width: 'thin',
+    points: [
+      [60, 700],
+      [80, 720],
+      [100, 705],
+      [130, 730],
+    ],
+  }),
   makeDrawing({ id: 'dot', tool: 'pen', color: 'black', width: 'thick', points: [[300, 300]] }),
-  makeDrawing({ id: 'line', tool: 'line', color: 'green', width: 'medium', points: [[50, 100], [250, 160]] }),
-  makeDrawing({ id: 'arrow', tool: 'arrow', color: 'orange', width: 'thick', points: [[400, 500], [480, 420]] }),
-  makeDrawing({ id: 'rect', tool: 'rect', color: 'blue', width: 'medium', pageIndex: 1, points: [[70, 600], [270, 680]] }),
-  makeDrawing({ id: 'ellipse', tool: 'ellipse', color: 'red', width: 'thin', pageIndex: 1, points: [[300, 200], [420, 260]] }),
+  makeDrawing({
+    id: 'line',
+    tool: 'line',
+    color: 'green',
+    width: 'medium',
+    points: [
+      [50, 100],
+      [250, 160],
+    ],
+  }),
+  makeDrawing({
+    id: 'arrow',
+    tool: 'arrow',
+    color: 'orange',
+    width: 'thick',
+    points: [
+      [400, 500],
+      [480, 420],
+    ],
+  }),
+  makeDrawing({
+    id: 'rect',
+    tool: 'rect',
+    color: 'blue',
+    width: 'medium',
+    pageIndex: 1,
+    points: [
+      [70, 600],
+      [270, 680],
+    ],
+  }),
+  makeDrawing({
+    id: 'ellipse',
+    tool: 'ellipse',
+    color: 'red',
+    width: 'thin',
+    pageIndex: 1,
+    points: [
+      [300, 200],
+      [420, 260],
+    ],
+  }),
   makeDrawing({ id: 'nowhere', tool: 'line', pageIndex: 7 }),
 ];
 
@@ -98,7 +147,10 @@ describe('downloads with drawings', () => {
     for (const page of doc.getPages()) {
       for (const ref of page.node.Annots()?.asArray() ?? []) {
         const annotation = doc.context.lookup(ref as PDFRef, PDFDict);
-        const id = annotation.get(PDFName.of('NM'))?.toString().replace(/^\(|\)$/g, '');
+        const id = annotation
+          .get(PDFName.of('NM'))
+          ?.toString()
+          .replace(/^\(|\)$/g, '');
         const drawing = drawings.find((d) => d.id === id);
         if (!drawing) continue;
         const appearance = doc.context.lookup(annotation.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')) as PDFRef) as PDFRawStream;
@@ -108,7 +160,12 @@ describe('downloads with drawings', () => {
         found.push(id!);
       }
     }
-    expect(found.sort()).toEqual(drawings.filter((d) => d.id !== 'nowhere').map((d) => d.id).sort());
+    expect(found.sort()).toEqual(
+      drawings
+        .filter((d) => d.id !== 'nowhere')
+        .map((d) => d.id)
+        .sort(),
+    );
   });
 
   it('leave PDFs without drawings or highlights as they were', async () => {

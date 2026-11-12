@@ -195,7 +195,12 @@ function emptySummary(): RunSummary {
   return { moved: 0, edited: 0, partial: 0, restored: 0, orphaned: {}, orphanedNow: 0, total: 0, massOrphan: false };
 }
 
-function tally(summary: RunSummary, before: Pick<AnchorState, 'status' | 'kind' | 'reason'> | undefined, after: Pick<AnchorState, 'status' | 'kind' | 'reason'>, counters: { newly: number }): void {
+function tally(
+  summary: RunSummary,
+  before: Pick<AnchorState, 'status' | 'kind' | 'reason'> | undefined,
+  after: Pick<AnchorState, 'status' | 'kind' | 'reason'>,
+  counters: { newly: number },
+): void {
   summary.total++;
   if (after.status === 'orphaned') summary.orphanedNow++;
   const was = categoryOf(before);
@@ -372,7 +377,14 @@ export class ResolverRuns {
         result.marker = resolveMarker(input.marker, ctx, doc, options, false);
       } catch (err) {
         options.log?.(`Resolving the reading marker failed: ${String(err)}`);
-        result.marker = { status: 'orphaned', reason: 'invalid', page: Math.min(input.marker.page, Math.max(0, layout.pageCount - 1)), y: input.marker.y, stored: true, approximate: false };
+        result.marker = {
+          status: 'orphaned',
+          reason: 'invalid',
+          page: Math.min(input.marker.page, Math.max(0, layout.pageCount - 1)),
+          y: input.marker.y,
+          stored: true,
+          approximate: false,
+        };
       }
     }
     for (const d of input.drawings) {

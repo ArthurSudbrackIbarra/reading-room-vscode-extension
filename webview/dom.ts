@@ -1,11 +1,7 @@
 // Tiny DOM helpers (no framework; the CSP forbids inline styles in markup, so styles go through CSSOM).
 type Attrs = Record<string, string | number | boolean | undefined>;
 
-export function h<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  attrs: Attrs = {},
-  ...children: (Node | string | undefined | false)[]
-): HTMLElementTagNameMap[K] {
+export function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Attrs = {}, ...children: (Node | string | undefined | false)[]): HTMLElementTagNameMap[K] {
   const el = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {
     if (value === undefined || value === false) continue;

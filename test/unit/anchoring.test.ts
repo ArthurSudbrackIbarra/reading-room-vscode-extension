@@ -72,10 +72,9 @@ describe('anchorQuote', () => {
   });
 
   it('anchors a quote that spans a page break', () => {
-    const model = new TextModel(
-      [pageFromLines(['The last line of page one'], { footer: '1 / 2' }), pageFromLines(['continues on page two.'], { footer: '2 / 2' })],
-      { marginsPt: MARGINS },
-    );
+    const model = new TextModel([pageFromLines(['The last line of page one'], { footer: '1 / 2' }), pageFromLines(['continues on page two.'], { footer: '2 / 2' })], {
+      marginsPt: MARGINS,
+    });
     expect(model.text).toBe('The last line of page one continues on page two.');
     const [quote, position] = selectorsFor(model.text, 'page one continues');
     const match = anchorQuote(model.text, quote, position)!;

@@ -9,6 +9,23 @@
   --mpv-border: var(--vscode-panel-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
   --mpv-surface: var(--vscode-editorWidget-background, var(--vscode-sideBar-background, var(--vscode-editor-background)));
   --mpv-canvas: var(--vscode-editorGroup-emptyBackground, var(--vscode-editor-background));
+  /* What is on or picked (a tool, a width, an alignment) is marked in blue, whatever the theme:
+     many themes give their own "active" color so little contrast that it is hard to see. */
+  --mpv-on: #3b9cff;
+  --mpv-on-fill: rgba(59, 156, 255, 0.2);
+  --mpv-on-border: rgba(59, 156, 255, 0.75);
+}
+
+body.vscode-light {
+  --mpv-on: #0b6bcb;
+  --mpv-on-fill: rgba(11, 107, 203, 0.13);
+  --mpv-on-border: rgba(11, 107, 203, 0.65);
+}
+
+body.vscode-high-contrast,
+body.vscode-high-contrast-light {
+  --mpv-on-fill: transparent;
+  --mpv-on-border: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
 }
 
 html,
@@ -54,8 +71,8 @@ body[data-page-theme='dark'] .mpv-ink {
 
 /* One grid for both rows: every control is --mpv-control tall, buttons are square, groups are
    --mpv-group-gap apart with a divider in the middle of that space, and the rows share their
-   padding. A mode bar starts with a label as wide as a button, so its first divider is right
-   under the toolbar's first one. */
+   padding. A mode bar starts with the name of its mode; both names take the same room, so the
+   two bars have their groups in the same places. */
 :root {
   --mpv-control: 26px;
   --mpv-input: 24px;
@@ -106,15 +123,21 @@ body[data-page-theme='dark'] .mpv-ink {
   min-width: var(--mpv-group-gap);
 }
 
-/* What a mode bar is for: the mode's icon, in a box the size of a button (it is not one). */
+/* What a mode bar is for, in words: "DRAW MODE", "TEXT MODE" (not a button, and it does not look like one). */
 .mpv-modebar-label {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  justify-content: center;
-  width: var(--mpv-control);
+  box-sizing: border-box;
+  min-width: 82px;
   height: var(--mpv-control);
-  color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+  padding: 0 2px 0 4px;
+  color: var(--mpv-on);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .mpv-btn {
@@ -153,10 +176,25 @@ body[data-page-theme='dark'] .mpv-ink {
   outline-offset: -1px;
 }
 
+/* On, or the one picked: a light blue fill and a blue border. */
 .mpv-btn.mpv-active {
-  background: var(--vscode-inputOption-activeBackground, rgba(0, 120, 212, 0.2));
-  color: var(--vscode-inputOption-activeForeground, var(--vscode-foreground));
-  border-color: var(--vscode-inputOption-activeBorder, transparent);
+  background: var(--mpv-on-fill);
+  color: var(--vscode-foreground);
+  border-color: var(--mpv-on-border);
+}
+
+.mpv-btn.mpv-active:hover {
+  background: var(--mpv-on-fill);
+  border-color: var(--mpv-on);
+}
+
+.mpv-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.mpv-btn:disabled:hover {
+  background: transparent;
 }
 
 .mpv-btn-narrow {
@@ -254,7 +292,7 @@ body[data-page-theme='dark'] .mpv-ink {
 .mpv-swatch.mpv-selected {
   box-shadow:
     0 0 0 2px var(--mpv-surface),
-    0 0 0 3.5px var(--vscode-focusBorder, #0078d4);
+    0 0 0 3.5px var(--mpv-on);
 }
 
 /* While drawing or adding text, the highlight colors step back (they still work). */
@@ -821,6 +859,11 @@ body.mpv-placing-marker .mpv-drawing-hit {
   pointer-events: none;
 }
 
+/* While text is being selected, drawings and text boxes let the pointer through to the text under them. */
+body.mpv-selecting-text .mpv-draw-layer * {
+  pointer-events: none !important;
+}
+
 /* Draw mode: a surface above every page layer takes the pointer (pen, touch and mouse). */
 .mpv-draw-capture {
   position: absolute;
@@ -839,21 +882,38 @@ body.mpv-draw-mode .pdfViewer .page {
   touch-action: none;
 }
 
-/* The eraser of draw mode rubs out what is under this circle (8px radius, see RUBBER_PX). */
-body.mpv-draw-mode[data-draw-tool='eraser'] .mpv-draw-capture {
-  cursor:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='8.9' fill='none' stroke='white' stroke-opacity='0.9' stroke-width='1.2'/%3E%3Ccircle cx='10' cy='10' r='7.7' fill='rgba(255,255,255,0.4)' stroke='%23333' stroke-width='1.2'/%3E%3C/svg%3E")
-      10 10,
-    cell;
+/* The eraser of draw mode rubs out what is under a ring that follows the pointer, as large as
+   the eraser (see RUBBER_PX). The ring is an element, not a cursor image: it stays while the
+   button is down (when the pointer belongs to the viewer, not to the page under it) and it can
+   have any size. The pointer itself is hidden over the pages, and for the whole of a rubbing. */
+body.mpv-draw-mode[data-draw-tool='eraser'] .mpv-draw-capture,
+body.mpv-rubbing .mpv-viewer-container {
+  cursor: none;
 }
 
-/* Erase mode: the surface takes the pointer; the cursor is an eraser whose lower corner points. */
+.mpv-rubber-ring {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 100010;
+  box-sizing: border-box;
+  border: 1.2px solid #333;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  box-shadow:
+    0 0 0 1.2px rgba(255, 255, 255, 0.9),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* The remove tool: the surface takes the pointer; the cursor is a pointer with a red ×, and its tip points. */
 body.mpv-erase-mode .mpv-draw-capture {
   pointer-events: auto;
   touch-action: none;
   cursor:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M9.2 20.5 3.5 14.8 13.4 4.9 19.1 10.6Z' fill='white' stroke='%23222' stroke-width='1.4' stroke-linejoin='round'/%3E%3Cpath d='M7.6 10.7 13.3 16.4' stroke='%23222' stroke-width='1.4'/%3E%3Cpath d='M9.2 20.5H20' fill='none' stroke='%23222' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E")
-      6 18,
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cpath d='M3 2v15.4l4.2-3.8 3 6.5 2.8-1.3-3-6.4h5.6Z' fill='white' stroke='%23222' stroke-width='1.4' stroke-linejoin='round'/%3E%3Cpath d='M17.5 17.5l6 6M23.5 17.5l-6 6' fill='none' stroke='white' stroke-width='4.4' stroke-linecap='round'/%3E%3Cpath d='M17.5 17.5l6 6M23.5 17.5l-6 6' fill='none' stroke='%23d92d3a' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E")
+      3 2,
     cell;
 }
 
@@ -1947,7 +2007,7 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
 .mpv-cp-swatch.mpv-selected {
   box-shadow:
     0 0 0 2px var(--vscode-editorWidget-background, var(--mpv-surface)),
-    0 0 0 3.5px var(--vscode-focusBorder, #0078d4);
+    0 0 0 3.5px var(--mpv-on);
 }
 
 /* Saturation (left to right) and brightness (bottom to top) at the hue below. */
@@ -1955,9 +2015,7 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
   position: relative;
   height: 112px;
   border-radius: var(--mpv-radius);
-  background:
-    linear-gradient(to top, #000, rgba(0, 0, 0, 0)),
-    linear-gradient(to right, #fff, hsl(var(--hue, 0) 100% 50%));
+  background: linear-gradient(to top, #000, rgba(0, 0, 0, 0)), linear-gradient(to right, #fff, hsl(var(--hue, 0) 100% 50%));
   cursor: crosshair;
   touch-action: none;
 }

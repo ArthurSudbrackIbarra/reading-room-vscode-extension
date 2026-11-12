@@ -22,15 +22,7 @@
 // The reader's own sounds are evened out to the loudness of the built-in loops: the gain is
 // measured once (loudness.ts) and kept by the extension, and a limiter on the output holds down
 // the peaks a large gain pushes up.
-import {
-  CATEGORY_LABELS,
-  SOUND_CATEGORIES,
-  categoryOf,
-  volumeToGain,
-  type SoundCategory,
-  type SoundRequest,
-  type SoundState,
-} from '../src/shared/sounds';
+import { CATEGORY_LABELS, SOUND_CATEGORIES, categoryOf, volumeToGain, type SoundCategory, type SoundRequest, type SoundState } from '../src/shared/sounds';
 import type { CustomSoundView } from '../src/shared/messages';
 import { h, icon, placeFloating } from './dom';
 import { svg } from './icons';
@@ -658,9 +650,7 @@ export class AmbientPlayer {
   /** The slot to play `id` in: the one that has it already, else a free one, else the quietest. */
   private slotFor(id: string): Slot {
     return (
-      this.slots.find((s) => s.sound === id) ??
-      this.slots.find((s) => !s.track.isRunning) ??
-      [...this.slots].sort((a, b) => a.track.fader.gain.value - b.track.fader.gain.value)[0]
+      this.slots.find((s) => s.sound === id) ?? this.slots.find((s) => !s.track.isRunning) ?? [...this.slots].sort((a, b) => a.track.fader.gain.value - b.track.fader.gain.value)[0]
     );
   }
 
@@ -781,7 +771,7 @@ class SoundsPanel {
   });
   private readonly addButton = h(
     'button',
-    { class: 'mpv-sounds-add', type: 'button', title: 'Add audio files as reading sounds (copies are kept by Document Viewer)' },
+    { class: 'mpv-sounds-add', type: 'button', title: 'Add audio files as reading sounds (copies are kept by Reading Room)' },
     icon('add'),
     h('span', { text: 'Add sound files…' }),
   );

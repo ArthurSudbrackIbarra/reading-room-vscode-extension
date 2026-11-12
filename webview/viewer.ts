@@ -262,10 +262,6 @@ export class Viewer {
     if (this.doc) this.zoomBy(this.stepFrom(this.scale, -1) / this.scale);
   }
 
-  resetZoom(): void {
-    this.applyZoom(DEFAULT_ZOOM);
-  }
-
   /** Ctrl+wheel and trackpad pinch (which Chromium reports as Ctrl+wheel) zoom around the pointer. */
   private onWheel(e: WheelEvent): void {
     if (!e.ctrlKey && !e.metaKey) return;

@@ -260,11 +260,29 @@ describe('paths', () => {
   });
 
   it('measure the distance to a stroke', () => {
-    const lines = flattenPath(shapePath({ tool: 'line', points: [[0, 0], [10, 0]], widthPt: 1 }));
+    const lines = flattenPath(
+      shapePath({
+        tool: 'line',
+        points: [
+          [0, 0],
+          [10, 0],
+        ],
+        widthPt: 1,
+      }),
+    );
     expect(polylineDistance([5, 3], lines)).toBeCloseTo(3, 9);
     expect(polylineDistance([13, 4], lines)).toBeCloseTo(5, 9);
     // Inside a rectangle is far from its outline.
-    const rect = flattenPath(shapePath({ tool: 'rect', points: [[0, 0], [100, 100]], widthPt: 1 }));
+    const rect = flattenPath(
+      shapePath({
+        tool: 'rect',
+        points: [
+          [0, 0],
+          [100, 100],
+        ],
+        widthPt: 1,
+      }),
+    );
     expect(polylineDistance([50, 50], rect)).toBeCloseTo(50, 9);
   });
 

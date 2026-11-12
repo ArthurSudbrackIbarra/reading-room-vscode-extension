@@ -22,12 +22,7 @@ function expandWindowsVars(value: string): string {
 export async function downloadsFolder(): Promise<string> {
   const home = homedir();
   if (process.platform === 'win32') {
-    const out = await run('reg', [
-      'query',
-      'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders',
-      '/v',
-      DOWNLOADS_GUID,
-    ]);
+    const out = await run('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders', '/v', DOWNLOADS_GUID]);
     const match = /REG_(?:EXPAND_)?SZ\s+(.+?)\s*$/m.exec(out);
     if (match) {
       const folder = expandWindowsVars(match[1]);

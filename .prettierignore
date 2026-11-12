@@ -1,0 +1,15 @@
+# Built or downloaded
+dist/
+node_modules/
+coverage/
+.vscode-test/
+*.vsix
+package-lock.json
+
+# Not code: sounds, pictures, and documents whose exact text matters (test fixtures, prompts)
+media/
+sound-candidates/
+personal-sounds/
+test/fixtures/
+docs/
+*.md

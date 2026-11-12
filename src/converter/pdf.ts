@@ -173,10 +173,7 @@ function footerTemplate(theme: PageTheme): string {
   return `<div style="font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 8px; width: 100%; text-align: center; color: ${color};"><span class="pageNumber"></span> / <span class="totalPages"></span></div>`;
 }
 
-export async function printPdf(
-  browser: Browser,
-  options: PrintOptions,
-): Promise<{ pdf: Uint8Array; warnings: string[]; remoteFailures: number }> {
+export async function printPdf(browser: Browser, options: PrintOptions): Promise<{ pdf: Uint8Array; warnings: string[]; remoteFailures: number }> {
   const warnings: string[] = [];
   const stats = { remoteFailures: 0 };
   const page = await browser.newPage();

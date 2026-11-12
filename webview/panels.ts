@@ -6,7 +6,7 @@ import { TOOL_NAMES, textStyleOf, type InkDrawing, type InkWidth, type TextDrawi
 import { HIGHLIGHT_COLORS, HIGHLIGHT_HEX, MAX_NOTE_LENGTH, type Highlight, type HighlightColor, type ReadingMarker } from '../src/shared/types';
 import { ColorButton } from './colorPicker';
 import { h, icon, iconButton, placeFloating } from './dom';
-import { textStyleControls, widthRadios, type TextStyleControls } from './drawingBar';
+import { textStyleControls, widthRadios, type TextStyleControls, type WidthRadios } from './drawingBar';
 import { setInk } from './drawings';
 import { textIcon } from './icons';
 
@@ -265,7 +265,11 @@ export class Sidebar {
       thumb,
       // A drawing that is fine is one line; one with something to say gets a second line for it.
       extra.length === 0
-        ? h('div', { class: 'mpv-item-body' }, h('div', { class: 'mpv-item-text' }, h('span', { text: TOOL_NAMES[data.tool] }), h('span', { class: 'mpv-item-meta-inline', text: ` · ${meta}` })))
+        ? h(
+            'div',
+            { class: 'mpv-item-body' },
+            h('div', { class: 'mpv-item-text' }, h('span', { text: TOOL_NAMES[data.tool] }), h('span', { class: 'mpv-item-meta-inline', text: ` · ${meta}` })),
+          )
         : h('div', { class: 'mpv-item-body' }, h('div', { class: 'mpv-item-text', text: TOOL_NAMES[data.tool] }), h('div', { class: 'mpv-item-meta', text: meta })),
       h('div', { class: `mpv-item-actions${extra.length > 0 ? ' mpv-item-actions-over' : ''}` }, ...extra, remove),
     );
@@ -349,7 +353,9 @@ export class Sidebar {
       this.actions.remove(entry.data.id);
     });
     // Rows with more to do than "note" and "delete" show their buttons over the text, so the text keeps its width.
-    const actions = h('div', { class: orphaned || (entry.now !== undefined && (entry.kind === 'edited' || entry.kind === 'partial')) ? 'mpv-item-actions mpv-item-actions-over' : 'mpv-item-actions' });
+    const actions = h('div', {
+      class: orphaned || (entry.now !== undefined && (entry.kind === 'edited' || entry.kind === 'partial')) ? 'mpv-item-actions mpv-item-actions-over' : 'mpv-item-actions',
+    });
     const action = (name: string, title: string, run: () => void): void => {
       const button = iconButton(name, title, { class: 'mpv-btn mpv-item-action' });
       button.addEventListener('click', (e) => {
@@ -567,7 +573,11 @@ function attachMenu(onPick: (to: Attachment) => void): { select: HTMLSelectEleme
     title: 'What it follows when the document changes',
     'aria-label': 'What it follows when the document changes',
   });
-  select.append(h('option', { value: 'text', text: 'Follows text' }), h('option', { value: 'image', text: 'Follows image' }), h('option', { value: 'page', text: 'Stays on page' }));
+  select.append(
+    h('option', { value: 'text', text: 'Follows text' }),
+    h('option', { value: 'image', text: 'Follows image' }),
+    h('option', { value: 'page', text: 'Stays on page' }),
+  );
   select.addEventListener('change', () => onPick(select.value as Attachment));
   return { select, set: (to) => (select.value = to) };
 }
@@ -586,7 +596,7 @@ export class DrawingPopover {
   readonly element: HTMLElement;
   readonly color: ColorButton;
   private currentId?: string;
-  private readonly widths: ReturnType<typeof widthRadios>;
+  private readonly widths: WidthRadios;
   private readonly attached: ReturnType<typeof attachMenu>;
 
   /** Shows what the drawing follows. */
@@ -954,7 +964,10 @@ export class StatusOverlay {
         { class: 'mpv-password-form' },
         h('span', { class: 'codicon codicon-lock mpv-status-icon' }),
         h('p', { class: 'mpv-status-title', text: `${fileName} is password-protected` }),
-        h('p', { class: incorrect ? 'mpv-status-detail mpv-error-text' : 'mpv-status-detail', text: incorrect ? 'That password is not correct. Try again.' : 'Enter the password to open it.' }),
+        h('p', {
+          class: incorrect ? 'mpv-status-detail mpv-error-text' : 'mpv-status-detail',
+          text: incorrect ? 'That password is not correct. Try again.' : 'Enter the password to open it.',
+        }),
         input,
         h('div', { class: 'mpv-status-actions' }, open, cancel),
       );
