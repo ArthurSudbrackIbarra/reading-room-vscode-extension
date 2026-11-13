@@ -1,15 +1,22 @@
 // Activation: wires the store, the PDF cache, the lazily loaded converter and the viewers to commands.
 // Kept small on purpose: the heavy converter bundle is only imported on the first conversion.
+import { existsSync, readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { PdfCache } from './cache/PdfCache';
 import { PreviewManager } from './preview/PreviewManager';
 import { RenderService } from './preview/RenderService';
 import { copyFolderFromFirst } from './store/atomicWrite';
+import { ANNOTATIONS_FOLDER, Backup, backupRoot } from './store/Backup';
 import { HighlightStore } from './store/HighlightStore';
+import { HistoryStore } from './store/HistoryStore';
+import { SECTION, readSettings } from './util/settings';
 
 let manager: PreviewManager | undefined;
 let store: HighlightStore | undefined;
+let history: HistoryStore | undefined;
+let backup: Backup | undefined;
 let renderer: RenderService | undefined;
 
 /**
@@ -22,21 +29,44 @@ const EARLIER_IDS = ['local.reading-room', 'local.markdown-pdf-viewer'];
 /** The id of the copies installed from a .vsix. One of them may still be installed next to this one. */
 const VSIX_ID = 'local.reading-room';
 
+/** How many documents have annotations in a folder of annotation files. */
+function countDocuments(folder: string): number {
+  try {
+    return new Set(readdirSync(folder).flatMap((name) => /^([0-9a-f]{64})(\.drawings)?\.json$/.exec(name)?.[1] ?? [])).size;
+  } catch {
+    return 0;
+  }
+}
+
 /**
- * The first time this extension starts under its id, the annotations and the reader's own sounds
- * are copied over from the newest earlier id that has them (that folder is left as it is), so
- * nothing made with the earlier versions is lost. False if something could not be copied (the
- * reader is told where it still is).
+ * When this extension starts without annotations in its storage folder (the first time under its
+ * id, or after it was uninstalled: VS Code deletes the storage folder then), they are brought
+ * back: from the backup (`backupFolder`, when the backup is on), or else from the newest earlier
+ * id that has them. The reader's own sounds come from an earlier id only: they are not in the
+ * backup. The folder they are copied from is left as it is. False if something could not be
+ * copied (the reader is told where it still is).
  */
-function adoptEarlierData(context: vscode.ExtensionContext, log: vscode.LogOutputChannel): boolean {
+function adoptEarlierData(context: vscode.ExtensionContext, log: vscode.LogOutputChannel, backupFolder?: string): boolean {
   const here = context.globalStorageUri.fsPath;
   const own = context.extension.id.toLowerCase();
   const earlier = EARLIER_IDS.filter((id) => id !== own).map((id) => join(dirname(here), id));
   let complete = true;
-  for (const folder of ['highlights', 'sounds']) {
+  for (const folder of [ANNOTATIONS_FOLDER, 'sounds']) {
     try {
-      const from = copyFolderFromFirst(earlier, here, folder);
-      if (from) log.info(`Copied ${folder} from ${from} (an earlier id of the extension)`);
+      // The backup first: it follows every change, so it is never older than what an earlier id left behind.
+      const sources = folder === ANNOTATIONS_FOLDER && backupFolder ? [backupFolder, ...earlier] : earlier;
+      const from = copyFolderFromFirst(sources, here, folder);
+      if (from && from === backupFolder) {
+        const count = countDocuments(join(here, folder));
+        log.info(`Brought back the annotations of ${count} document(s) from the backup in ${from}`);
+        if (count > 0) {
+          void vscode.window.showInformationMessage(
+            `Reading Room brought back the annotations of ${count} document${count === 1 ? '' : 's'} from its backup. They were made before the extension was installed again.`,
+          );
+        }
+      } else if (from) {
+        log.info(`Copied ${folder} from ${from} (an earlier id of the extension)`);
+      }
     } catch (err) {
       complete = false;
       log.error(`Could not copy ${folder} from an earlier storage folder: ${err instanceof Error ? err.message : String(err)}`);
@@ -87,11 +117,31 @@ export function activate(context: vscode.ExtensionContext): void {
     void offerSwitch(context, log);
     return;
   }
-  adoptEarlierData(context, log);
+  // The backup is in a folder VS Code does not know about, so an uninstall leaves it alone.
+  const backupFolder = backupRoot(process.platform, process.env, homedir());
+  adoptEarlierData(context, log, readSettings().backup ? backupFolder : undefined);
+
+  const annotations = vscode.Uri.joinPath(context.globalStorageUri, ANNOTATIONS_FOLDER).fsPath;
+  const copies = new Backup({ source: annotations, target: join(backupFolder, ANNOTATIONS_FOLDER), log, enabled: () => readSettings().backup });
+  backup = copies;
+  const primeBackup = () =>
+    void copies.prime().then((copied) => {
+      if (copied > 0) log.info(`Backup: copied ${copied} file(s) to ${copies.directory}`);
+    });
+  primeBackup();
+  context.subscriptions.push(
+    copies,
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      // Turned on (again): what was made in the meantime is copied now.
+      if (e.affectsConfiguration(`${SECTION}.backup.enabled`) && readSettings().backup) primeBackup();
+    }),
+  );
 
   store = new HighlightStore({
-    dir: vscode.Uri.joinPath(context.globalStorageUri, 'highlights').fsPath,
+    dir: annotations,
     log,
+    onFilesChanged: (key) => copies.changed(key),
+    onMigrate: (from, to) => history?.migrate(from, to),
     onCorrupt: (ref, movedTo) => {
       void vscode.window.showWarningMessage(`Reading Room: the stored annotations of ${ref.uri.split('/').pop()} were unreadable. The file was kept as ${movedTo}.`);
     },
@@ -102,10 +152,13 @@ export function activate(context: vscode.ExtensionContext): void {
       );
     },
   });
+  const annotationsStore = store;
+  // The undo history of each document is kept next to its annotations (and in the backup with them).
+  history = new HistoryStore({ dir: annotations, keyOf: (ref) => annotationsStore.keyOf(ref), log, onFilesChanged: (key) => copies.changed(key) });
   // Converted PDFs live in the extension's own storage folder, never next to the documents.
   const pdfCache = new PdfCache({ dir: vscode.Uri.joinPath(context.globalStorageUri, 'cache').fsPath, log });
   renderer = new RenderService(context, log);
-  manager = new PreviewManager(context, log, store, renderer, pdfCache);
+  manager = new PreviewManager(context, log, store, history, renderer, pdfCache);
   context.subscriptions.push(manager, renderer);
 
   const m = manager;
@@ -146,6 +199,20 @@ export function activate(context: vscode.ExtensionContext): void {
     'readingRoom.reattachHighlights': () => m.reattach(),
     'readingRoom.deleteAllHighlights': () => m.deleteAll(),
     'readingRoom.revealDataFolder': () => m.revealDataFolder(),
+    'readingRoom.revealBackupFolder': async () => {
+      await store?.flush();
+      await history?.flush();
+      await copies.flush();
+      if (!existsSync(copies.directory)) {
+        void vscode.window.showInformationMessage(
+          readSettings().backup
+            ? 'There is no backup yet: it is made when you first annotate a document.'
+            : 'The backup is turned off (the setting "Reading Room: Backup: Enabled"), and there is no backup folder.',
+        );
+        return;
+      }
+      await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(copies.directory));
+    },
     'readingRoom.clearCache': () => m.clearCache(),
     'readingRoom.showLog': () => log.show(true),
   };
@@ -157,6 +224,9 @@ export function activate(context: vscode.ExtensionContext): void {
 export async function deactivate(): Promise<void> {
   try {
     await store?.flush();
+    await history?.flush();
+    // Last: the backup copies what the two above just wrote.
+    await backup?.flush();
   } finally {
     manager?.dispose();
     await renderer?.disposeAsync();

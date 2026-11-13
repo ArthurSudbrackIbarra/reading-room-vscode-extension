@@ -41,6 +41,7 @@ import {
   type StoredRecord,
 } from '../shared/types';
 import { MAX_SNAPSHOT_CHARS, normalizeKeyPath, sanitizeHighlight, sanitizeMarker, type DocumentRef, type HighlightStore } from '../store/HighlightStore';
+import { sanitizeHistoryChange, type HistoryStore } from '../store/HistoryStore';
 import { applyResolved, prepareRecord } from '../store/resolutions';
 import type { SoundRequest, SoundState } from '../shared/sounds';
 import type { SoundLibrary } from '../store/SoundLibrary';
@@ -74,6 +75,7 @@ export interface PanelHost {
   readonly extensionVersion: string;
   readonly log: vscode.LogOutputChannel;
   readonly store: HighlightStore;
+  readonly history: HistoryStore;
   readonly renderer: RenderService;
   readonly pdfCache: PdfCache;
   readonly sounds: SoundCoordinator<PreviewPanel>;
@@ -200,6 +202,8 @@ export class PreviewPanel implements vscode.Disposable {
   /** Which of two identical neighboring blocks is the copy, collected from the editor until the next saved render. */
   private copyHints: CopyHint[] = [];
   private readOnlyTold = false;
+  /** Changes of the undo history are stored in the order the viewer made them. */
+  private historyChanges: Promise<void> = Promise.resolve();
   /** Converted PDFs by page theme (Markdown and text only). */
   private readonly cache = new Map<PageTheme, ShownPdf>();
   private theme: PageTheme;
@@ -365,6 +369,18 @@ export class PreviewPanel implements vscode.Disposable {
         });
         break;
       }
+      case 'history': {
+        const ref = this.ref;
+        const change = sanitizeHistoryChange(msg.change);
+        this.historyChanges = this.historyChanges
+          .then(async () => {
+            // Annotations of a newer version are shown and not stored: neither is what is done to them.
+            if (!(await this.host.store.isReadOnly(ref))) await this.host.history.change(ref, change);
+          })
+          .catch((err: unknown) => this.host.log.warn(`The undo history of ${ref.uri} could not be updated: ${String(err)}`));
+        await this.historyChanges;
+        break;
+      }
       case 'drawStyleChanged': {
         const style = msg.style ?? {};
         const patch: Partial<UiState> = {};
@@ -515,6 +531,7 @@ export class PreviewPanel implements vscode.Disposable {
     this.ready = true;
     this.host.sounds.pageLoaded(this);
     const { record, readOnly } = await this.recordForViewer();
+    const history = readOnly ? undefined : await this.host.history.get(this.ref);
     const ui = this.host.uiState();
     const margins = isConvertedKind(this.kind) ? { top: PAGE_MARGINS_MM.top * MM_TO_PT, bottom: PAGE_MARGINS_MM.bottom * MM_TO_PT } : { top: 0, bottom: 0 };
     void this.panel.webview.postMessage({
@@ -545,6 +562,7 @@ export class PreviewPanel implements vscode.Disposable {
         readOnly,
         keepSnapshots: readSettings().textSnapshots,
         pages: record.pages,
+        history,
       },
     } satisfies HostToViewer);
     const queued = this.outbox.splice(0);
@@ -871,7 +889,10 @@ export class PreviewPanel implements vscode.Disposable {
 
   async reloadHighlights(): Promise<void> {
     const { record, readOnly } = await this.recordForViewer(true);
-    this.post({ type: 'highlights', highlights: record.highlights, marker: record.marker ?? null, drawings: record.drawings, readOnly, pages: record.pages });
+    // The history stays: what was added from another file (Reattach) or moved with a rename does not undo what was done here.
+    await this.historyChanges;
+    const history = readOnly ? undefined : await this.host.history.get(this.ref);
+    this.post({ type: 'highlights', highlights: record.highlights, marker: record.marker ?? null, drawings: record.drawings, readOnly, pages: record.pages, history });
   }
 
   reveal(preserveFocus = false): void {

@@ -1,73 +1,42 @@
 // Undo/redo for the reader's edits: highlights, their colors and notes, the reading marker, and
 // drawings. Each edit is recorded as an operation; undoing applies its inverse. No DOM access, so
-// it is unit-testable.
-import type { Drawing } from '../src/shared/drawings';
-import type { Highlight, HighlightColor, ReadingMarker } from '../src/shared/types';
+// it is unit-testable. Every change is reported, so the host can keep the history on disk.
+import { MAX_HISTORY_STEPS, inverse, type EditOp, type HistoryChange, type StoredHistory, type UndoStep } from '../src/shared/history';
 
-/** Changeable properties of a highlight. `note: ''` means "no note". */
-export interface HighlightChanges {
-  color?: HighlightColor;
-  note?: string;
-}
-
-export type EditOp =
-  | { kind: 'create'; highlight: Highlight }
-  | { kind: 'delete'; highlight: Highlight }
-  | { kind: 'update'; id: string; before: HighlightChanges; after: HighlightChanges }
-  /** A highlight rebased on its current text (Accept) or attached to other text: the whole highlight before and after. */
-  | { kind: 'replace'; before: Highlight; after: Highlight }
-  | { kind: 'marker'; before: ReadingMarker | null; after: ReadingMarker | null }
-  | { kind: 'createDrawing'; drawing: Drawing }
-  | { kind: 'deleteDrawing'; drawing: Drawing }
-  /** A drawing's color, width or position changed: the whole drawing before and after. */
-  | { kind: 'updateDrawing'; before: Drawing; after: Drawing }
-  | { kind: 'batch'; ops: EditOp[] };
-
-export interface UndoStep {
-  op: EditOp;
-  /** What the user did, e.g. "Delete highlight". */
-  label: string;
-}
-
-export function inverse(op: EditOp): EditOp {
-  switch (op.kind) {
-    case 'create':
-      return { kind: 'delete', highlight: op.highlight };
-    case 'delete':
-      return { kind: 'create', highlight: op.highlight };
-    case 'update':
-      return { kind: 'update', id: op.id, before: op.after, after: op.before };
-    case 'replace':
-      return { kind: 'replace', before: op.after, after: op.before };
-    case 'marker':
-      return { kind: 'marker', before: op.after, after: op.before };
-    case 'createDrawing':
-      return { kind: 'deleteDrawing', drawing: op.drawing };
-    case 'deleteDrawing':
-      return { kind: 'createDrawing', drawing: op.drawing };
-    case 'updateDrawing':
-      return { kind: 'updateDrawing', before: op.after, after: op.before };
-    case 'batch':
-      return { kind: 'batch', ops: op.ops.map(inverse).reverse() };
-  }
-}
+export { inverse };
+export type { EditOp, HighlightChanges, HistoryChange, StoredHistory, UndoStep } from '../src/shared/history';
 
 export class UndoStack {
   private readonly done: UndoStep[] = [];
   private readonly undone: UndoStep[] = [];
 
-  /** `onChange`: called whenever what can be undone or redone changed. */
+  /**
+   * `onChange`: called whenever what can be undone or redone changed, with the change to store
+   * (none when the history was only loaded).
+   */
   constructor(
-    private readonly limit = 500,
-    private readonly onChange?: () => void,
+    private readonly limit = MAX_HISTORY_STEPS,
+    private readonly onChange?: (change?: HistoryChange) => void,
   ) {}
+
+  /** Takes over a stored history (the document was opened again). Nothing is reported to store. */
+  load(history: StoredHistory | undefined): void {
+    this.done.length = 0;
+    this.undone.length = 0;
+    if (history) {
+      this.done.push(...structuredClone(history.done).slice(-this.limit));
+      this.undone.push(...structuredClone(history.undone).slice(-this.limit));
+    }
+    this.onChange?.();
+  }
 
   /** Records an edit that was just applied. Clears the redo history. */
   record(op: EditOp, label: string): void {
-    this.done.push({ op: structuredClone(op), label });
+    const step = { op: structuredClone(op), label };
+    this.done.push(step);
     if (this.done.length > this.limit) this.done.shift();
     this.undone.length = 0;
-    this.onChange?.();
+    this.onChange?.({ kind: 'push', step });
   }
 
   /** The operation that reverts the last edit (already moved to the redo history), if any. */
@@ -75,7 +44,7 @@ export class UndoStack {
     const step = this.done.pop();
     if (!step) return undefined;
     this.undone.push(step);
-    this.onChange?.();
+    this.onChange?.({ kind: 'undo' });
     return { op: inverse(structuredClone(step.op)), label: step.label };
   }
 
@@ -84,7 +53,7 @@ export class UndoStack {
     const step = this.undone.pop();
     if (!step) return undefined;
     this.done.push(step);
-    this.onChange?.();
+    this.onChange?.({ kind: 'redo' });
     return { op: structuredClone(step.op), label: step.label };
   }
 
@@ -102,8 +71,9 @@ export class UndoStack {
   }
 
   clear(): void {
+    const had = this.done.length > 0 || this.undone.length > 0;
     this.done.length = 0;
     this.undone.length = 0;
-    this.onChange?.();
+    this.onChange?.(had ? { kind: 'clear' } : undefined);
   }
 }

@@ -18,7 +18,7 @@
 - **Draw** anywhere on a page: pen strokes, lines, arrows, rectangles and ellipses, in any color and three widths.
 - **Type** anywhere on a page: text boxes in any color and size, with bold, italic and underline on any part of the text.
 - **Select** several annotations at once, with a click or a rectangle, to move, copy, paste or delete them together.
-- **Take things back**: an undo button and `Ctrl+Z`, and an eraser that rubs out part of a drawing.
+- **Take things back**: an undo button and `Ctrl+Z` that still work after you closed VS Code, and an eraser that rubs out part of a drawing.
 - **Your annotations stay on their content** when the file changes. They follow the words (or the picture) they are on through your edits. If that content is deleted they are kept and listed, and they return when it does.
 - A side list shows every highlight, note, drawing and text box. Search it, filter it by color, click an entry to jump to it.
 
@@ -36,7 +36,7 @@
 
 **Your files are left alone**
 
-- Reading Room never changes your documents and never creates files in your folders. Everything you add is stored in VS Code's own storage for the extension. The only file it writes elsewhere is a PDF you download, where you choose.
+- Reading Room never changes your documents and never creates files in your folders. Everything you add is stored in VS Code's own storage for the extension, with a [backup](#your-data) in your user folder so that uninstalling does not delete it. The only other file it writes is a PDF you download, where you choose.
 
 ## Contents
 
@@ -174,6 +174,7 @@ Click the pointer in the toolbar to turn the **select tool** on. Its tray has th
 ## Deleting and undoing
 
 - **Undo**: the ↶ button in the toolbar, or `Ctrl+Z`, takes back the last change to your highlights, notes, drawings, text boxes and reading marker. `Ctrl+Y` or `Ctrl+Shift+Z` redoes it. While you type in a note or a text box, undo takes back the typing instead.
+- **Undo lasts.** What you did is kept with your annotations, so you can still take it back after you closed the tab or VS Code, days later. Each document keeps its last 500 changes.
 - **Delete** or **Backspace** deletes whatever is selected: one thing you clicked, or everything the select tool took.
 - **Eraser** (in the draw tool's tray): rubs out only the part of a drawing under its ring. It leaves highlights and text boxes alone.
 - Deleting everything of one kind: the 🗑 next to **Drawings** or **Text boxes** in the ☰ list, or the commands **Delete All Highlights / Drawings / Text Boxes for This File**. They ask first, and undo brings everything back.
@@ -276,6 +277,7 @@ All commands are in the Command Palette: type **Reading Room**. Commands without
 | `readingRoom.allowRemoteImages` | `true` | Download `http(s)` images and show them on the pages |
 | `readingRoom.cacheDays` | `7` | Days the pages of a Markdown or text file are kept after it was last opened, so it reopens instantly. `0` turns the cache off |
 | `readingRoom.textSnapshots` | `true` | Keep a compressed copy of a document's text, so annotations can follow it exactly through changes. `false` deletes the copies; annotations are then found by searching for their text |
+| `readingRoom.backup.enabled` | `true` | Keep a second copy of your annotations outside VS Code's storage, so they come back when the extension is installed again (see [Your data](#your-data)). `false` stops the copying and leaves the folder as it is |
 | `readingRoom.chromiumPath` | _(empty)_ | Path to a Chrome, Edge or Chromium executable; empty means detect one |
 | `readingRoom.chromiumDownload` | `ask` | `ask`: offer to download Chromium when no browser is found; `never`: show an error instead |
 
@@ -285,10 +287,21 @@ The settings are the same in every workspace: workspace settings cannot change t
 
 Highlights, notes, drawings, text boxes, reading positions and your own sounds live in VS Code's storage for this extension, never in your folders. **Reading Room: Reveal Annotation Data Folder** opens it.
 
-- **Back up**: copy the `highlights` folder (and `sounds` for your own sounds). To restore, copy them back while VS Code is closed.
+- **Backup**: VS Code deletes an extension's storage when the extension is uninstalled. So Reading Room keeps a second copy of your annotations, and of their undo history, in a folder of its own outside VS Code. When it is installed again and finds no annotations, it brings them back from there and tells you. **Reading Room: Reveal Backup Folder** opens the folder:
+
+  | OS | Backup folder |
+  | --- | --- |
+  | Windows | `%APPDATA%\Reading Room\backup` |
+  | macOS | `~/Library/Application Support/Reading Room/backup` |
+  | Linux | `~/.local/share/reading-room/backup` |
+  - The copy follows every change, deletions too. It is a second copy, not a history of older versions.
+  - It is on this computer only, and shared by all your VS Code profiles: a profile without annotations starts with the ones in the backup.
+  - Your own sounds are not in it. After a new install, add them again.
+  - To remove your annotations for good after uninstalling, delete that folder. The setting `readingRoom.backup.enabled` turns the backup off.
+- **Another computer**: copy the `highlights` folder (and `sounds` for your own sounds) into the same place there while VS Code is closed.
 - **Renames**: when you rename or move a document inside VS Code, its annotations follow it. If you renamed it elsewhere, open the new file and run **Reading Room: Reattach Annotations from Another File…**.
 - **Start over for one file**: the **Delete All …** commands (undo brings everything back).
-- Annotations are kept per VS Code profile, and stay when the extension is uninstalled.
+- Annotations are kept per VS Code profile. Uninstalling the extension deletes them from VS Code's storage; the backup is what brings them back.
 - For files you annotated, a compressed copy of their text is kept there too (see `readingRoom.textSnapshots`), and the pages of Markdown and text files are cached for a few days (**Reading Room: Clear Cached Pages** deletes them).
 
 ## What Markdown and text files look like
@@ -317,7 +330,6 @@ Highlights, notes, drawings, text boxes, reading positions and your own sounds l
 - Drawings on a formula or a diagram follow the nearest line of text or the diagram as a whole, not single symbols.
 - A text box has one font, size, color and alignment. In downloads, characters outside Western European languages, and emoji, appear as "?" in text boxes (the download's message says how many).
 - What the eraser leaves of a rectangle or an ellipse is a plain stroke.
-- The undo history lasts while the tab is open.
 - Reading sounds play only while a Reading Room tab is open.
 - Renames done outside VS Code are not detected (use _Reattach Annotations_).
 

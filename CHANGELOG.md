@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.13.0 — 2026-11-13
+
+- **Your annotations survive an uninstall.** VS Code deletes an extension's storage when the extension is uninstalled, and with it everything you highlighted, wrote and drew. Reading Room now keeps a second copy of your annotations in a folder of its own, outside VS Code (`%APPDATA%\Reading Room\backup` on Windows, `~/Library/Application Support/Reading Room/backup` on macOS, `~/.local/share/reading-room/backup` on Linux).
+  - The copy follows every change, a second after it is made.
+  - When Reading Room is installed again and finds no annotations, it brings them back from the backup and tells you.
+  - **Reading Room: Reveal Backup Folder** opens it. The setting `readingRoom.backup.enabled` turns it off. To remove your annotations for good after uninstalling, delete the folder.
+  - Your own sounds are not in the backup: add them again after a new install.
+- **Undo lasts.** The undo history is kept with your annotations, so `Ctrl+Z` and the ↶ button still take back what you did after you closed the tab or VS Code, and redo works too. Each document keeps its last 500 changes. The history follows a renamed document and is part of the backup.
+- **More room above the toolbar.** Its buttons are now as far from VS Code's tabs, and from the breadcrumbs above a PDF, as they are from the line under them (8 px each way; it was 4, and looked like less next to a tab).
+- **The pointer of the select tool is centered by its weight.** As the first of the four tools it sat close to the left edge of the group and far from the highlighter. It is now 1.5 px further right.
+- **The empty annotations list** has more room between the sentence that says what the list is and the three hints under it. (A rule for lists in the panel was cancelling that room.)
+- The README said that annotations stay when the extension is uninstalled. They did not; it now says what happens.
+
 ## 0.12.0 — 2026-11-13
 
 - **Ready for the Marketplace.** The extension's id is now `ArthurSudbrackIbarra.reading-room`. If an earlier version installed from a `.vsix` file (`local.reading-room`) is still there, Reading Room offers to **switch**: it brings your annotations and your own sounds over, uninstalls the earlier copy and reloads the window. Small preferences, such as the last colors and the volume, start fresh.

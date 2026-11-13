@@ -2,7 +2,7 @@
   "name": "reading-room",
   "displayName": "Reading Room",
   "description": "A quiet place to read and study inside VS Code. Open PDF, Markdown and text files as pages, highlight them, write notes, draw and type on them, keep your place, play rain or a fireplace while you read, and download it all as a PDF.",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "publisher": "ArthurSudbrackIbarra",
   "license": "MIT",
   "repository": {
@@ -206,6 +206,11 @@
       {
         "command": "readingRoom.revealDataFolder",
         "title": "Reveal Annotation Data Folder",
+        "category": "Reading Room"
+      },
+      {
+        "command": "readingRoom.revealBackupFolder",
+        "title": "Reveal Backup Folder",
         "category": "Reading Room"
       },
       {
@@ -477,6 +482,12 @@
           "default": true,
           "scope": "application",
           "description": "Keep a compressed copy of a document's text for the versions its highlights, marker and drawings were last found in, so they can follow their text exactly when the file changes (also while VS Code was closed). The copies live in VS Code's storage for this extension, never in your folders, and only for files you annotated. Turning this off deletes them; annotations are then found again by searching for their text."
+        },
+        "readingRoom.backup.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Keep a second copy of your annotations (highlights, notes, drawings, text boxes, reading positions and the undo history) in a folder outside VS Code's storage. VS Code deletes an extension's storage when the extension is uninstalled; with this copy, your annotations come back when Reading Room is installed again. The folder is on this computer only, never in your own folders: run \"Reading Room: Reveal Backup Folder\" to see it. Turning this off stops the copying and leaves the folder as it is; delete it yourself to remove the copy."
         }
       }
     },

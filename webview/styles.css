@@ -7,6 +7,9 @@
   /* Size: a 4 px grid. Every control is --mpv-ctl tall; one row of chrome is --mpv-bar. */
   --mpv-ctl: 28px;
   --mpv-bar: 36px;
+  /* The toolbar is taller: VS Code's tabs (and the breadcrumbs of a PDF) end right above it, and
+     its controls need as much room from them as they have from its bottom line. */
+  --mpv-toolbar: 44px;
   --mpv-r-ctl: 4px; /* buttons, segments, rows */
   --mpv-r-field: 6px; /* fields, wells, steppers */
   --mpv-r-float: 8px; /* popovers, menus, panels */
@@ -675,8 +678,8 @@ button.mpv-step-value:focus-visible {
   align-items: center;
   gap: 8px;
   box-sizing: border-box;
-  height: var(--mpv-bar);
-  padding: 4px 8px;
+  height: var(--mpv-toolbar);
+  padding: 8px;
   background: var(--mpv-surface);
   box-shadow: inset 0 -1px 0 var(--mpv-border);
   user-select: none;
@@ -715,7 +718,7 @@ body[data-size='narrow'] .mpv-zone {
 body[data-size='mini'] .mpv-toolbar {
   justify-content: space-between;
   gap: 2px;
-  padding: 4px 6px;
+  padding: 8px 6px;
 }
 
 body[data-size='mini'] .mpv-zone {
@@ -1383,10 +1386,12 @@ body.mpv-sidebar-open .mpv-viewer-container {
   color: var(--mpv-fg-2);
 }
 
-.mpv-empty-steps {
+/* (Two classes: `.mpv-list ul` clears the margins of every list in the panel.) */
+.mpv-empty .mpv-empty-steps {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  /* Set apart from the sentence above: that one says what the list is, these say what to do. */
   margin: 8px 0 0;
   padding: 0;
   color: var(--mpv-fg-2);

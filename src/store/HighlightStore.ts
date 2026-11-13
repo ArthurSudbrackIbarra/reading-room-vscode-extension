@@ -5,6 +5,7 @@
 //                                                    their content was last found
 //   <globalStorage>/highlights/<key>.text-<hash>.gz  the text of versions annotations were last
 //                                                    found in (so they can be followed by diff)
+//   <globalStorage>/highlights/<key>.history.json    the undo history (see HistoryStore.ts)
 // with <key> = sha256(normalized path).
 //
 // Earlier versions rebuild the files they know from the fields they know, so everything newer
@@ -50,6 +51,10 @@ export interface StoreOptions {
   onSimplified?: (ref: DocumentRef, count: number) => void;
   /** Called when a document's data was written by a newer version: it is shown, and changes are not stored. */
   onReadOnly?: (ref: DocumentRef) => void;
+  /** Called after a file of a document was written, moved or removed (the backup follows). */
+  onFilesChanged?: (key: string) => void;
+  /** Called before a document's annotations move to a new path (a rename), when the path's key changes. */
+  onMigrate?: (from: DocumentRef, to: DocumentRef) => Promise<void> | void;
 }
 
 interface Mtimes {
@@ -442,6 +447,29 @@ export class HighlightStore {
     return this.options.dir;
   }
 
+  // Every change of a file goes through these three, so the backup hears of all of them.
+  private async write(file: string, data: string | Uint8Array): Promise<void> {
+    await writeFileAtomic(file, data, this.options.writeHooks);
+    this.changed(file);
+  }
+
+  private async remove(file: string): Promise<void> {
+    await removeFile(file);
+    this.changed(file);
+  }
+
+  private async move(from: string, to: string): Promise<void> {
+    await moveFile(from, to);
+    this.changed(from);
+    this.changed(to);
+  }
+
+  /** Tells whose files changed: every file of a document starts with its key. */
+  private changed(file: string): void {
+    const key = /([0-9a-f]{64})\.[^/\\]*$/.exec(file)?.[1];
+    if (key) this.options.onFilesChanged?.(key);
+  }
+
   keyOf(ref: DocumentRef): string {
     return recordKey(ref, this.platform);
   }
@@ -635,6 +663,7 @@ export class HighlightStore {
   private async moveCorrupt(file: string, movedTo: string, ref: DocumentRef, what: string, err: unknown): Promise<void> {
     this.log.error(`${what} for ${ref.uri} is unreadable (${String(err)}); moved it to ${movedTo}`);
     await moveAside(file, movedTo).catch((moveErr: unknown) => this.log.error(`Could not move the corrupt file: ${String(moveErr)}`));
+    this.changed(file);
     this.options.onCorrupt?.(ref, movedTo);
   }
 
@@ -736,9 +765,9 @@ export class HighlightStore {
       }
       const written = (entry.written ??= {});
       if (!hasData(entry.record)) {
-        await removeFile(anchorsFile);
-        await removeFile(drawingsFile);
-        await removeFile(file);
+        await this.remove(anchorsFile);
+        await this.remove(drawingsFile);
+        await this.remove(file);
         await this.removeSnapshots(key);
         entry.mtimes = {};
         entry.written = {};
@@ -749,12 +778,12 @@ export class HighlightStore {
           const text = drawingsFileText(entry.record);
           const body = withoutStamp(text);
           if (drawingsNow === undefined || written.drawings !== body) {
-            await writeFileAtomic(drawingsFile, text, this.options.writeHooks);
+            await this.write(drawingsFile, text);
             entry.mtimes.drawings = await this.mtimeOf(drawingsFile);
             written.drawings = body;
           }
         } else if (drawingsNow !== undefined) {
-          await removeFile(drawingsFile);
+          await this.remove(drawingsFile);
           entry.mtimes.drawings = undefined;
           written.drawings = undefined;
         }
@@ -762,19 +791,19 @@ export class HighlightStore {
         if (anchors !== undefined) {
           const body = withoutStamp(anchors);
           if (anchorsNow === undefined || written.anchors !== body) {
-            await writeFileAtomic(anchorsFile, anchors, this.options.writeHooks);
+            await this.write(anchorsFile, anchors);
             entry.mtimes.anchors = await this.mtimeOf(anchorsFile);
             written.anchors = body;
           }
         } else if (anchorsNow !== undefined) {
-          await removeFile(anchorsFile);
+          await this.remove(anchorsFile);
           entry.mtimes.anchors = undefined;
           written.anchors = undefined;
         }
-        await writeFileAtomic(file, recordFileText(entry.record), this.options.writeHooks);
+        await this.write(file, recordFileText(entry.record));
         entry.mtimes.record = await this.mtimeOf(file);
       }
-      for (const aside of entry.recovered.splice(0)) await removeFile(aside);
+      for (const aside of entry.recovered.splice(0)) await this.remove(aside);
     } catch (err) {
       entry.dirty = true;
       throw err;
@@ -859,7 +888,7 @@ export class HighlightStore {
       if ((await this.mtimeOf(file)) === undefined) {
         const bytes = gzipSync(Buffer.from(text, 'utf8'));
         if (bytes.byteLength > MAX_SNAPSHOT_BYTES) return;
-        await writeFileAtomic(file, bytes, this.options.writeHooks);
+        await this.write(file, bytes);
       }
       stored = true;
       await this.pruneSnapshots(key, entry.record, hash);
@@ -881,7 +910,7 @@ export class HighlightStore {
       return gunzipSync(bytes).toString('utf8');
     } catch (err) {
       this.log.warn(`A text snapshot of ${ref.uri} is unreadable (${String(err)}); dropped it`);
-      await removeFile(file).catch(() => undefined);
+      await this.remove(file).catch(() => undefined);
       return undefined;
     }
   }
@@ -898,13 +927,13 @@ export class HighlightStore {
         count++;
         bytes += snapshot.size;
       } else {
-        await removeFile(snapshot.file);
+        await this.remove(snapshot.file);
       }
     }
   }
 
   private async removeSnapshots(key: string): Promise<void> {
-    for (const snapshot of await this.snapshotFiles(key)) await removeFile(snapshot.file);
+    for (const snapshot of await this.snapshotFiles(key)) await this.remove(snapshot.file);
   }
 
   /** Deletes every text snapshot (the setting was turned off). */
@@ -915,7 +944,7 @@ export class HighlightStore {
     } catch {
       return;
     }
-    for (const name of names) if (/^[0-9a-f]{64}\.text-[0-9a-f]{6,64}\.gz$/.test(name)) await removeFile(`${this.options.dir}/${name}`);
+    for (const name of names) if (/^[0-9a-f]{64}\.text-[0-9a-f]{6,64}\.gz$/.test(name)) await this.remove(`${this.options.dir}/${name}`);
   }
 
   // ---------- Renames, lists, copies ----------
@@ -924,6 +953,8 @@ export class HighlightStore {
   async migrate(from: DocumentRef, to: DocumentRef): Promise<boolean> {
     const fromKey = this.keyOf(from);
     const toKey = this.keyOf(to);
+    // What is kept next to the annotations (the undo history) follows the document too.
+    if (fromKey !== toKey) await this.options.onMigrate?.(from, to);
     if (fromKey === toKey) {
       // Same key (e.g. a case-only rename on Windows): just update the stored path.
       const entry = await this.entry(from);
@@ -959,12 +990,12 @@ export class HighlightStore {
     // The snapshots follow the file: the same text, so the same hashes.
     for (const snapshot of await this.snapshotFiles(fromKey)) {
       const destination = this.snapshotPathOf(toKey, snapshot.hash);
-      if ((await this.mtimeOf(destination)) === undefined) await moveFile(snapshot.file, destination).catch(() => undefined);
+      if ((await this.mtimeOf(destination)) === undefined) await this.move(snapshot.file, destination).catch(() => undefined);
     }
     await this.enqueue(fromKey, async () => {
-      await removeFile(this.anchorsPathOf(fromKey));
-      await removeFile(this.drawingsPathOf(fromKey));
-      await removeFile(this.pathOf(fromKey));
+      await this.remove(this.anchorsPathOf(fromKey));
+      await this.remove(this.drawingsPathOf(fromKey));
+      await this.remove(this.pathOf(fromKey));
       await this.removeSnapshots(fromKey);
     });
     this.entries.delete(fromKey);
@@ -1089,9 +1120,9 @@ export class HighlightStore {
   async deleteKey(key: string): Promise<void> {
     this.entries.delete(key);
     await this.enqueue(key, async () => {
-      await removeFile(this.anchorsPathOf(key));
-      await removeFile(this.drawingsPathOf(key));
-      await removeFile(this.pathOf(key));
+      await this.remove(this.anchorsPathOf(key));
+      await this.remove(this.drawingsPathOf(key));
+      await this.remove(this.pathOf(key));
       await this.removeSnapshots(key);
     });
   }
