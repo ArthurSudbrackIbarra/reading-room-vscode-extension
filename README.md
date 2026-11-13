@@ -90,19 +90,20 @@ One row, in three groups: finding your place on the left, the tools in the middl
 | ☰ | Show or hide the list of annotations: the reading position, highlights with their notes, drawings and text boxes |
 | ↑ n / N ↓ | Previous and next page; type a number and press **Enter** to go to a page |
 | − zoom ▾ + | Zoom out, choose a zoom (Fit width, Fit page, Actual size, 50 %–400 %), zoom in |
+| Pointer | **Select tool**: click an annotation, or drag a rectangle around several, then move, copy, paste or delete them together (see [Selecting, copying and pasting](#selecting-copying-and-pasting)) |
 | Highlighter | **Highlight tool**: while it is on, every text selection becomes a highlight. The band under the icon shows the current color |
 | Pencil | **Draw tool**: pen, lines, arrows, rectangles, ellipses and an eraser (see [Drawing](#drawing)). The band shows the current ink |
 | AA | **Text tool**: type anywhere on a page (see [Text boxes](#text-boxes)). The band shows the color new text gets |
-| Pointer | **Select tool**: click an annotation, or drag a rectangle around several, then move, copy, paste or delete them together (see [Selecting, copying and pasting](#selecting-copying-and-pasting)) |
 | 🔖 ▾ | **Reading marker**: click, then click the line where you stopped. The menu also has _Go to_ and _Remove_ |
 | ↶ | **Undo** the last change. Its tooltip says what it will take back |
 | 🎧 | **Reading sounds**: play rain, a fireplace or your own sounds |
+| ◐ | **Dark pages**: switch the pages between light and dark |
 | ⤓ ▾ | Download a PDF, with your annotations (the default) or without |
-| ⋯ | **More**: **Dark pages**, **Full view** (Markdown, text: the pages take the source's editor group instead of standing next to it) and **Convert the document again** (PDF files: **Reload from disk**) |
+| ⋯ | **More**: **Full view** (Markdown, text: the pages take the source's editor group instead of standing next to it) and **Convert the document again** (PDF files: **Reload from disk**) |
 
 **One tool at a time.** The four tools share one frame, and turning one on turns the others off. The tool that is on is tinted and outlined, and a second row opens under the toolbar: its **tray**. The tray looks like the toolbar. It starts with the name of the mode (**DRAW MODE**, **TEXT MODE**, …), holds that tool's options right after it, and ends with **Done**. Done, a second click on the tool and **Esc** all turn the tool off. Placing the reading marker works the same way, with **Cancel**.
 
-**In a narrow panel** the toolbar stays one row. What does not fit moves into ⋯, which always lists exactly what is missing from the bar: first the zoom and the download, then the reading marker and the sounds, and in a very narrow panel the page number.
+**In a narrow panel** the toolbar stays one row. What does not fit moves into ⋯, which always lists exactly what is missing from the bar: first the zoom and the download, then the reading marker and the sounds, and in a very narrow panel the page number and dark pages.
 
 ## Highlights and notes
 
@@ -162,13 +163,13 @@ Click the pointer in the toolbar to turn the **select tool** on. Its tray has th
 <img src="docs/select-bar.png" alt="The toolbar with the select tool on: the pointer is tinted and outlined. Under it, its tray: the words SELECT MODE, the buttons Select all, Copy, Paste and Delete, the text 4 selected, the Esc key and a Done button on the right" width="870">
 
 - **Click** a highlight, a drawing or a text box to select it. **Drag** from anywhere else to open a rectangle: everything it touches is selected.
-- **Ctrl+click** adds one more to the selection, or takes it out. **Shift+click** selects everything from the last one you clicked to this one, in reading order. Hold `Ctrl` or `Shift` while you drag a rectangle to add what it touches. `Ctrl+A`, or **Select all**, takes everything.
-- **Drag** one of the selected drawings or text boxes and they all move together. Each stays on its own page. Highlights stay on their text.
+- **Ctrl+click** adds one more to the selection, or takes it out. **Shift+click** selects everything between the last one you clicked and this one, in any direction: to the left or the right, upwards or downwards. (Across pages, it follows the reading order.) Hold `Ctrl` or `Shift` while you drag a rectangle to add what it touches. `Ctrl+A`, or **Select all**, takes everything.
+- **Drag** one of the selected drawings or text boxes and they all move together. You do not have to aim at a line or a letter: anywhere inside the dashed box of a selected drawing will do. Each stays on its own page. Highlights stay on their text.
 - **Delete** (the key or the button) deletes everything that is selected. One undo brings it all back.
 - **Copy** (`Ctrl+C`), **cut** (`Ctrl+X`) and **paste** (`Ctrl+V`) work on drawings and text boxes. They are pasted on the page in view, at the place they had on their own page. On the page of the original, the copy lands a little down and to the right, so it does not cover it. What is pasted is selected, ready to be dragged where it belongs. Highlights belong to their text, so they cannot be pasted: copying them copies their text.
 - **Esc** lets go of the selection. **Esc** again, **Done** or the pointer turns the tool off.
 
-**With no tool on**, the same keys work on what you click. Click a drawing, a text box or a highlight to select it, `Ctrl+click` others to add them, then use `Delete`, `Ctrl+C`, `Ctrl+X` and `Ctrl+V`. The bar of a drawing and of a text box has a **Copy** button too.
+**With no tool on**, the same works on what you click. Click a drawing, a text box or a highlight to select it, `Ctrl+click` others to add them, drag them by their dashed box, then use `Delete`, `Ctrl+C`, `Ctrl+X` and `Ctrl+V`. The bar of a drawing and of a text box has a **Copy** button too.
 
 ## Deleting and undoing
 
@@ -225,7 +226,7 @@ The sound never ends and never clicks, and all recordings are equally loud. One 
 
 ## Dark pages
 
-**Dark pages** in the ⋯ menu switches all pages to a dark theme. Markdown and text files are converted again with dark colors. PDF files are inverted, keeping their hues; pictures keep their real colors. Downloads always use normal light pages.
+The **◐** button in the toolbar switches all pages to a dark theme, and back. (In a very narrow panel it is **Dark pages** in the ⋯ menu.) Markdown and text files are converted again with dark colors. PDF files are inverted, keeping their hues; pictures keep their real colors. Downloads always use normal light pages.
 
 ## Download
 

@@ -1,7 +1,7 @@
 // The viewer toolbar: one row in three zones, with flexible space between them.
 //   find your place:  [☰] [↑ n / N ↓] [− zoom ▾ +]
-//   annotate:         [highlight │ draw │ text │ select] [🔖 ▾] [↶]
-//   the room:         [🎧] [⤓ ▾] [⋯]
+//   annotate:         [select │ highlight │ draw │ text] [🔖 ▾] [↶]
+//   the room:         [🎧] [◐] [⤓ ▾] [⋯]
 // The four tools sit in one well: at most one is on, and the one that is on gets a tinted, ringed
 // chip; its options are in its tray (the row under the toolbar). The three tools that make
 // something show their color in a band under their icon.
@@ -13,7 +13,7 @@ import { HIGHLIGHT_HEX, MAX_ZOOM, MIN_ZOOM, type DocumentKind, type HighlightCol
 import { narrower, sizeClassOf, type SizeClass } from '../src/shared/ui';
 import { h, iconButton, MOD_KEY, placeUnder } from './dom';
 import { setInk } from './drawings';
-import { chevronIcon, drawIcon, highlighterIcon, selectIcon, textIcon } from './icons';
+import { chevronIcon, drawIcon, highlighterIcon, pageIcon, selectIcon, textIcon } from './icons';
 import { byKeyboard, menu, type MenuPart } from './menu';
 import { headphonesIcon } from './sounds';
 
@@ -50,6 +50,8 @@ const DRAW_ON_TITLE = 'Drawing is on (Esc to stop)';
 const TEXT_TITLE = 'Add text: click on the page and type';
 const TEXT_ON_TITLE = 'Adding text is on (Esc to stop)';
 const SELECT_TITLE = 'Select: click a highlight, drawing or text box, or drag around several, to move, copy or delete them';
+const DARK_TITLE = 'Dark pages';
+const DARK_ON_TITLE = 'Dark pages are on: click for light pages';
 const SELECT_ON_TITLE = 'Selecting is on (Esc to stop)';
 const DOWNLOAD_TITLE = 'Download PDF with annotations';
 
@@ -101,6 +103,7 @@ export class Toolbar {
     },
     headphonesIcon(),
   );
+  private readonly themeButton = iconButton('color-mode', DARK_TITLE, { 'aria-pressed': 'false' });
   private readonly downloadButton = iconButton('download', DOWNLOAD_TITLE);
   private readonly downloadMenu = menuToggle('Download options');
   private readonly downloadSplit: HTMLElement;
@@ -133,7 +136,7 @@ export class Toolbar {
     this.zoomStep = h('div', { class: 'mpv-step', role: 'group', 'aria-label': 'Zoom' }, zoomOut, this.zoomButton, zoomIn);
     this.markerSplit = h('div', { class: 'mpv-split' }, this.markerButton, this.markerMenu);
     this.downloadSplit = h('div', { class: 'mpv-split' }, this.downloadButton, this.downloadMenu);
-    const tools = h('div', { class: 'mpv-seg mpv-seg-tools', role: 'group', 'aria-label': 'Tools' }, this.highlightButton, this.drawButton, this.textButton, this.selectButton);
+    const tools = h('div', { class: 'mpv-seg mpv-seg-tools', role: 'group', 'aria-label': 'Tools' }, this.selectButton, this.highlightButton, this.drawButton, this.textButton);
 
     this.element = h(
       'header',
@@ -142,7 +145,7 @@ export class Toolbar {
       h('span', { class: 'mpv-grow' }),
       h('div', { class: 'mpv-zone' }, tools, this.markerSplit, this.undoButton),
       h('span', { class: 'mpv-grow' }),
-      h('div', { class: 'mpv-zone-tight' }, this.soundsButton, this.downloadSplit, this.moreButton),
+      h('div', { class: 'mpv-zone-tight' }, this.soundsButton, this.themeButton, this.downloadSplit, this.moreButton),
     );
     this.setMarkerState(false, false);
 
@@ -164,6 +167,7 @@ export class Toolbar {
       menu().toggle(this.markerMenu, 'Reading marker', this.markerParts(true), { align: 'end', keyboard: byKeyboard(e), anchor: this.markerSplit }),
     );
     this.soundsButton.addEventListener('click', () => actions.toggleSounds(this.soundsButton));
+    this.themeButton.addEventListener('click', () => actions.toggleTheme());
     this.downloadButton.addEventListener('click', () => actions.download(true));
     this.downloadMenu.addEventListener('click', (e) =>
       menu().toggle(this.downloadMenu, 'Download', this.downloadParts(false), { align: 'end', keyboard: byKeyboard(e), anchor: this.downloadSplit }),
@@ -203,6 +207,8 @@ export class Toolbar {
     this.downloadSplit.hidden = size !== 'wide';
     this.markerSplit.hidden = tight;
     this.soundsButton.hidden = !this.soundsAvailable || tight;
+    // Dark pages is on the bar wherever there is room for it: everywhere but in a mini panel.
+    this.themeButton.hidden = size === 'mini';
     // Narrow: the page field without its arrows. Mini: "Go to page…" in More.
     this.prevButton.hidden = tight;
     this.nextButton.hidden = tight;
@@ -245,16 +251,16 @@ export class Toolbar {
 
   private downloadParts(short: boolean): MenuPart[] {
     return [
-      { icon: 'download', label: short ? 'Download PDF' : DOWNLOAD_TITLE, run: () => this.actions.download(true) },
+      { icon: pageIcon(true), label: short ? 'Download PDF' : DOWNLOAD_TITLE, run: () => this.actions.download(true) },
       {
-        icon: 'file-pdf',
+        icon: pageIcon(false),
         label: !short ? 'Download PDF without annotations' : this.size === 'mini' ? 'Without annotations' : 'Download without annotations',
         run: () => this.actions.download(false),
       },
     ];
   }
 
-  /** More: what is rarely needed (dark pages, full view, converting again), and whatever the size class took off the bar. */
+  /** More: what is rarely needed (full view, converting again), and whatever the size class took off the bar. */
   private moreParts(): MenuPart[] {
     const { size, actions } = this;
     const tight = size === 'narrow' || size === 'mini';
@@ -279,7 +285,8 @@ export class Toolbar {
       groups.push(reading);
     }
     if (size !== 'wide') groups.push(this.downloadParts(true));
-    const room: MenuPart[] = [{ icon: 'color-mode', label: 'Dark pages', role: 'checkbox', checked: this.theme === 'dark', run: () => actions.toggleTheme() }];
+    const room: MenuPart[] = [];
+    if (size === 'mini') room.push({ icon: 'color-mode', label: 'Dark pages', role: 'checkbox', checked: this.theme === 'dark', run: () => actions.toggleTheme() });
     if (this.kind !== 'pdf') {
       room.push({ icon: this.fullView ? 'screen-normal' : 'screen-full', label: 'Full view', role: 'checkbox', checked: this.fullView, run: () => actions.toggleFullView() });
     }
@@ -472,6 +479,7 @@ export class Toolbar {
 
   setTheme(theme: PageTheme): void {
     this.theme = theme;
+    this.setPressed(this.themeButton, theme === 'dark', theme === 'dark' ? DARK_ON_TITLE : DARK_TITLE);
   }
 
   setFullView(full: boolean): void {

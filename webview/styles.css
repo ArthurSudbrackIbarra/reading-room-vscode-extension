@@ -361,9 +361,13 @@ body[data-page-theme='dark'] .mpv-ink {
 
 /* ---------- Split button ---------- */
 
-/* An action and its menu, read as one control: the marker and download. 42 px wide. Each half is
-   its own target with its own hover, so the icon and the chevron are each centered in their half
-   (5 px on both sides of the icon, 4 px on both sides of the chevron).
+/* An action and its menu, read as one control: the marker and download. 46 px wide. Each half is
+   its own target with its own hover, so the icon and the chevron are each centered in their half.
+   The halves are sized so that what is seen of the icon is as far from the left edge of the
+   whole control as what is seen of the chevron is from its right edge (about 7 px, measured),
+   which shows when the whole control is tinted or outlined. The bookmark and the download arrow
+   have some 3 px of air inside their 16 px box and the chevron has none inside its 8 px, so:
+   3 px of padding on both sides of the icon, 6 px on both sides of the chevron.
    The chevron rule for controls that hold a value and a chevron (a label, a color dot): the 8 px
    chevron sits 6 px after the label and as far from the control's right edge as the value is
    from its left edge. */
@@ -376,13 +380,13 @@ body[data-page-theme='dark'] .mpv-ink {
 
 .mpv-split .mpv-btn:first-child {
   min-width: 0;
-  padding: 0 4px;
+  padding: 0 3px;
   border-radius: var(--mpv-r-ctl) 0 0 var(--mpv-r-ctl);
 }
 
 .mpv-split .mpv-btn:last-child {
   min-width: 0;
-  padding: 0 3px;
+  padding: 0 6px;
   border-radius: 0 var(--mpv-r-ctl) var(--mpv-r-ctl) 0;
 }
 
@@ -1110,9 +1114,11 @@ body.mpv-sidebar-open .mpv-viewer-container {
   list-style: none;
 }
 
-/* The reading marker's row keeps a little clear of the first section under it. */
-.mpv-list ul.mpv-list-marker {
-  margin-bottom: 6px;
+/* The reading marker's row keeps a little clear of the first section under it. The room is part
+   of the row (padding, not a margin), so it lights up with the row under the pointer. */
+.mpv-list-marker .mpv-row:not(.mpv-selected) .mpv-row-main,
+.mpv-list-marker .mpv-row.mpv-selected .mpv-row-actions {
+  padding-bottom: 12px;
 }
 
 /* A section header: a chevron that collapses it, its name, its count, and its action. */
@@ -1611,7 +1617,27 @@ body.mpv-tool-active .textLayer span {
   stroke-width: 1px;
   stroke-dasharray: 4 3;
   vector-effect: non-scaling-stroke;
+  /* The whole box of a selected drawing takes the pointer: a drag anywhere in it moves it. */
+  pointer-events: all;
+  cursor: move;
+}
+
+/* (The select tool, drawing and typing have a surface above the pages that takes the pointer.) */
+.mpv-text-new,
+body.mpv-draw-mode .mpv-drawing-selection,
+body.mpv-text-mode .mpv-drawing-selection,
+body.mpv-select-mode .mpv-drawing-selection,
+body.mpv-placing-marker .mpv-drawing-selection {
   pointer-events: none;
+}
+
+/* The two pages of the download menu: the marks of the one with annotations keep their colors. */
+.mpv-page-mark {
+  fill: #ffd84d;
+}
+
+.mpv-page-pen {
+  stroke: var(--mpv-marker-color);
 }
 
 .mpv-drawing.mpv-flash .mpv-drawing-halo {
@@ -1904,10 +1930,12 @@ body.mpv-select-mode .mpv-viewer-container {
   color: var(--mpv-danger);
 }
 
+/* (The spinner stands clear of the name above it and of the line under it.) */
 .mpv-spinner {
   box-sizing: border-box;
   width: 20px;
   height: 20px;
+  margin: 12px 0 8px;
   border: 2px solid var(--mpv-field-line);
   border-top-color: var(--mpv-accent-fg);
   border-radius: 50%;
@@ -2110,14 +2138,14 @@ body.mpv-select-mode .mpv-viewer-container {
   height: 0;
 }
 
-/* A 1 px line across the page, 3 px above the marked line of text. */
+/* A 2 px line across the page, 3 px above the marked line of text. */
 .mpv-marker-line {
   position: absolute;
   left: 0;
   right: 0;
-  top: -3px;
+  top: -4px;
   height: 0;
-  border-top: 1px solid var(--mpv-marker-color);
+  border-top: 2px solid var(--mpv-marker-color);
 }
 
 /* The tab in the left margin, centered on the line. */

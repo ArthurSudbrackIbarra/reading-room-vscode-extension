@@ -77,7 +77,8 @@ export function toolIcon(tool: DrawingTool): SVGSVGElement {
 
 /** The select tool of the toolbar (click or drag around annotations to select them): the arrow of a pointer. */
 export function selectIcon(): SVGSVGElement {
-  return icon16([['path', { ...STROKE, d: 'M4 1.9v10.8l2.8-2.6 1.9 4 1.7-.8-1.9-4h3.8Z' }]]);
+  // (The arrow is heavier on its left side: it is drawn so that what is seen of it is centered.)
+  return icon16([['path', { ...STROKE, d: 'M3.6 1.9v10.8l2.8-2.6 1.9 4 1.7-.8-1.9-4h3.8Z' }]]);
 }
 
 /** The eraser of the drawing bar (it rubs out part of a drawing): a block at 45°, on a pen stroke with a gap. */
@@ -147,6 +148,25 @@ export function bookIcon(size = 16): SVGSVGElement {
     ],
     'mpv-book',
   );
+}
+
+const PAGE: SvgPart[] = [
+  ['path', { ...STROKE, d: 'M3.4 1.7h5.8l3.4 3.4v9.2H3.4Z' }],
+  ['path', { ...STROKE, d: 'M9.2 1.7v3.4h3.4' }],
+];
+
+/**
+ * A page for the two downloads. With annotations: a highlighted line and a pen stroke on it, in
+ * their own colors. Without: the page with nothing but its lines of text.
+ */
+export function pageIcon(annotated: boolean): SVGSVGElement {
+  const lines: SvgPart[] = annotated
+    ? [
+        ['rect', { class: 'mpv-page-mark', x: '5.2', y: '6.8', width: '5.6', height: '2.4', rx: '.5' }],
+        ['path', { class: 'mpv-page-pen', fill: 'none', 'stroke-width': '1.3', 'stroke-linecap': 'round', d: 'M5.4 11.6c.9-.9 1.7-.9 2.6 0s1.7.9 2.6 0' }],
+      ]
+    : [['path', { ...STROKE, 'stroke-width': '1', d: 'M5.6 8.2h4.8M5.6 10.4h4.8M5.6 12.6h2.6' }]];
+  return icon16([...PAGE, ...lines]);
 }
 
 export function checkIcon(): SVGSVGElement {

@@ -2,15 +2,23 @@
   "name": "reading-room",
   "displayName": "Reading Room",
   "description": "A quiet place to read and study inside VS Code. Open PDF, Markdown and text files as pages, highlight them, write notes, draw and type on them, keep your place, play rain or a fireplace while you read, and download it all as a PDF.",
-  "version": "0.11.0",
-  "publisher": "local",
+  "version": "0.12.0",
+  "publisher": "ArthurSudbrackIbarra",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ArthurSudbrackIbarra/markdown-pdf-viewer.git"
+    "url": "https://github.com/ArthurSudbrackIbarra/reading-room-vscode-extension.git"
+  },
+  "homepage": "https://github.com/ArthurSudbrackIbarra/reading-room-vscode-extension#readme",
+  "bugs": {
+    "url": "https://github.com/ArthurSudbrackIbarra/reading-room-vscode-extension/issues"
   },
   "icon": "media/icon.png",
-  "private": true,
+  "galleryBanner": {
+    "color": "#1E2A3C",
+    "theme": "dark"
+  },
+  "pricing": "Free",
   "engines": {
     "vscode": "^1.110.0"
   },

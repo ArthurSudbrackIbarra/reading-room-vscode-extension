@@ -28,10 +28,10 @@ npm run package
 ```
 
 ```bash
-code --install-extension reading-room-0.9.0.vsix --force
+code --install-extension reading-room-0.12.0.vsix --force
 ```
 
-Then reload VS Code (**Developer: Reload Window**). Installing a newer `.vsix` replaces the previous version and keeps the stored annotations. The extension id is `local.reading-room` until it gets a Marketplace publisher. To uninstall: `code --uninstall-extension local.reading-room` (the stored data stays).
+Then reload VS Code (**Developer: Reload Window**). Installing a newer `.vsix` replaces the previous version and keeps the stored annotations. The extension id is `ArthurSudbrackIbarra.reading-room`. To uninstall: `code --uninstall-extension ArthurSudbrackIbarra.reading-room` (the stored data stays).
 
 To try a build without installing it, open the folder in VS Code and press `F5`, or start VS Code with `--extensionDevelopmentPath=<this folder>` after `npm run build`.
 
@@ -122,9 +122,9 @@ Everything is in VS Code's global storage for the extension:
 
 | OS | Folder (default profile) |
 | --- | --- |
-| Windows | `%APPDATA%\Code\User\globalStorage\local.reading-room\` |
-| macOS | `~/Library/Application Support/Code/User/globalStorage/local.reading-room/` |
-| Linux | `~/.config/Code/User/globalStorage/local.reading-room/` |
+| Windows | `%APPDATA%\Code\User\globalStorage\arthursudbrackibarra.reading-room\` |
+| macOS | `~/Library/Application Support/Code/User/globalStorage/arthursudbrackibarra.reading-room/` |
+| Linux | `~/.config/Code/User/globalStorage/arthursudbrackibarra.reading-room/` |
 
 With another VS Code profile the folder is under `User/profiles/<profile id>/globalStorage/…`; **Reading Room: Reveal Annotation Data Folder** opens the right one. Small preferences (the last colors, tools, widths, eraser size and text style, recent custom colors, light or dark pages, the chosen sounds and their volume) are in VS Code's own state for the extension.
 
@@ -179,14 +179,20 @@ The PDFs made from Markdown and text files, one `.pdfcache` file per document an
 
 A copy of every sound file the reader added (`custom-<id>.<ext>`) and `sounds.json` with their names and the gain that makes each as loud as the built-in ones (measured when it is added; a limiter keeps raised peaks from clipping). Built-in loops are four minutes long, their end blended into their start, and the player crossfades between two copies.
 
-## The earlier name
+## Earlier ids
 
-Up to 0.8.0 the extension was **Document Viewer & Highlighter**, with the id `local.markdown-pdf-viewer`, the settings and commands `markdownPdfViewer.*` and its own storage folder. 0.9.0 renamed all of it to Reading Room (`local.reading-room`, `readingRoom.*`).
+VS Code names an extension's storage folder after its id, so every id the extension had left a folder of its own:
 
-- The first time Reading Room starts, it copies `highlights/` and `sounds/` from the old storage folder next to its own (`adoptEarlierData` in `src/extension.ts`, `copyFolderOnce` in `src/store/atomicWrite.ts`). The old folder is left as it is. A folder that already exists in the new place is never replaced.
+| Id | Versions | What it was |
+| --- | --- | --- |
+| `local.markdown-pdf-viewer` | up to 0.8.0 | **Document Viewer & Highlighter**, with the settings and commands `markdownPdfViewer.*` |
+| `local.reading-room` | 0.9.0 to 0.11.0 | Reading Room (`readingRoom.*`), installed from a `.vsix`, before it had a publisher |
+| `ArthurSudbrackIbarra.reading-room` | from 0.12.0 | Reading Room on the Marketplace |
+
+- The first time Reading Room starts under its id, it copies `highlights/` and `sounds/` from the newest earlier folder that has them (`adoptEarlierData` in `src/extension.ts`, `copyFolderFromFirst` in `src/store/atomicWrite.ts`). The earlier folder is left as it is. A folder that already exists in the new place is never replaced.
 - Small preferences (last colors, the chosen sound, the volume) start fresh, because VS Code keeps them per extension id.
-- Settings under `markdownPdfViewer.*` and a `"*.pdf": "markdownPdfViewer.pdf"` entry in `workbench.editorAssociations` are not migrated: set them again under the new names.
-- Uninstall the old extension (`code --uninstall-extension local.markdown-pdf-viewer`), or both will offer to open PDF files.
+- Settings under `markdownPdfViewer.*` and a `"*.pdf": "markdownPdfViewer.pdf"` entry in `workbench.editorAssociations` are not migrated: set them again under the new names. Settings under `readingRoom.*` carry over as they are.
+- A copy with the id `local.reading-room` that is still installed keeps working, and Reading Room stays inactive next to it and offers to **switch** (`offerSwitch` in `src/extension.ts`): it copies the data as it is at that moment, uninstalls the earlier copy and reloads the window, in that order. The order matters: VS Code deletes the storage folder of an extension some time after it is uninstalled, so never uninstall the earlier copy before its data was copied.
 
 ## Technical limitations
 

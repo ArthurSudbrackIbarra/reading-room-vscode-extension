@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.12.0 — 2026-11-13
+
+- **Ready for the Marketplace.** The extension's id is now `ArthurSudbrackIbarra.reading-room`. If an earlier version installed from a `.vsix` file (`local.reading-room`) is still there, Reading Room offers to **switch**: it brings your annotations and your own sounds over, uninstalls the earlier copy and reloads the window. Small preferences, such as the last colors and the volume, start fresh.
+- **The select tool is the first of the four tools.**
+- **Drag a selected drawing by its dashed box.** Anywhere inside the box will do; you no longer have to hit the line itself. It works with the select tool and with no tool on.
+- **Shift+click works in every direction.** It selects everything between the last one clicked and this one, to the left or the right, upwards or downwards. Across pages it follows the reading order, as before.
+- **Dark pages has its own button** in the toolbar, next to the reading sounds, and shows when it is on. Only a very narrow panel keeps it in ⋯ More.
+- **The two downloads have their own icons**: a page with a highlight and a pen stroke for the one with annotations, a plain page for the one without.
+- **The select tray says less**: "Drag on the page to select several annotations at once." `Ctrl+click` and `Shift+click` work with any tool, so they are not said there.
+- **The reading marker's line is a little thicker.**
+- **Spacing**:
+  - In the reading marker and download buttons, the icon is now as far from the left edge as the arrow is from the right edge, which shows when the whole button is tinted or outlined.
+  - The pointer of the select tool is centered in its button.
+  - The room under the reading position in the annotations list lights up with its row under the pointer.
+  - The spinner on the loading screen stands clear of the name above it and of the line under it.
+
 ## 0.11.0 — 2026-11-13
 
 - **A select tool**, the pointer in the toolbar, takes the place of the remove tool.

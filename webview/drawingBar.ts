@@ -5,7 +5,7 @@
 //   HIGHLIGHT MODE  ● ● ● ● ● │ Select text to highlight it.                    [Esc] [✓ Done]
 //   DRAW MODE  [pen line arrow rect ellipse eraser] [● ▾] [─ ━ ▬]               [Esc] [✓ Done]
 //   TEXT MODE  [12 ▾] [B] [I] [U] [≡ ≡ ≡ ≡] [● ▾]                               [Esc] [✓ Done]
-//   SELECT MODE  [Select all] [Copy] [Paste] [Delete] │ 3 selected              [Esc] [✓ Done]
+//   SELECT MODE  [Select all] [Copy] [Paste] [Delete] │ Drag to select several… [Esc] [✓ Done]
 //   MARKER MODE  Click the line where you stopped reading.                      [Esc] [Cancel]
 // A group where exactly one is picked sits in a well; toggles (bold, italic, underline) stand
 // alone. With the eraser picked, the three widths are its three sizes and the ink button rests.
@@ -292,7 +292,8 @@ export interface SelectTrayActions {
   done(): void;
 }
 
-const SELECT_HINT = `Click an annotation, or drag around several. ${MOD_KEY}+click adds one, Shift+click a range.`;
+/** (Ctrl+click and Shift+click are not said here: they work with any tool, not just this one.) */
+const SELECT_HINT = 'Drag on the page to select several annotations at once.';
 
 /** The tray of the select tool: what can be done with what is selected, and how many that is. */
 export class SelectTray extends Tray {

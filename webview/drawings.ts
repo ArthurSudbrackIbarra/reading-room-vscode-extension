@@ -73,6 +73,8 @@ const SIMPLIFY_PX = 0.6;
 const DOT_PX = 1.5;
 /** How far from a stroke (pixels, beyond half its width) a click still hits it. */
 const HIT_PX = 5;
+/** How far the dashed box of a selected drawing stands off its stroke (points). */
+const SELECTION_PAD = 3;
 /** Radius (pixels) of the eraser of draw mode, by its size: it rubs out what is under the ring that follows the pointer. */
 export const RUBBER_PX: Record<InkWidth, number> = { thin: 4, medium: 8, thick: 16 };
 /** What the rubber leaves is dropped when it is shorter than this (pixels): crumbs. */
@@ -890,7 +892,8 @@ export class DrawingController {
     const ids = (refs: Ref[], kind: Ref['kind']) => refs.filter((r) => r.kind === kind).map((r) => r.id);
     if (how === 'range') {
       const from = this.anchor;
-      const range = rangeBetween(this.order(), refKey, from ? refKey(from) : undefined, refKey(ref));
+      // On one page: what lies between the two, whichever way that goes. Over several pages: in reading order.
+      const range = (from ? this.between(from, ref) : undefined) ?? rangeBetween(this.order(), refKey, from ? refKey(from) : undefined, refKey(ref));
       this.setSelection(ids(range, 'drawing'), ids(range, 'highlight'));
       this.anchor = from && this.isPicked(from) ? from : ref;
       return;
@@ -906,6 +909,44 @@ export class DrawingController {
     }
     this.setSelection(ids([ref], 'drawing'), ids([ref], 'highlight'), true, at);
     this.anchor = ref;
+  }
+
+  /**
+   * Shift+click on the page of the last one clicked: everything the rectangle around the two
+   * touches, so it works to the left and to the right, upwards and downwards. Undefined when the
+   * two are on different pages (or one of them is not laid out): then the reading order decides.
+   */
+  private between(a: Ref, b: Ref): Ref[] | undefined {
+    const place = (ref: Ref): { page: number; rect: { left: number; top: number; right: number; bottom: number } } | undefined => {
+      const page = ref.kind === 'drawing' ? this.drawings.get(ref.id)?.pageIndex : this.highlights.places().find((p) => p.id === ref.id)?.page;
+      const rect = ref.kind === 'drawing' ? this.clientRectOf(ref.id) : this.highlights.clientRectOf(ref.id);
+      return page !== undefined && rect ? { page, rect } : undefined;
+    };
+    const from = place(a);
+    const to = place(b);
+    const box = from ? this.pageBox(from.page) : undefined;
+    if (!from || !to || !box || from.page !== to.page) return undefined;
+    const rect: [number, number, number, number] = [
+      Math.min(from.rect.left, to.rect.left),
+      Math.min(from.rect.top, to.rect.top),
+      Math.max(from.rect.right, to.rect.right),
+      Math.max(from.rect.bottom, to.rect.bottom),
+    ];
+    const found = new Map<string, Ref>();
+    const add = (ref: Ref) => found.set(refKey(ref), ref);
+    for (const drawing of this.drawings.values()) {
+      if (drawing.pageIndex === from.page && this.inRect(drawing, rect)) add({ kind: 'drawing', id: drawing.id });
+    }
+    const frac: [number, number, number, number] = [
+      (rect[0] - box.left) / box.width,
+      (rect[1] - box.top) / box.height,
+      (rect[2] - box.left) / box.width,
+      (rect[3] - box.top) / box.height,
+    ];
+    for (const id of this.highlights.touching((pageIndex) => (pageIndex === from.page ? frac : undefined))) add({ kind: 'highlight', id });
+    add(a);
+    add(b);
+    return [...found.values()];
   }
 
   /** Everything that can be selected, in reading order: by page, then from the top of the page, then from the left. */
@@ -931,10 +972,27 @@ export class DrawingController {
     const box = pageIndex === undefined ? undefined : this.pageBox(pageIndex);
     if (pageIndex === undefined || !box) return undefined;
     const p = this.toPdf(pageIndex, clientX, clientY, false);
-    const id = p ? this.hitsAt(pageIndex, p, HIT_PX)[0] : undefined;
+    // A stroke or a text box right under the point; else the dashed box of a selected drawing
+    // (the whole box can be dragged); else a highlight.
+    const id = p ? (this.hitsAt(pageIndex, p, HIT_PX)[0] ?? this.boxAt(pageIndex, p)) : undefined;
     if (id) return { kind: 'drawing', id };
     const highlight = this.highlights.hitTestOnPage(pageIndex, (clientX - box.left) / box.width, (clientY - box.top) / box.height);
     return highlight ? { kind: 'highlight', id: highlight } : undefined;
+  }
+
+  /** The selected drawing whose dashed box holds a point (PDF units of the page); the smallest, where boxes overlap. */
+  private boxAt(pageIndex: number, p: PdfPoint): string | undefined {
+    let best: { id: string; area: number } | undefined;
+    for (const id of this.picked) {
+      const drawing = this.drawings.get(id);
+      if (!drawing || drawing.pageIndex !== pageIndex || isTextDrawing(drawing)) continue;
+      const [x0, y0, x1, y1] = this.outline(drawing).bounds;
+      const pad = INK_WIDTH_PT[drawing.width] / 2 + SELECTION_PAD;
+      if (p[0] < x0 - pad || p[0] > x1 + pad || p[1] < y0 - pad || p[1] > y1 + pad) continue;
+      const area = (x1 - x0 + 2 * pad) * (y1 - y0 + 2 * pad);
+      if (!best || area < best.area) best = { id, area };
+    }
+    return best?.id;
   }
 
   // ---------- Copy and paste ----------
@@ -1261,7 +1319,7 @@ export class DrawingController {
   /** The dashed outline around a selected drawing. */
   private selectionElement(drawing: InkDrawing): SVGRectElement {
     const [x0, y0, x1, y1] = pathBounds(shapePath(drawingShape(drawing)));
-    const pad = INK_WIDTH_PT[drawing.width] / 2 + 3;
+    const pad = INK_WIDTH_PT[drawing.width] / 2 + SELECTION_PAD;
     return svgEl('rect', {
       class: 'mpv-drawing-selection',
       'data-for': drawing.id,
@@ -1426,7 +1484,8 @@ export class DrawingController {
     if (document.body.classList.contains('mpv-placing-marker')) return;
     const handle = target?.closest?.('.mpv-text-handle') as SVGElement | null;
     if (handle?.dataset.id && this.startResize(e, handle.dataset.id, handle.dataset.side === 'left' ? 'left' : 'right')) return;
-    const hitId = (target?.closest?.('.mpv-drawing') as SVGElement | null)?.dataset.id;
+    // A drawing or text box itself, or the dashed box of a selected drawing (the whole box can be dragged).
+    const hitId = (target?.closest?.('.mpv-drawing') as SVGElement | null)?.dataset.id ?? (target?.closest?.('.mpv-drawing-selection') as SVGElement | null)?.dataset.for;
     const toggle = e.ctrlKey || e.metaKey;
     if (!hitId) {
       // (With Ctrl held, the click may be on a highlight, which then joins the selection: the App sees to that.)
