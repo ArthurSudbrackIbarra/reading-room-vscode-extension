@@ -77,6 +77,13 @@ export class ReadingMarkerController {
     return this.placingMode;
   }
 
+  /** The day the marker was placed, for the reader. */
+  static day(marker: ReadingMarker): string {
+    const date = new Date(marker.createdAt);
+    if (Number.isNaN(date.getTime()) || date.getTime() === 0) return '';
+    return date.toLocaleDateString(undefined, { dateStyle: 'medium' });
+  }
+
   static describe(marker: ReadingMarker): string {
     const date = formatDate(marker.createdAt);
     return date ? `You stopped reading here (${date})` : 'You stopped reading here';
@@ -285,7 +292,9 @@ export class ReadingMarkerController {
       const ghost = document.createElement('div');
       ghost.className = 'mpv-marker mpv-marker-ghost';
       ghost.style.top = `${(this.ghost.y * 100).toFixed(4)}%`;
-      ghost.append(Object.assign(document.createElement('div'), { className: 'mpv-marker-line' }));
+      const tab = Object.assign(document.createElement('span'), { className: 'mpv-marker-tab' });
+      tab.append(Object.assign(document.createElement('span'), { className: 'codicon codicon-bookmark' }));
+      ghost.append(Object.assign(document.createElement('div'), { className: 'mpv-marker-line' }), tab);
       layer.append(ghost);
     }
   }

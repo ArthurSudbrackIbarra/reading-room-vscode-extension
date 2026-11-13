@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.12.0 — 2026-11-13
+
+- **Ready for the Marketplace.** The extension's id is now `ArthurSudbrackIbarra.reading-room`. If an earlier version installed from a `.vsix` file (`local.reading-room`) is still there, Reading Room offers to **switch**: it brings your annotations and your own sounds over, uninstalls the earlier copy and reloads the window. Small preferences, such as the last colors and the volume, start fresh.
+- **The select tool is the first of the four tools.**
+- **Drag a selected drawing by its dashed box.** Anywhere inside the box will do; you no longer have to hit the line itself. It works with the select tool and with no tool on.
+- **Shift+click works in every direction.** It selects everything between the last one clicked and this one, to the left or the right, upwards or downwards. Across pages it follows the reading order, as before.
+- **Dark pages has its own button** in the toolbar, next to the reading sounds, and shows when it is on. Only a very narrow panel keeps it in ⋯ More.
+- **The two downloads have their own icons**: a page with a highlight and a pen stroke for the one with annotations, a plain page for the one without.
+- **The select tray says less**: "Drag on the page to select several annotations at once." `Ctrl+click` and `Shift+click` work with any tool, so they are not said there.
+- **The reading marker's line is a little thicker.**
+- **Spacing**:
+  - In the reading marker and download buttons, the icon is now as far from the left edge as the arrow is from the right edge, which shows when the whole button is tinted or outlined.
+  - The pointer of the select tool is centered in its button.
+  - The room under the reading position in the annotations list lights up with its row under the pointer.
+  - The spinner on the loading screen stands clear of the name above it and of the line under it.
+
+## 0.11.0 — 2026-11-13
+
+- **A select tool**, the pointer in the toolbar, takes the place of the remove tool.
+  - **Click** a highlight, a drawing or a text box to select it, or **drag a rectangle** around several. The rectangle takes the strokes it touches, not everything whose corner it reaches.
+  - **Ctrl+click** adds one to the selection or takes it out. **Shift+click** selects everything from the last one clicked to this one, in reading order. `Ctrl+A` selects everything.
+  - **Drag** one of the selected drawings or text boxes to move them all together, as one undo step. Each stays on its own page.
+  - **Delete** deletes everything selected, highlights included, as one undo step.
+  - Its tray has **Select all**, **Copy**, **Paste** and **Delete**, and says how many things are selected. **Esc** lets go of the selection first, then turns the tool off.
+- **Copy, cut and paste** for drawings and text boxes: `Ctrl+C`, `Ctrl+X` and `Ctrl+V`, the select tray, and a new **Copy** button in the bar of a drawing and of a text box. A paste lands on the page in view, where the original was on its page; on the original's own page it lands a little down and to the right. What is pasted is selected, ready to be dragged. Copying highlights copies their text.
+- **Several things can be selected without the select tool too**: `Ctrl+click` drawings, text boxes and highlights, then move, copy or delete them together. `Delete` now works on everything that is selected.
+- **The tray looks like the toolbar.** No blue tint, no blue line, and no arrow from the tool to the tray. The tray starts with the name of the mode, **HIGHLIGHT MODE**, **DRAW MODE**, **TEXT MODE**, **SELECT MODE** or **MARKER MODE**, and the options follow right after it. **Done** is a plain outlined button.
+- **The arrows of the reading marker and download buttons are centered** in the part that lights up under the pointer, and so are their icons.
+- **A little more room** under the reading position at the top of the annotations list, before the first section.
+- **The title-bar button** that opens a file in Reading Room is the book with the red ribbon, the same as on the tab.
+- **Reading sounds**: the line under **Custom** now only says that you can add your own audio files, that they play in a loop, and which formats are accepted.
+- The command **Toggle Remove Tool** is now **Toggle Select Mode**. If you gave it a shortcut, set it again.
+
+## 0.10.0 — 2026-11-12
+
+A redesign of the whole viewer: a calm bar while reading, and one way of showing what is on.
+
+- **A toolbar in three groups that never wraps.** Finding your place (the list, the page, the zoom) on the left, the tools in the middle, the room (sounds, download, More) on the right. In a narrow panel the bar stays one row: what does not fit moves into the new **⋯ More** menu, which always lists exactly what is missing from the bar.
+- **The four tools share one frame**, in the order highlight, draw, text, remove. The one that is on is tinted and outlined, and a small arrow ties it to its **tray**, the row under the toolbar.
+- **Every tool has a tray, and every tray ends with Done.** Highlight and remove got one too, and so did placing the reading marker (with **Cancel**). The tray says which tool is on and what it does. Done, a second click on the tool and **Esc** all turn it off. The pages stay where they are on screen when a tray opens or closes.
+- **The highlight colors moved into the highlight tool's tray.** They are still in the bar next to a selection and in a highlight's own bar. The band under the highlighter shows the current color.
+- **Dark pages, Full view and Convert again moved into ⋯ More.** Dark pages and Full view show a check when they are on.
+- **The page and the zoom are one control each.** The page is "n / N" between its two arrows, with the number as far from one arrow as the count is from the other. The zoom is −, its value and +; the value opens the list of zoom levels.
+- **"On" follows your color theme.** A tint and an outline in the theme's own accent color, stronger for the tool that is on, lighter for a picked option (a drawing tool, a width, bold, an alignment). High-contrast themes show state with lines only. Options of which exactly one is picked sit together in a frame; toggles stand alone.
+- **Menus instead of the system's lists** for the zoom, the font size and what a drawing follows: they look like the rest and work with the keyboard (`↓` or `Enter` opens, `↑` `↓` `Home` `End` move, typing jumps, `Esc` closes).
+- **The annotations list**:
+  - **Search** highlights by their text and their notes, show only some **colors**, or only highlights **with notes**.
+  - Sections **collapse** (remembered for all files), and each shows its count.
+  - **A click selects an entry**, and what can be done with it opens under it. Nothing depends on hovering any more, so everything works with the keyboard and on touch screens.
+  - A changed highlight is marked **Changed**, with the old text struck through and **Keep as it is now** always in view. A drawing that is not shown is marked **Not shown**, with **Put back on the page**.
+  - An empty list says what goes there and how to start.
+- **All popups look alike** and have the same order: how it looks, what you can do with it, delete last. The text box's bar has two rows and is much narrower. Writing a note grows the highlight's bar in place. Every delete button turns red under the pointer.
+- **Reading sounds**: the three kinds are one row, recordings are a list of radio rows, and **rename** and **remove** of your own sounds are on the picked row instead of appearing on hover.
+- **New icons**: two A's for the text tool, a wand with an × for the remove tool (and for its cursor, whose tip is what points), minus and plus for the zoom.
+- **A new face**: a new extension icon (an open book with a highlighted line and the red ribbon), a book on the tab, and the tab's title is the file's name (no more "PDF:").
+- **Messages**: toasts are pills; a restored tab that is not at the reading marker offers to **Continue** there; the first load shows the name of the file being opened.
+- On the page: the reading marker is a thinner line with a rounder tab, which also follows the pointer while it is being placed; selected drawings and text boxes get an outline that shows on white and on dark pages.
+- **Fixed**: the eraser's hint and the placing hint no longer cover the bottom of the page as toasts (the trays say it).
+
 ## 0.9.0 — 2026-11-12
 
 - **A new name: Reading Room.** The extension grew from a PDF preview into a place to read and study, and is now named and described that way. Everything that carried the old name follows:

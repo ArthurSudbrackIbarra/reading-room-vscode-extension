@@ -17,9 +17,10 @@
 - **Highlight** text in five colors and write a **note** on any highlight.
 - **Draw** anywhere on a page: pen strokes, lines, arrows, rectangles and ellipses, in any color and three widths.
 - **Type** anywhere on a page: text boxes in any color and size, with bold, italic and underline on any part of the text.
-- **Take things back**: an undo button and `Ctrl+Z`, a remove tool that deletes whole annotations with a click, and an eraser that rubs out part of a drawing.
+- **Select** several annotations at once, with a click or a rectangle, to move, copy, paste or delete them together.
+- **Take things back**: an undo button and `Ctrl+Z`, and an eraser that rubs out part of a drawing.
 - **Your annotations stay on their content** when the file changes. They follow the words (or the picture) they are on through your edits. If that content is deleted they are kept and listed, and they return when it does.
-- A side list shows every highlight, note, drawing and text box; click one to jump to it.
+- A side list shows every highlight, note, drawing and text box. Search it, filter it by color, click an entry to jump to it.
 
 **Keep your place**
 
@@ -44,7 +45,8 @@
 - [Highlights and notes](#highlights-and-notes)
 - [Drawing](#drawing)
 - [Text boxes](#text-boxes)
-- [Removing and undoing](#removing-and-undoing)
+- [Selecting, copying and pasting](#selecting-copying-and-pasting)
+- [Deleting and undoing](#deleting-and-undoing)
 - [When the document changes](#when-the-document-changes)
 - [Where you stopped reading](#where-you-stopped-reading)
 - [Reading sounds](#reading-sounds)
@@ -76,46 +78,51 @@
 Good to know:
 
 - Each file has one Reading Room tab; opening it again brings that tab forward.
-- A Markdown or text file is converted again when you **save** it, and you stay where you were. **Refresh** also shows unsaved changes.
+- A Markdown or text file is converted again when you **save** it, and you stay where you were. **Convert the document again** (in the ⋯ menu) also shows unsaved changes.
 - A PDF file is reloaded when it changes on disk.
 
 ## The toolbar
 
+One row, in three groups: finding your place on the left, the tools in the middle, the room on the right.
+
 | Control | What it does |
 | --- | --- |
 | ☰ | Show or hide the list of annotations: the reading position, highlights with their notes, drawings and text boxes |
-| ↑ ↓, page box | Previous and next page, go to a page |
-| − / zoom list / + | Zoom out, choose a zoom (Fit Width, Fit Page, Actual Size, 50 %–400 %), zoom in |
+| ↑ n / N ↓ | Previous and next page; type a number and press **Enter** to go to a page |
+| − zoom ▾ + | Zoom out, choose a zoom (Fit width, Fit page, Actual size, 50 %–400 %), zoom in |
+| Pointer | **Select tool**: click an annotation, or drag a rectangle around several, then move, copy, paste or delete them together (see [Selecting, copying and pasting](#selecting-copying-and-pasting)) |
 | Highlighter | **Highlight tool**: while it is on, every text selection becomes a highlight. The band under the icon shows the current color |
-| ● ● ● ● ● | Highlight color: yellow, pink, green, blue, orange |
-| Pencil | **Draw mode**: a second row of drawing tools appears (see [Drawing](#drawing)). The band shows the current ink |
-| T | **Text mode**: a second row of text tools appears (see [Text boxes](#text-boxes)). The band shows the color new text gets |
-| Pointer with × | **Remove tool**: a click deletes the highlight, drawing or text box under the pointer; a drag deletes everything it goes over |
+| Pencil | **Draw tool**: pen, lines, arrows, rectangles, ellipses and an eraser (see [Drawing](#drawing)). The band shows the current ink |
+| AA | **Text tool**: type anywhere on a page (see [Text boxes](#text-boxes)). The band shows the color new text gets |
 | 🔖 ▾ | **Reading marker**: click, then click the line where you stopped. The menu also has _Go to_ and _Remove_ |
 | ↶ | **Undo** the last change. Its tooltip says what it will take back |
 | 🎧 | **Reading sounds**: play rain, a fireplace or your own sounds |
-| ◐ | **Light or dark pages** |
-| ⟳ | Convert again (Markdown, text) or reload from disk (PDF) |
-| ⤢ | **Full view** (Markdown, text): move the pages between "next to the source" and "in the source's editor group" |
+| ◐ | **Dark pages**: switch the pages between light and dark |
 | ⤓ ▾ | Download a PDF, with your annotations (the default) or without |
+| ⋯ | **More**: **Full view** (Markdown, text: the pages take the source's editor group instead of standing next to it) and **Convert the document again** (PDF files: **Reload from disk**) |
 
-What is switched on, and what is picked in the second row (the tool, the width, the alignment), is marked in blue. The highlight tool, draw mode, text mode, the remove tool and placing the reading marker exclude each other: turning one on turns the others off.
+**One tool at a time.** The four tools share one frame, and turning one on turns the others off. The tool that is on is tinted and outlined, and a second row opens under the toolbar: its **tray**. The tray looks like the toolbar. It starts with the name of the mode (**DRAW MODE**, **TEXT MODE**, …), holds that tool's options right after it, and ends with **Done**. Done, a second click on the tool and **Esc** all turn the tool off. Placing the reading marker works the same way, with **Cancel**.
+
+**In a narrow panel** the toolbar stays one row. What does not fit moves into ⋯, which always lists exactly what is missing from the bar: first the zoom and the download, then the reading marker and the sounds, and in a very narrow panel the page number and dark pages.
 
 ## Highlights and notes
 
-- **Highlight tool on**: select text, and it is highlighted in the current color.
+- **Highlight tool on**: select text, and it is highlighted in the current color. Its tray has the five colors: yellow, pink, green, blue, orange.
 - **Highlight tool off**: select text and a small bar appears next to the selection. Pick a color, use 💬 to highlight and write a note right away, or 🔖 to mark that line as your reading position.
-- **Click a highlight** to change its color, add or edit its note, copy its text or delete it. While its bar is open, **Delete** deletes it and **Enter** opens its note.
+- **Click a highlight** to change its color, add or edit its note, copy its text or delete it. While its bar is open, **Delete** deletes it and **Enter** opens its note. A note shows under the buttons; click it to edit it.
 - **Notes**: type, then press **Ctrl+Enter** or click **Save**. Clicking elsewhere also saves; **Esc** cancels. Highlights with a note have a darker underline and a 💬 badge in the right margin; hover to read the note.
-- The **☰ list** shows your reading position at the top, then all highlights in document order with their notes, then your drawings and text boxes. Click one to jump to it.
+- The **☰ list** shows your reading position at the top, then all highlights in document order with their notes, then your drawings and text boxes.
+  - **Click an entry** to jump to it. The entry is selected, and what you can do with it opens under it: add or edit the note, copy, delete.
+  - **Search** finds highlights by their text and their notes. The five dots show only the highlights of those colors, and **With notes** only the ones that have a note.
+  - Click a section's title to **collapse** it. That is remembered.
 
 ## Drawing
 
 Circle a figure, underline a line, point at something with an arrow, scribble in the margin. Drawing works on any page: over text, pictures, tables and empty space, on light and dark pages, at any zoom, with mouse, pen and touch.
 
-Click the pencil in the toolbar. A second row appears, starting with the words **DRAW MODE**, and every drag on a page draws:
+Click the pencil in the toolbar. Its tray opens, and every drag on a page draws:
 
-<img src="docs/drawing-bar.png" alt="The toolbar with draw mode on: the pencil button is marked in blue. Below it, the drawing bar: the words DRAW MODE, the tools (pen, line, arrow, rectangle, ellipse, eraser) with the pen marked in blue, the ink color, three widths and a Done button on the right" width="870">
+<img src="docs/drawing-bar.png" alt="The toolbar with the draw tool on: the pencil is tinted and outlined. Under it, its tray: the words DRAW MODE, the tools (pen, line, arrow, rectangle, ellipse, eraser) in one frame with the pen picked, the ink color, three widths in one frame, the Esc key and a Done button on the right" width="870">
 
 | Tool | Key | Draws | With Shift |
 | --- | --- | --- | --- |
@@ -128,33 +135,47 @@ Click the pencil in the toolbar. A second row appears, starting with the words *
 
 - **Ink**: the colored dot opens the color picker. Pick one of twelve colors, one of your recent colors, or any color (drag in the square and along the rainbow, or type a hex code).
 - **Width**: thin, medium or thick.
-- **Eraser**: a ring follows the pointer and shows exactly what will be rubbed out, also while you drag. With the eraser picked, the three widths become its three **sizes** (small, medium, large), and the ring grows with them. Drag across a line to cut it in two, along it to shorten it.
+- **Eraser**: a ring follows the pointer and shows exactly what will be rubbed out, also while you drag. With the eraser picked, the three widths become its three **sizes** (small, medium, large), the ring grows with them, and the ink button rests: the eraser has no color. Drag across a line to cut it in two, along it to shorten it.
 - **Stop drawing** with **Esc**, **Done** or the pencil. Esc while dragging cancels only that shape.
 
-<img src="docs/color-picker.png" alt="The color picker: twelve colors in two rows of six, red picked; below, a saturation and brightness square, a rainbow hue slider and the hex code #D1242F" width="208">
+<img src="docs/color-picker.png" alt="The color picker: twelve colors in two rows of six, red picked; below, a saturation and brightness square, a rainbow hue slider and the hex code #D1242F" width="214">
 
-**Change a drawing** (with draw mode off): click its line. It gets a dashed outline and a small bar to pick another ink or width, to choose what it follows, or to delete it. Drag a selected drawing to move it.
+**Change a drawing** (with the draw tool off): click its line. It gets a dashed outline and a small bar to pick another ink or width, to choose what it follows, or to delete it. Drag a selected drawing to move it.
 
 ## Text boxes
 
-Write a word in the margin, label an arrow, add a correction. Click **T** in the toolbar. A second row appears, starting with the words **TEXT MODE**:
+Write a word in the margin, label an arrow, add a correction. Click **AA** in the toolbar. Its tray opens:
 
-<img src="docs/text-bar.png" alt="The toolbar with text mode on: the T button is marked in blue. Below it, the text bar: the words TEXT MODE, the font size, bold, italic and underline, the four alignments with left marked in blue, the text color and a Done button on the right" width="870">
+<img src="docs/text-bar.png" alt="The toolbar with the text tool on: the AA button is tinted and outlined. Under it, its tray: the words TEXT MODE, the font size, bold, italic and underline, the four alignments in one frame with left picked, the text color, the Esc key and a Done button on the right" width="870">
 
 - **Click** on a page and type. The box grows as you type; **Enter** starts a new line.
 - **Drag** across a page instead to choose the box's width first: the text wraps inside it.
 - **Size, alignment and color** apply to the whole box.
 - **Bold, italic and underline** go where you want them: select part of the text and click **B**, _I_ or U, or press `Ctrl+B`, `Ctrl+I`, `Ctrl+U`.
-- **Esc**, `Ctrl+Enter` or a click elsewhere ends typing. **Esc** again, **Done** or **T** leaves text mode.
+- **Esc**, `Ctrl+Enter` or a click elsewhere ends typing. **Esc** again, **Done** or **AA** turns the text tool off.
 
-**Change a text box**: in text mode, click its text to type in it, or drag it to move it. With text mode off, click a box to select it: a small bar changes its color, size, alignment and style, edits it (**Enter** or a double click) or deletes it. Drag a handle on its side to make it wider or narrower.
+**Change a text box**: with the text tool on, click its text to type in it, or drag it to move it. With the tool off, click a box to select it: a small bar changes its color, size, alignment and style, edits it (**Enter** or a double click) or deletes it. Drag a handle on its side to make it wider or narrower.
 
-## Removing and undoing
+## Selecting, copying and pasting
+
+Click the pointer in the toolbar to turn the **select tool** on. Its tray has the actions and says how many things are selected:
+
+<img src="docs/select-bar.png" alt="The toolbar with the select tool on: the pointer is tinted and outlined. Under it, its tray: the words SELECT MODE, the buttons Select all, Copy, Paste and Delete, the text 4 selected, the Esc key and a Done button on the right" width="870">
+
+- **Click** a highlight, a drawing or a text box to select it. **Drag** from anywhere else to open a rectangle: everything it touches is selected.
+- **Ctrl+click** adds one more to the selection, or takes it out. **Shift+click** selects everything between the last one you clicked and this one, in any direction: to the left or the right, upwards or downwards. (Across pages, it follows the reading order.) Hold `Ctrl` or `Shift` while you drag a rectangle to add what it touches. `Ctrl+A`, or **Select all**, takes everything.
+- **Drag** one of the selected drawings or text boxes and they all move together. You do not have to aim at a line or a letter: anywhere inside the dashed box of a selected drawing will do. Each stays on its own page. Highlights stay on their text.
+- **Delete** (the key or the button) deletes everything that is selected. One undo brings it all back.
+- **Copy** (`Ctrl+C`), **cut** (`Ctrl+X`) and **paste** (`Ctrl+V`) work on drawings and text boxes. They are pasted on the page in view, at the place they had on their own page. On the page of the original, the copy lands a little down and to the right, so it does not cover it. What is pasted is selected, ready to be dragged where it belongs. Highlights belong to their text, so they cannot be pasted: copying them copies their text.
+- **Esc** lets go of the selection. **Esc** again, **Done** or the pointer turns the tool off.
+
+**With no tool on**, the same works on what you click. Click a drawing, a text box or a highlight to select it, `Ctrl+click` others to add them, drag them by their dashed box, then use `Delete`, `Ctrl+C`, `Ctrl+X` and `Ctrl+V`. The bar of a drawing and of a text box has a **Copy** button too.
+
+## Deleting and undoing
 
 - **Undo**: the ↶ button in the toolbar, or `Ctrl+Z`, takes back the last change to your highlights, notes, drawings, text boxes and reading marker. `Ctrl+Y` or `Ctrl+Shift+Z` redoes it. While you type in a note or a text box, undo takes back the typing instead.
-- **Remove tool** (the pointer with an ×): point at a highlight, drawing or text box and it fades, to show what a click would delete. Click to delete it, or drag to delete everything the pointer goes over. Each click or drag is one undo step. **Esc** leaves the tool.
-- **Eraser** (in the drawing row): rubs out only the part of a drawing under its ring. It leaves highlights and text boxes alone.
-- **Delete** or **Backspace** deletes whatever is selected.
+- **Delete** or **Backspace** deletes whatever is selected: one thing you clicked, or everything the select tool took.
+- **Eraser** (in the draw tool's tray): rubs out only the part of a drawing under its ring. It leaves highlights and text boxes alone.
 - Deleting everything of one kind: the 🗑 next to **Drawings** or **Text boxes** in the ☰ list, or the commands **Delete All Highlights / Drawings / Text Boxes for This File**. They ask first, and undo brings everything back.
 
 ## When the document changes
@@ -165,7 +186,7 @@ Markdown and text files change while you read them: you edit them, a formatter r
 | --- | --- |
 | Text added or removed elsewhere, lines rewrapped, another page size | Everything stays on the same words, wherever they are now |
 | Bold, links, heading levels and other formatting | Nothing changes |
-| Words changed inside a highlight | It stays on the passage. The list shows **was … / now …**; ✓ keeps it on the text as it is now |
+| Words changed inside a highlight | It stays on the passage. The list marks it **Changed** and shows the old text struck through above the new one; **Keep as it is now** keeps it on the text as it is now |
 | The start or the end of a highlight deleted | It shrinks to what is left |
 | All of its text deleted | It becomes **orphaned**: kept with its note and listed with the reason, not shown on the page |
 | Its text replaced by other text | Orphaned, with a button to attach it to the text that took its place |
@@ -184,26 +205,28 @@ The reading marker is a red line with a bookmark tab. There is one per document.
 
 - **Place it**: click 🔖 in the toolbar, then click a line. Or select some text and click 🔖 in the selection bar.
 - **Next time you open the document**, Reading Room scrolls straight to the marker.
-- **Move or remove it**: click its tab, use the 🔖 ▾ menu, or use the ☰ list.
+- **Move or remove it**: click its tab, use the 🔖 ▾ menu, or select it in the ☰ list.
+- When a restored tab is somewhere else in the document, a message offers to **Continue** where you stopped.
 
 ## Reading sounds
 
-<img src="docs/reading-sounds.png" alt="The reading sounds panel: Rain is chosen and the Half-open window recording plays, with four other rain recordings listed below it, a pause button and a volume slider at 70 %" width="328">
+<img src="docs/reading-sounds.png" alt="The reading sounds panel: Rain is picked of Rain, Fireplace and Custom, and the Half-open window recording plays, with four other rain recordings listed below it, a pause button and a volume slider at 70 %" width="286">
 
 Click 🎧 in the toolbar:
 
 - **Pick a kind of sound**: **Rain**, **Fireplace** or **Custom** (your own). It starts with a short fade-in.
+- In a narrow panel the 🎧 is in the ⋯ menu: **Reading sounds…**.
 - **Pick the recording** in the list below. Each kind remembers its choice.
 - **Pause or play** with the round button and set the **volume** with the slider.
 - The panel closes when you click elsewhere. The sound keeps playing until you pause it, also when you switch to another tab.
 
 The sound never ends and never clicks, and all recordings are equally loud. One sound plays at a time, however many documents are open. The command **Reading Room: Play/Pause Reading Sounds** works from anywhere, and you can give it a shortcut.
 
-**Your own sounds**: under **Custom**, **Add sound files…** adds MP3, Ogg Vorbis, WAV or FLAC files (up to 150 MB each). They loop like the built-in ones and play as loud. Reading Room keeps its own copy, so you can move or delete the original. Hover over a sound to rename or remove it.
+**Your own sounds**: under **Custom**, **Add sound files…** adds MP3, Ogg Vorbis, WAV or FLAC files (up to 150 MB each). They loop like the built-in ones and play as loud. Reading Room keeps its own copy, so you can move or delete the original. The sound that is picked has two buttons, to rename it and to remove it.
 
 ## Dark pages
 
-◐ switches all pages to a dark theme. Markdown and text files are converted again with dark colors. PDF files are inverted, keeping their hues; pictures keep their real colors. Downloads always use normal light pages.
+The **◐** button in the toolbar switches all pages to a dark theme, and back. (In a very narrow panel it is **Dark pages** in the ⋯ menu.) Markdown and text files are converted again with dark colors. PDF files are inverted, keeping their hues; pictures keep their real colors. Downloads always use normal light pages.
 
 ## Download
 
@@ -223,10 +246,15 @@ The sound never ends and never clicks, and all recordings are equally loud. One 
 | `Ctrl+Z` | Undo | Reading Room is focused |
 | `Ctrl+Y`, `Ctrl+Shift+Z` | Redo | Reading Room is focused |
 | `Delete`, `Backspace` | Delete what is selected | Something is selected |
+| `Ctrl+C`, `Ctrl+X` | Copy or cut what is selected (highlights: their text) | Something is selected |
+| `Ctrl+V` | Paste copied drawings and text boxes on the page in view | Reading Room is focused |
+| `Ctrl+click`, `Shift+click` | Add to the selection or take out of it; select a range | Over an annotation |
+| `Ctrl+A` | Select every highlight, drawing and text box | The select tool is on |
 | `Enter` | Edit what is selected: type in the text box, write the highlight's note | A text box or a highlight is selected |
 | `Ctrl+Enter` | Save the note; stop typing in a text box | Writing a note or typing in a text box |
-| `Esc` | Cancel what is in progress; otherwise leave the mode, close popups, deselect | Reading Room is focused |
-| `P`, `L`, `A`, `R`, `O`, `E` | Pen, Line, Arrow, Rectangle, Ellipse, Eraser | Draw mode is on |
+| `Esc` | Back out of one thing at a time: what is in progress, an open menu or popup, the selected entry of the list, what the select tool selected, the tool that is on | Reading Room is focused |
+| `P`, `L`, `A`, `R`, `O`, `E` | Pen, Line, Arrow, Rectangle, Ellipse, Eraser | The draw tool is on |
+| `↓`, `Enter`, `Space` | Open a menu; `↑` `↓` `Home` `End` move in it, typing jumps to an item | A button with a ▾ (or ⋯) is focused |
 | `Shift` (held) | Lines and arrows in 15° steps; squares and circles | Drawing a shape |
 | `Ctrl+B`, `Ctrl+I`, `Ctrl+U` | Bold, italic, underline | Typing in a text box |
 | `Ctrl+=`, `Ctrl+Numpad+` | Zoom in | Reading Room is focused |
@@ -275,7 +303,7 @@ Highlights, notes, drawings, text boxes, reading positions and your own sounds l
 - **"needs Chrome, Edge or Chromium"** (Markdown and text only): install one of them, choose a browser when asked, or let Reading Room download Chromium.
 - **The browser cannot start** (some company policies block it): choose **Download Chromium** in the message, or set `readingRoom.chromiumPath` to another browser.
 - **An image is missing**: the yellow banner and **Reading Room: Show Log** list every image that could not be loaded.
-- **The pages look outdated**: press ⟳, or run **Reading Room: Clear Cached Pages**.
+- **The pages look outdated**: choose **Convert the document again** in the ⋯ menu, or run **Reading Room: Clear Cached Pages**.
 - **"Click anywhere in this viewer to start the sound"**: VS Code lets a tab play sound only after you have clicked or typed in it. One click and it plays.
 - **"… can't be played in VS Code"**: the file's audio is in a format VS Code lacks (usually Opus or AAC). Convert it to MP3, Ogg Vorbis, WAV or FLAC.
 - Anything else: run **Reading Room: Show Log**.

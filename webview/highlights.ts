@@ -130,10 +130,8 @@ export class HighlightController {
   private ready: Promise<void> = Promise.resolve();
   private marginsPt = { top: 51, bottom: 57 };
   private flashTimer?: ReturnType<typeof setTimeout>;
-  /** Highlights shown dimmed: the eraser would delete them, or already took them in this gesture. */
-  private erasing = new Set<string>();
-  /** The highlight whose popover is open: Delete deletes it. */
-  private selectedId?: string;
+  /** The selected highlights (the one whose popover is open, those picked with the select tool): Delete deletes them. */
+  private selected = new Set<string>();
 
   constructor(
     private readonly viewer: Viewer,
@@ -523,14 +521,24 @@ export class HighlightController {
         const box = document.createElement('div');
         box.className = rt.data.note ? 'mpv-hl mpv-noted' : 'mpv-hl';
         box.dataset.id = rt.data.id;
-        box.classList.toggle('mpv-erasing', this.erasing.has(rt.data.id));
-        box.classList.toggle('mpv-selected', this.selectedId === rt.data.id);
+        const picked = this.selected.has(rt.data.id);
+        box.classList.toggle('mpv-selected', picked);
         box.style.left = `${(x1 * 100).toFixed(4)}%`;
         box.style.top = `${(y1 * 100).toFixed(4)}%`;
         box.style.width = `${((x2 - x1) * 100).toFixed(4)}%`;
         box.style.height = `${((y2 - y1) * 100).toFixed(4)}%`;
         box.style.setProperty('--hl', HIGHLIGHT_HEX[rt.data.color]);
         layer.append(box);
+        if (!picked) continue;
+        // A selected highlight gets the same dashed outline as a selected drawing (an element of
+        // its own: the highlight itself is see-through and blended with the page).
+        const outline = document.createElement('div');
+        outline.className = 'mpv-hl-outline';
+        outline.style.left = box.style.left;
+        outline.style.top = box.style.top;
+        outline.style.width = box.style.width;
+        outline.style.height = box.style.height;
+        layer.append(outline);
       }
     }
   }
@@ -557,7 +565,6 @@ export class HighlightController {
       badge.type = 'button';
       badge.className = 'mpv-note-badge';
       badge.dataset.id = rt.data.id;
-      badge.classList.toggle('mpv-erasing', this.erasing.has(rt.data.id));
       badge.setAttribute('aria-label', `Note: ${rt.data.note}`);
       badge.style.top = `${(top * 100).toFixed(4)}%`;
       badge.style.setProperty('--stack', String(stack));
@@ -584,18 +591,49 @@ export class HighlightController {
     this.layers.redraw(BADGE_LAYER);
   }
 
-  /** Shows these highlights (and their note badges) dimmed: what the eraser is about to delete. */
-  setErasing(ids: Set<string>): void {
-    if (ids.size === this.erasing.size && [...ids].every((id) => this.erasing.has(id))) return;
-    this.erasing = new Set(ids);
-    for (const el of document.querySelectorAll<HTMLElement>('.mpv-hl, .mpv-note-badge')) el.classList.toggle('mpv-erasing', ids.has(el.dataset.id ?? ''));
+  /** Marks these highlights as selected (and no other). */
+  setSelected(ids: Iterable<string>): void {
+    const next = new Set([...ids].filter((id) => this.runtimes.has(id)));
+    const changed = [...next].filter((id) => !this.selected.has(id)).concat([...this.selected].filter((id) => !next.has(id)));
+    this.selected = next;
+    const pages = new Set<number>();
+    for (const id of changed) for (const page of this.runtimes.get(id)?.pages.keys() ?? []) pages.add(page);
+    for (const page of pages) this.layers.redraw(HL_LAYER, page);
   }
 
-  /** Marks one highlight as selected (the one whose popover is open), or none. */
-  setSelected(id: string | undefined): void {
-    if (id === this.selectedId) return;
-    this.selectedId = id;
-    for (const el of document.querySelectorAll<HTMLElement>('.mpv-hl')) el.classList.toggle('mpv-selected', el.dataset.id === id);
+  /** The anchored highlights, each with where it starts (its first page; top and left as fractions of that page), for the reading order. */
+  places(): { id: string; page: number; top: number; left: number }[] {
+    const out: { id: string; page: number; top: number; left: number }[] = [];
+    for (const rt of this.runtimes.values()) {
+      if (rt.data.status !== 'anchored') continue;
+      const page = rt.pages.size > 0 ? Math.min(...rt.pages.keys()) : this.firstPageOf(rt.data.id);
+      if (page === undefined) continue;
+      const first = (rt.pages.get(page) ?? [])[0];
+      out.push({ id: rt.data.id, page, top: first?.[1] ?? 0, left: first?.[0] ?? 0 });
+    }
+    return out;
+  }
+
+  /**
+   * The highlights a rectangle touches. `rectOn` gives the rectangle on a page as fractions of
+   * that page (x1, y1, x2, y2), or undefined for a page it does not reach.
+   */
+  touching(rectOn: (pageIndex: number) => Frac | undefined): string[] {
+    const ids: string[] = [];
+    for (const rt of this.runtimes.values()) {
+      if (rt.data.status !== 'anchored') continue;
+      let hit = false;
+      for (const [page, rects] of rt.pages) {
+        const r = rectOn(page);
+        if (!r) continue;
+        if (rects.some(([x1, y1, x2, y2]) => x1 <= r[2] && x2 >= r[0] && y1 <= r[3] && y2 >= r[1])) {
+          hit = true;
+          break;
+        }
+      }
+      if (hit) ids.push(rt.data.id);
+    }
+    return ids;
   }
 
   flash(id: string): void {

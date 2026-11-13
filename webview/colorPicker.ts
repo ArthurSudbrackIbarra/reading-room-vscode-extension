@@ -16,7 +16,7 @@ import {
   type HexColor,
   type Ink,
 } from '../src/shared/colors';
-import { h, placeFloating } from './dom';
+import { h, placeUnder, swatchButton } from './dom';
 import { setInk } from './drawings';
 import { chevronIcon } from './icons';
 
@@ -35,7 +35,7 @@ export interface ColorPickerRequest {
 /** A button that shows a color (a dot in its ink) and opens the picker. */
 export class ColorButton {
   readonly element: HTMLButtonElement;
-  private readonly dot = h('span', { class: 'mpv-color-dot', 'aria-hidden': 'true' });
+  private readonly dot = h('span', { class: 'mpv-dot', 'aria-hidden': 'true' });
 
   constructor(
     private readonly label: string,
@@ -69,12 +69,12 @@ export class ColorPicker {
   private pending = false;
   private readonly presets = new Map<Ink, HTMLButtonElement>();
   private readonly recentRow = h('div', { class: 'mpv-cp-swatches mpv-cp-recent', role: 'group', 'aria-label': 'Recent colors' });
-  private readonly recentLabel = h('div', { class: 'mpv-cp-label', text: 'Recent' });
+  private readonly recentLabel = h('div', { class: 'mpv-cp-label mpv-caps', text: 'Recent' });
   private readonly area = h('div', { class: 'mpv-cp-area', tabindex: 0, role: 'slider', 'aria-label': 'Saturation and brightness' });
   private readonly thumb = h('span', { class: 'mpv-cp-thumb', 'aria-hidden': 'true' });
   private readonly hue = h('input', { class: 'mpv-cp-hue', type: 'range', min: 0, max: 359, step: 1, 'aria-label': 'Hue' });
-  private readonly hex = h('input', { class: 'mpv-cp-hex', type: 'text', maxlength: 7, spellcheck: 'false', 'aria-label': 'Hex color' });
-  private readonly preview = h('span', { class: 'mpv-cp-preview', 'aria-hidden': 'true' });
+  private readonly hex = h('input', { class: 'mpv-field mpv-cp-hex', type: 'text', maxlength: 7, spellcheck: 'false', 'aria-label': 'Hex color' });
+  private readonly preview = h('span', { class: 'mpv-dot mpv-cp-preview', 'aria-hidden': 'true' });
   /** The reader changed the recent colors (to remember them). */
   onRecentChanged?: (colors: HexColor[]) => void;
 
@@ -92,7 +92,7 @@ export class ColorPicker {
       grid,
       this.recentLabel,
       this.recentRow,
-      h('div', { class: 'mpv-cp-label', text: 'Custom' }),
+      h('div', { class: 'mpv-cp-label mpv-caps', text: 'Custom' }),
       this.area,
       this.hue,
       h('div', { class: 'mpv-cp-row' }, this.preview, this.hex),
@@ -176,8 +176,7 @@ export class ColorPicker {
     this.element.setAttribute('aria-label', request.label);
     this.select(request.value);
     this.renderRecent();
-    const r = anchor.getBoundingClientRect();
-    placeFloating(this.element, r.left + r.width / 2, r.bottom - 6);
+    placeUnder(this.element, anchor, 'center');
     (this.presets.get(request.value) ?? this.area).focus({ preventScroll: true });
   }
 
@@ -201,7 +200,8 @@ export class ColorPicker {
   // ---------- Parts ----------
 
   private swatch(ink: Ink, name: string): HTMLButtonElement {
-    const button = h('button', { class: 'mpv-cp-swatch', type: 'button', title: name, 'aria-label': name, 'aria-pressed': 'false' });
+    const button = swatchButton({ title: name, 'aria-label': name, 'aria-pressed': 'false' });
+    button.classList.add('mpv-cp-swatch');
     setInk(button, ink);
     button.addEventListener('click', () => this.pick(ink));
     button.addEventListener('keydown', (e) => this.moveFocus(e, button));

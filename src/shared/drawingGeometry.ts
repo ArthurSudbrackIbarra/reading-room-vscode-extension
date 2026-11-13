@@ -387,3 +387,43 @@ export function pageRectToPdf(page: PageGeometry, [x0, y0, x1, y1]: [number, num
   const ys = corners.map(([, y]) => y);
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 }
+
+// ---------- Selecting with a rectangle ----------
+
+/** Whether the segment a-b has a point in the rectangle (its edges included): Liang-Barsky clipping. */
+function segmentInRect(a: PdfPoint, b: PdfPoint, x0: number, y0: number, x1: number, y1: number): boolean {
+  let t0 = 0;
+  let t1 = 1;
+  const clip = (p: number, q: number): boolean => {
+    if (p === 0) return q >= 0;
+    const r = q / p;
+    if (p < 0) {
+      if (r > t1) return false;
+      if (r > t0) t0 = r;
+    } else {
+      if (r < t0) return false;
+      if (r < t1) t1 = r;
+    }
+    return true;
+  };
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  return clip(-dx, a[0] - x0) && clip(dx, x1 - a[0]) && clip(-dy, a[1] - y0) && clip(dy, y1 - a[1]);
+}
+
+/**
+ * Whether flattened polylines touch a rectangle (x0, y0, x1, y1) grown by `reach` on every side:
+ * a point of them is inside it, or one of their segments crosses it. This is what a selection
+ * rectangle takes: a stroke it reaches, not everything whose bounding box it reaches.
+ */
+export function linesTouchRect(lines: PdfPoint[][], rect: [number, number, number, number], reach = 0): boolean {
+  const x0 = Math.min(rect[0], rect[2]) - reach;
+  const y0 = Math.min(rect[1], rect[3]) - reach;
+  const x1 = Math.max(rect[0], rect[2]) + reach;
+  const y1 = Math.max(rect[1], rect[3]) + reach;
+  for (const line of lines) {
+    if (line.length === 1 && segmentInRect(line[0], line[0], x0, y0, x1, y1)) return true;
+    for (let i = 1; i < line.length; i++) if (segmentInRect(line[i - 1], line[i], x0, y0, x1, y1)) return true;
+  }
+  return false;
+}

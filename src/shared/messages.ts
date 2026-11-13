@@ -5,6 +5,7 @@ import type { HexColor, Ink } from './colors';
 import type { DrawTool, Drawing, InkWidth, TextLayout, TextStyle } from './drawings';
 import type { CustomSound, SoundRequest, SoundState } from './sounds';
 import type { DocumentKind, Highlight, HighlightColor, PageRects, PageTheme, ReadingMarker, ZoomValue } from './types';
+import type { ListSection } from './ui';
 
 export interface ViewerInit {
   kind: DocumentKind;
@@ -19,6 +20,8 @@ export interface ViewerInit {
   theme: PageTheme;
   toolActive: boolean;
   listOpen: boolean;
+  /** The sections of the annotations list the reader left collapsed (shared by all files). */
+  collapsedSections: ListSection[];
   /** The last drawing tool, ink and width (shared by all files). Draw mode itself always starts off. */
   drawStyle: DrawStyle;
   /** Show how drawing works when draw mode first turns on (once per VS Code session). */
@@ -88,7 +91,7 @@ export type HostToViewer =
   | { type: 'toggleTool' }
   | { type: 'toggleDrawing' }
   | { type: 'toggleText' }
-  | { type: 'toggleRemove' }
+  | { type: 'toggleSelect' }
   | { type: 'fullView'; full: boolean }
   | { type: 'theme'; theme: PageTheme }
   | { type: 'document'; fileName: string; uri: string }
@@ -159,6 +162,7 @@ export type ViewerToHost =
   | { type: 'colorChanged'; color: HighlightColor }
   | { type: 'toolChanged'; active: boolean }
   | { type: 'listChanged'; open: boolean }
+  | { type: 'listSectionsChanged'; collapsed: ListSection[] }
   | { type: 'openLink'; href: string }
   | { type: 'command'; command: ViewerCommand }
   | {

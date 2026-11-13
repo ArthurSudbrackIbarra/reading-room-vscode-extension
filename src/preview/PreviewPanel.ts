@@ -47,6 +47,7 @@ import type { SoundLibrary } from '../store/SoundLibrary';
 import { readSettings } from '../util/settings';
 import { RenderError, type RenderService } from './RenderService';
 import type { SoundCoordinator } from './SoundCoordinator';
+import { sanitizeSections, type ListSection } from '../shared/ui';
 import { buildWebviewHtml, webviewOptions } from './webviewHtml';
 
 export interface UiState {
@@ -54,6 +55,8 @@ export interface UiState {
   theme: PageTheme;
   toolActive: boolean;
   listOpen: boolean;
+  /** The sections of the annotations list that are collapsed. */
+  collapsedSections: ListSection[];
   /** The last drawing tool, ink and width; draw mode itself always starts off. */
   drawTool: DrawTool;
   inkColor: Ink;
@@ -160,8 +163,9 @@ export function kindOf(uri: vscode.Uri, languageId?: string): DocumentKind | und
   return undefined;
 }
 
+/** The title of a panel: the name of the file. (The tab's icon says that it is Reading Room.) */
 export function panelTitle(uri: vscode.Uri): string {
-  return `PDF: ${uri.path.split('/').pop() ?? 'document'}`;
+  return uri.path.split('/').pop() ?? 'document';
 }
 
 /** Escapes glob characters in a file name for a RelativePattern. */
@@ -415,6 +419,9 @@ export class PreviewPanel implements vscode.Disposable {
       case 'listChanged':
         this.host.updateUiState({ listOpen: !!msg.open });
         break;
+      case 'listSectionsChanged':
+        this.host.updateUiState({ collapsedSections: sanitizeSections(msg.collapsed) });
+        break;
       case 'openLink':
         await this.openLink(msg.href);
         break;
@@ -524,6 +531,7 @@ export class PreviewPanel implements vscode.Disposable {
         theme: this.theme,
         toolActive: ui.toolActive,
         listOpen: ui.listOpen,
+        collapsedSections: ui.collapsedSections,
         drawStyle: { tool: ui.drawTool, color: ui.inkColor, width: ui.inkWidth, eraserWidth: ui.eraserWidth },
         drawHint: this.host.drawHint(),
         textStyle: ui.textStyle,
@@ -831,8 +839,8 @@ export class PreviewPanel implements vscode.Disposable {
     this.post({ type: 'toggleDrawing' });
   }
 
-  toggleRemove(): void {
-    this.post({ type: 'toggleRemove' });
+  toggleSelect(): void {
+    this.post({ type: 'toggleSelect' });
   }
 
   toggleText(): void {

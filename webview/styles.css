@@ -1,32 +1,105 @@
 /* Viewer chrome. Colors come from the VS Code theme (--vscode-*), so it works in light, dark
    and high-contrast themes. The PDF pages keep their own colors (white, or the dark page theme). */
 
+/* ---------- Tokens ---------- */
+
 :root {
-  --mpv-page: #ffffff;
-  --mpv-marker-color: #e5484d;
+  /* Size: a 4 px grid. Every control is --mpv-ctl tall; one row of chrome is --mpv-bar. */
+  --mpv-ctl: 28px;
+  --mpv-bar: 36px;
+  --mpv-r-ctl: 4px; /* buttons, segments, rows */
+  --mpv-r-field: 6px; /* fields, wells, steppers */
+  --mpv-r-float: 8px; /* popovers, menus, panels */
   --mpv-sidebar-width: 280px;
-  --mpv-radius: 4px;
-  --mpv-border: var(--vscode-panel-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
+
+  /* Type. */
+  --mpv-fs: 13px;
+  --mpv-fs-2: 12px;
+  --mpv-fs-3: 11px;
+
+  /* Color: from the theme. */
+  --mpv-fg: var(--vscode-foreground);
+  --mpv-fg-2: var(--vscode-descriptionForeground, var(--vscode-foreground));
+  --mpv-fg-strong: var(--vscode-inputOption-activeForeground, var(--vscode-foreground));
+  --mpv-icon: var(--vscode-icon-foreground, var(--vscode-foreground));
   --mpv-surface: var(--vscode-editorWidget-background, var(--vscode-sideBar-background, var(--vscode-editor-background)));
   --mpv-canvas: var(--vscode-editorGroup-emptyBackground, var(--vscode-editor-background));
-  /* What is on or picked (a tool, a width, an alignment) is marked in blue, whatever the theme:
-     many themes give their own "active" color so little contrast that it is hard to see. */
-  --mpv-on: #3b9cff;
-  --mpv-on-fill: rgba(59, 156, 255, 0.2);
-  --mpv-on-border: rgba(59, 156, 255, 0.75);
+  --mpv-panel-bg: var(--vscode-sideBar-background, var(--mpv-surface));
+  --mpv-field-bg: var(--vscode-input-background, var(--vscode-dropdown-background, transparent));
+  --mpv-field-fg: var(--vscode-input-foreground, var(--vscode-foreground));
+  --mpv-border: var(--vscode-panel-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
+  --mpv-field-line: var(--vscode-input-border, var(--vscode-dropdown-border, var(--mpv-border)));
+  --mpv-placeholder: var(--vscode-input-placeholderForeground, var(--mpv-fg-2));
+  --mpv-hover: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+  --mpv-pressed: var(--vscode-toolbar-activeBackground, rgba(128, 128, 128, 0.25));
+  --mpv-row-hover: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
+  --mpv-row-selected: var(--vscode-list-inactiveSelectionBackground, rgba(128, 128, 128, 0.2));
+  --mpv-focus: var(--vscode-focusBorder, #3994bc);
+  --mpv-menu-bg: var(--vscode-menu-background, var(--mpv-surface));
+  --mpv-menu-fg: var(--vscode-menu-foreground, var(--vscode-foreground));
+  --mpv-menu-hover-bg: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+  --mpv-menu-hover-fg: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+  --mpv-badge-bg: var(--vscode-badge-background, rgba(128, 128, 128, 0.3));
+  --mpv-badge-fg: var(--vscode-badge-foreground, var(--vscode-foreground));
+  --mpv-btn2-bg: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.25));
+  --mpv-btn2-fg: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  --mpv-btn2-hover: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.35));
+  --mpv-danger: var(--vscode-errorForeground, #f85149);
+  --mpv-warn: var(--vscode-editorWarning-foreground, #cca700);
+  --mpv-shadow: 0 4px 14px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+
+  /* Color: the accent. The theme's own button color, so "on" belongs to the theme. Two strengths:
+     the tool that is on (a stronger tint), and a picked option or a toggle that is on. Always a
+     tint and a ring, never a fill alone. */
+  --mpv-accent: var(--vscode-button-background, #297aa0);
+  --mpv-accent-hover: var(--vscode-button-hoverBackground, var(--mpv-accent));
+  --mpv-on-accent: var(--vscode-button-foreground, #ffffff);
+  --mpv-accent-fg: var(--vscode-textLink-foreground, #4daafc);
+  --mpv-accent-soft: color-mix(in srgb, var(--mpv-accent) 28%, transparent);
+  --mpv-accent-line: color-mix(in srgb, var(--mpv-accent-fg) 72%, transparent);
+  --mpv-tool-bg: color-mix(in srgb, var(--mpv-accent) 42%, transparent);
+  --mpv-tool-fg: var(--mpv-fg-strong);
+  --mpv-tool-line: var(--mpv-accent-line);
+
+  /* State that high contrast shows with lines instead of fills (see below). */
+  --mpv-hover-ring: 0 solid transparent;
+  --mpv-chip-ring: 0 solid transparent;
+  --mpv-float-line: var(--vscode-editorWidget-border, var(--mpv-border));
+  --mpv-inset: color-mix(in srgb, var(--mpv-fg) 8%, transparent);
+  --mpv-inset-line: transparent;
+
+  /* Color: our own (the same in every theme). */
+  --mpv-page: #ffffff;
+  --mpv-marker-color: #e5484d;
+  /* The selection outline and handles drawn over the paper. */
+  --mpv-on-paper-select: #0b6bcb;
 }
 
-body.vscode-light {
-  --mpv-on: #0b6bcb;
-  --mpv-on-fill: rgba(11, 107, 203, 0.13);
-  --mpv-on-border: rgba(11, 107, 203, 0.65);
-}
-
+/* High contrast: no fills for state; lines and inversion instead. */
 body.vscode-high-contrast,
 body.vscode-high-contrast-light {
-  --mpv-on-fill: transparent;
-  --mpv-on-border: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
+  --mpv-border: var(--vscode-contrastBorder, #6fc3df);
+  --mpv-field-line: var(--vscode-contrastBorder, #6fc3df);
+  --mpv-float-line: var(--vscode-contrastBorder, #6fc3df);
+  --mpv-accent: var(--vscode-foreground);
+  --mpv-accent-hover: var(--vscode-foreground);
+  --mpv-on-accent: var(--vscode-editor-background);
+  --mpv-accent-fg: var(--vscode-foreground);
+  --mpv-accent-soft: transparent;
+  --mpv-accent-line: var(--vscode-contrastActiveBorder, #f38518);
+  --mpv-tool-bg: transparent;
+  --mpv-tool-fg: var(--vscode-foreground);
+  --mpv-tool-line: var(--vscode-contrastActiveBorder, #f38518);
+  --mpv-hover-ring: 1px dashed var(--vscode-contrastActiveBorder, #f38518);
+  --mpv-chip-ring: 1px solid var(--vscode-contrastActiveBorder, #f38518);
+  --mpv-row-selected: transparent;
+  --mpv-btn2-bg: transparent;
+  --mpv-menu-hover-bg: transparent;
+  --mpv-inset: transparent;
+  --mpv-inset-line: var(--vscode-contrastBorder, #6fc3df);
 }
+
+/* ---------- Base ---------- */
 
 html,
 body {
@@ -38,9 +111,10 @@ body {
 
 body {
   background: var(--mpv-canvas);
-  color: var(--vscode-foreground);
+  color: var(--mpv-fg);
   font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size, 13px);
+  font-size: var(--mpv-fs);
+  line-height: 1.4;
 }
 
 #app {
@@ -61,252 +135,519 @@ body {
 
 body[data-page-theme='dark'] {
   --mpv-page: #0d1117;
+  --mpv-on-paper-select: #58a6ff;
 }
 
 body[data-page-theme='dark'] .mpv-ink {
   --ink: var(--ink-d);
 }
 
-/* ---------- Toolbar and mode bars ---------- */
-
-/* One grid for both rows: every control is --mpv-control tall, buttons are square, groups are
-   --mpv-group-gap apart with a divider in the middle of that space, and the rows share their
-   padding. A mode bar starts with the name of its mode; both names take the same room, so the
-   two bars have their groups in the same places. */
-:root {
-  --mpv-control: 26px;
-  --mpv-input: 24px;
-  --mpv-bar-pad: 6px;
-  --mpv-divider-gap: 7px;
-  --mpv-group-gap: calc(2 * var(--mpv-divider-gap) + 1px);
-}
-
-.mpv-toolbar,
-.mpv-modebar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  row-gap: 4px;
-  box-sizing: border-box;
-  min-height: calc(var(--mpv-control) + 9px);
-  padding: 4px var(--mpv-bar-pad);
-  background: var(--mpv-surface);
-  border-bottom: 1px solid var(--mpv-border);
-  user-select: none;
+.mpv-svg-icon {
+  display: block;
   flex: 0 0 auto;
 }
 
-.mpv-group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-/* The divider after a toolbar group: a line in the middle of the space between two groups. */
-.mpv-divided::after {
-  content: '';
+/* The chevron of everything that opens a menu or a picker: 8 px wide. */
+.mpv-chevron {
+  display: block;
   flex: 0 0 auto;
-  width: 1px;
-  height: 18px;
-  /* The group's own 2px gap comes before it. */
-  margin: 0 var(--mpv-divider-gap) 0 calc(var(--mpv-divider-gap) - 2px);
-  background: var(--mpv-border);
+  color: var(--mpv-fg-2);
 }
 
-/* A row of a wrapped toolbar does not end with a divider (its space stays: no re-wrapping). */
-.mpv-divided.mpv-row-end::after {
-  visibility: hidden;
+.mpv-caps {
+  font-size: var(--mpv-fs-3);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-.mpv-spacer {
-  flex: 1 1 var(--mpv-group-gap);
-  min-width: var(--mpv-group-gap);
+.mpv-grow {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
-/* What a mode bar is for, in words: "DRAW MODE", "TEXT MODE" (not a button, and it does not look like one). */
-.mpv-modebar-label {
+/* A label next to an icon, or alone in a button: centered by its capital letters. A line of
+   text is taller above its letters than below them, so centering the line leaves the letters
+   about a pixel low; this trims the line to the letters before it is centered. */
+.mpv-label,
+.mpv-caps,
+.mpv-count,
+.mpv-kbd,
+.mpv-tag {
+  text-box: trim-both cap alphabetic;
+}
+
+/* The same for a line that can be cut with "…": it is cut at the right edge only (letters reach
+   beyond the trimmed line above and below). */
+.mpv-hint,
+.mpv-banner-text {
+  text-box: trim-both cap alphabetic;
+  overflow: clip;
+  overflow-clip-margin: 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mpv-kbd {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   box-sizing: border-box;
-  min-width: 82px;
-  height: var(--mpv-control);
-  padding: 0 2px 0 4px;
-  color: var(--mpv-on);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  white-space: nowrap;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--mpv-field-line);
+  border-radius: 3px;
+  color: var(--mpv-fg-2);
+  font-size: var(--mpv-fs-3);
 }
 
+/* ---------- Button ---------- */
+
+/* States: normal, hover, pressed, on (a toggle that is on, or the picked one of a well),
+   disabled, keyboard focus. */
 .mpv-btn {
+  position: relative;
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   box-sizing: border-box;
-  width: var(--mpv-control);
-  height: var(--mpv-control);
+  height: var(--mpv-ctl);
+  min-width: var(--mpv-ctl);
   margin: 0;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: var(--mpv-radius);
+  border-radius: var(--mpv-r-ctl);
   background: transparent;
-  color: var(--vscode-icon-foreground, var(--vscode-foreground));
+  color: var(--mpv-icon);
   font: inherit;
+  white-space: nowrap;
   cursor: pointer;
 }
 
 .mpv-btn:hover {
-  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
-}
-
-.mpv-btn:active {
-  background: var(--vscode-toolbar-activeBackground, rgba(128, 128, 128, 0.25));
-}
-
-.mpv-btn:focus-visible,
-.mpv-swatch:focus-visible,
-.mpv-item:focus-visible,
-.mpv-zoom-select:focus-visible,
-.mpv-select:focus-visible,
-.mpv-page-input:focus {
-  outline: 1px solid var(--vscode-focusBorder);
+  background: var(--mpv-hover);
+  color: var(--mpv-fg);
+  outline: var(--mpv-hover-ring);
   outline-offset: -1px;
 }
 
-/* On, or the one picked: a light blue fill and a blue border. */
-.mpv-btn.mpv-active {
-  background: var(--mpv-on-fill);
-  color: var(--vscode-foreground);
-  border-color: var(--mpv-on-border);
+.mpv-btn:active {
+  background: var(--mpv-pressed);
+  color: var(--mpv-fg);
 }
 
-.mpv-btn.mpv-active:hover {
-  background: var(--mpv-on-fill);
-  border-color: var(--mpv-on);
+.mpv-btn:focus-visible,
+.mpv-field:focus-visible,
+.mpv-select:focus-visible,
+.mpv-swatch:focus-visible,
+.mpv-chip:focus-visible,
+.mpv-link:focus-visible,
+.mpv-menu-item:focus-visible,
+.mpv-row-main:focus-visible,
+.mpv-sec-toggle:focus-visible,
+.mpv-note-view:focus-visible,
+.mpv-sound-item:focus-visible {
+  outline: 1px solid var(--mpv-focus);
+  outline-offset: -1px;
+}
+
+.mpv-btn.mpv-active {
+  background: var(--mpv-accent-soft);
+  border-color: var(--mpv-accent-line);
+  color: var(--mpv-fg-strong);
 }
 
 .mpv-btn:disabled {
   opacity: 0.4;
   cursor: default;
+  pointer-events: none;
 }
 
-.mpv-btn:disabled:hover {
-  background: transparent;
+/* An icon and a label. */
+.mpv-btn-label {
+  padding: 0 8px;
+  color: var(--mpv-fg);
+  font-size: var(--mpv-fs-2);
 }
 
-.mpv-btn-narrow {
-  width: 16px;
+.mpv-btn-sm {
+  height: 22px;
+  min-width: 22px;
 }
 
-.mpv-split {
+.mpv-btn-sm.mpv-btn-label {
+  gap: 4px;
+  padding: 0 6px;
+}
+
+/* Every delete: the icon turns red under the pointer. */
+.mpv-btn-danger:hover {
+  color: var(--mpv-danger);
+}
+
+.mpv-btn-primary,
+.mpv-btn-secondary {
+  padding: 0 12px;
+  border-color: var(--mpv-float-line);
+  font-size: var(--mpv-fs-2);
+  font-weight: 600;
+}
+
+.mpv-btn-primary,
+.mpv-btn-primary:active {
+  background: var(--mpv-accent);
+  color: var(--mpv-on-accent);
+}
+
+.mpv-btn-primary:hover {
+  background: var(--mpv-accent-hover);
+  color: var(--mpv-on-accent);
+}
+
+.mpv-btn-secondary,
+.mpv-btn-secondary:active {
+  background: var(--mpv-btn2-bg);
+  color: var(--mpv-btn2-fg);
+}
+
+.mpv-btn-secondary:hover {
+  background: var(--mpv-btn2-hover);
+  color: var(--mpv-btn2-fg);
+}
+
+/* Done and Cancel in a tool tray: a quiet outlined button, in the colors of the bar it sits on. */
+.mpv-done {
+  padding: 0 10px 0 8px;
+  border-color: var(--mpv-field-line);
+  color: var(--mpv-fg);
+  font-size: var(--mpv-fs-2);
+}
+
+.mpv-done.mpv-cancel {
+  padding: 0 10px;
+}
+
+.mpv-done .mpv-svg-icon {
+  color: var(--mpv-icon);
+}
+
+.mpv-done:hover {
+  border-color: var(--mpv-fg-2);
+}
+
+.mpv-link {
   display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  box-sizing: border-box;
+  height: 24px;
+  margin: 0;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--mpv-r-ctl);
+  background: none;
+  color: var(--mpv-accent-fg);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mpv-link:hover {
+  background: var(--mpv-hover);
+  text-decoration: underline;
+}
+
+/* ---------- Split button ---------- */
+
+/* An action and its menu, read as one control: the marker and download. 46 px wide. Each half is
+   its own target with its own hover, so the icon and the chevron are each centered in their half.
+   The halves are sized so that what is seen of the icon is as far from the left edge of the
+   whole control as what is seen of the chevron is from its right edge (about 7 px, measured),
+   which shows when the whole control is tinted or outlined. The bookmark and the download arrow
+   have some 3 px of air inside their 16 px box and the chevron has none inside its 8 px, so:
+   3 px of padding on both sides of the icon, 6 px on both sides of the chevron.
+   The chevron rule for controls that hold a value and a chevron (a label, a color dot): the 8 px
+   chevron sits 6 px after the label and as far from the control's right edge as the value is
+   from its left edge. */
+.mpv-split {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  border-radius: var(--mpv-r-ctl);
 }
 
 .mpv-split .mpv-btn:first-child {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+  min-width: 0;
+  padding: 0 3px;
+  border-radius: var(--mpv-r-ctl) 0 0 var(--mpv-r-ctl);
 }
 
 .mpv-split .mpv-btn:last-child {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
+  min-width: 0;
+  padding: 0 6px;
+  border-radius: 0 var(--mpv-r-ctl) var(--mpv-r-ctl) 0;
 }
 
-.mpv-page {
+.mpv-split:hover {
+  box-shadow: inset 0 0 0 1px var(--mpv-border);
+}
+
+/* While the marker is being placed, the whole split takes the look of a tool that is on. */
+.mpv-split.mpv-active {
+  background: var(--mpv-tool-bg);
+  box-shadow: inset 0 0 0 1px var(--mpv-tool-line);
+  outline: var(--mpv-chip-ring);
+  outline-offset: 1px;
+}
+
+.mpv-split.mpv-active .mpv-btn,
+.mpv-split.mpv-active .mpv-chevron {
+  color: var(--mpv-tool-fg);
+}
+
+/* ---------- Well ---------- */
+
+/* A radio group: exactly one segment is picked. 28 px high: 1 px border, 1 px padding, 24 px segments. */
+.mpv-seg {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 5px;
-  margin: 0 3px;
-  white-space: nowrap;
+  box-sizing: border-box;
+  height: var(--mpv-ctl);
+  padding: 1px;
+  border: 1px solid var(--mpv-field-line);
+  border-radius: var(--mpv-r-field);
+  background: var(--mpv-field-bg);
 }
 
-.mpv-page-input,
-.mpv-zoom-select,
-.mpv-select {
+.mpv-seg .mpv-btn {
+  height: 24px;
+  min-width: 28px;
+}
+
+.mpv-seg-wide {
+  display: flex;
+  width: 100%;
+}
+
+.mpv-seg-wide .mpv-btn {
+  flex: 1 1 0;
+  font-size: var(--mpv-fs-2);
+}
+
+/* The tool switch: the tool that is on gets a stronger tint than a picked option. */
+.mpv-seg-tools .mpv-btn.mpv-active {
+  background: var(--mpv-tool-bg);
+  border-color: var(--mpv-tool-line);
+  color: var(--mpv-tool-fg);
+  outline: var(--mpv-chip-ring);
+  outline-offset: 1px;
+}
+
+/* ---------- Field, stepper, menu button ---------- */
+
+.mpv-field {
   box-sizing: border-box;
-  height: var(--mpv-input);
+  height: var(--mpv-ctl);
   margin: 0;
-  border: 1px solid var(--vscode-dropdown-border, var(--vscode-input-border, transparent));
-  border-radius: var(--mpv-radius);
-  background: var(--vscode-input-background, var(--vscode-dropdown-background));
-  color: var(--vscode-input-foreground, var(--vscode-dropdown-foreground));
+  padding: 0 8px;
+  border: 1px solid var(--mpv-field-line);
+  border-radius: var(--mpv-r-field);
+  outline: 0;
+  background: var(--mpv-field-bg);
+  color: var(--mpv-field-fg);
   font: inherit;
 }
 
-/* (The text of a field or menu is centered as a line, which leaves it a pixel low: see the
-   labels above. Two pixels of padding below raise it by one.) */
-.mpv-page-input {
-  width: auto;
-  min-width: 2.2em;
-  max-width: 4.5em;
-  padding: 0 5px 2px;
-  text-align: right;
+.mpv-field::placeholder {
+  color: var(--mpv-placeholder);
 }
 
-.mpv-page-count {
-  color: var(--vscode-descriptionForeground, var(--vscode-foreground));
-}
-
-.mpv-zoom-select,
+/* A button that opens a menu of values (in place of a native select): its value, then a chevron. */
 .mpv-select {
-  padding: 0 2px 2px 4px;
-  background: var(--vscode-dropdown-background);
-  color: var(--vscode-dropdown-foreground);
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  box-sizing: border-box;
+  height: var(--mpv-ctl);
+  margin: 0;
+  padding: 0 6px 0 8px;
+  border: 1px solid var(--mpv-field-line);
+  border-radius: var(--mpv-r-field);
+  background: var(--mpv-field-bg);
+  color: var(--mpv-field-fg);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.mpv-zoom-select {
-  width: 100px;
-  margin: 0 2px;
+.mpv-select:hover {
+  border-color: var(--mpv-fg-2);
 }
 
 .mpv-size-select {
-  width: 54px;
+  min-width: 52px;
 }
 
-.mpv-swatches {
+/* One bordered control holding 24 px buttons around a value: the page, the zoom. */
+.mpv-step {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
-  margin: 0 4px;
+  box-sizing: border-box;
+  height: var(--mpv-ctl);
+  padding: 1px;
+  border: 1px solid var(--mpv-field-line);
+  border-radius: var(--mpv-r-field);
+  background: var(--mpv-field-bg);
 }
 
-.mpv-swatch {
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border-radius: 50%;
-  border: 1px solid rgba(0, 0, 0, 0.28);
-  background: var(--swatch);
-  cursor: pointer;
+.mpv-step .mpv-btn {
+  height: 24px;
+  min-width: 24px;
+}
+
+.mpv-step-value {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 24px;
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--mpv-r-ctl);
+  background: none;
+  color: var(--mpv-field-fg);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The page: "n / N". The number is a field exactly as wide as its digits (plus a pixel on each
+   side for the caret), so the text is as far from the up arrow as from the down arrow. The field
+   and the count are one line of text: same line box, same baseline. */
+.mpv-page {
+  /* The field has a pixel for the caret on each side of its digits: 3 + 1 on the left is the 4 on the right. */
+  padding: 0 4px 0 3px;
+  cursor: text;
+}
+
+.mpv-page-line {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.mpv-page-input {
+  box-sizing: content-box;
+  width: calc(var(--mpv-digits, 1) * 1ch + 2px);
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  line-height: inherit;
+  text-align: center;
+}
+
+.mpv-page:focus-within {
+  outline: 1px solid var(--mpv-focus);
+  outline-offset: -1px;
+}
+
+.mpv-page-count {
+  color: var(--mpv-fg-2);
+}
+
+/* The zoom: its value is a button that opens the zoom menu. */
+button.mpv-step-value {
+  gap: 6px;
+  min-width: 74px;
+  cursor: pointer;
+}
+
+button.mpv-step-value:hover {
+  background: var(--mpv-hover);
+}
+
+button.mpv-step-value:focus-visible {
+  outline: 1px solid var(--mpv-focus);
+  outline-offset: -1px;
+}
+
+/* ---------- Color: dots and the ink button ---------- */
+
+/* A color to pick: a 16 px dot inside a 24 px round target. Picked: a ring on the target. */
+.mpv-swatch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid transparent;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
 }
 
 .mpv-swatch:hover {
-  transform: scale(1.12);
+  border-color: var(--mpv-fg-2);
 }
 
 .mpv-swatch.mpv-selected {
-  box-shadow:
-    0 0 0 2px var(--mpv-surface),
-    0 0 0 3.5px var(--mpv-on);
+  border-color: var(--mpv-accent-fg);
 }
 
-/* While drawing or adding text, the highlight colors step back (they still work). */
-.mpv-swatches.mpv-dimmed {
-  opacity: 0.4;
-  transition: opacity 0.15s;
+.mpv-swatch:focus-visible {
+  outline-offset: 1px;
 }
 
-.mpv-swatches.mpv-dimmed:hover,
-.mpv-swatches.mpv-dimmed:focus-within {
-  opacity: 0.85;
+/* The inner edge shows on dark and on light surfaces. */
+.mpv-dot {
+  display: block;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--swatch, var(--ink, currentColor));
+  box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.6);
 }
 
-/* The band under the highlighter, the pencil and the T: the highlight color, the ink, the text color. */
+.mpv-dot-sm {
+  width: 10px;
+  height: 10px;
+}
+
+/* An orphaned highlight: a dashed ring (shape, not color alone). */
+.mpv-dot-orphan {
+  border: 1.5px dashed var(--swatch);
+  background: none;
+  box-shadow: none;
+}
+
+/* A color that opens the color picker: a dot in the color, and a chevron. 45 px wide. */
+.mpv-btn.mpv-color-button {
+  gap: 8px;
+  padding: 0 6px 0 5px;
+}
+
+/* The band under the highlighter, the pencil and the two A's: the highlight color, the ink, the text color. */
 .mpv-icon-band {
   fill: currentColor;
   stroke: currentColor;
@@ -323,100 +664,211 @@ body[data-page-theme='dark'] .mpv-ink {
   fill: var(--ink, currentColor);
 }
 
-/* A color that opens the color picker: a dot in the color, and a chevron. */
-.mpv-btn.mpv-color-button {
-  width: auto;
-  gap: 3px;
-  padding: 0 4px 0 5px;
-}
+/* ---------- Toolbar ---------- */
 
-.mpv-color-dot {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  box-sizing: border-box;
-  border-radius: 50%;
-  border: 1px solid rgba(0, 0, 0, 0.28);
-  background: var(--ink, currentColor);
-  /* A ring, so dark colors still show on a dark toolbar. */
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-foreground, #888) 35%, transparent);
-}
-
-.mpv-chevron {
-  flex: 0 0 auto;
-  opacity: 0.85;
-}
-
-/* Done: the way out of a mode, at the end of its bar. */
-.mpv-done {
-  display: inline-flex;
+/* One row, 36 px, in three zones (find your place, annotate, the room) with flexible space
+   between them. It never wraps: at narrow widths its controls move into the More menu. */
+.mpv-toolbar {
+  position: relative;
+  display: flex;
   flex: 0 0 auto;
   align-items: center;
-  justify-content: center;
-  gap: 5px;
+  gap: 8px;
   box-sizing: border-box;
-  height: var(--mpv-control);
-  margin: 0;
-  padding: 0 12px 0 9px;
-  border: 1px solid var(--vscode-button-border, transparent);
-  border-radius: var(--mpv-radius);
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 16px;
-  cursor: pointer;
+  height: var(--mpv-bar);
+  padding: 4px 8px;
+  background: var(--mpv-surface);
+  box-shadow: inset 0 -1px 0 var(--mpv-border);
+  user-select: none;
 }
 
-/* A label next to an icon, or alone in a button: centered by its capital letters. A line of
-   text is taller above its letters than below them, so centering the line leaves the letters
-   about a pixel low; this trims the line to the letters before it is centered. */
-.mpv-done > span,
-.mpv-button,
-.mpv-button > span:not(.codicon),
-.mpv-link-button,
-.mpv-page-count,
-.mpv-sidebar-title,
-.mpv-menu-item > span:not(.codicon),
-.mpv-toast-text,
-.mpv-banner-text,
+.mpv-zone {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.mpv-zone-tight,
+.mpv-group {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.mpv-sep {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 16px;
+  background: var(--mpv-border);
+}
+
+/* Size classes, set from the viewer's own width. */
+body[data-size='medium'] .mpv-toolbar,
+body[data-size='medium'] .mpv-zone,
+body[data-size='narrow'] .mpv-toolbar,
+body[data-size='narrow'] .mpv-zone {
+  gap: 4px;
+}
+
+body[data-size='mini'] .mpv-toolbar {
+  justify-content: space-between;
+  gap: 2px;
+  padding: 4px 6px;
+}
+
+body[data-size='mini'] .mpv-zone {
+  gap: 2px;
+}
+
+.mpv-btn.mpv-has-marker .codicon {
+  color: var(--mpv-marker-color);
+}
+
+.mpv-split.mpv-active .mpv-btn.mpv-has-marker .codicon {
+  color: inherit;
+}
+
+/* A small dot tells that a sound is playing while the panel is closed. */
+.mpv-sounds-button.mpv-playing::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mpv-accent-fg);
+  box-shadow: 0 0 0 2px var(--mpv-surface);
+}
+
+/* ---------- Tool tray ---------- */
+
+/* The second row, shown only while a tool is on or the marker is being placed: what the tool
+   does, its options, and Done at the right end. */
+.mpv-tray {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  min-height: var(--mpv-bar);
+  padding: 4px 8px;
+  background: var(--mpv-surface);
+  box-shadow: inset 0 -1px 0 var(--mpv-border);
+  user-select: none;
+}
+
+/* The name of the mode, right before its options. */
+.mpv-tray-label {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  color: var(--mpv-fg-2);
+}
+
 .mpv-hint {
-  text-box: trim-both cap alphabetic;
+  min-width: 0;
+  color: var(--mpv-fg-2);
+  font-size: var(--mpv-fs-2);
 }
 
-.mpv-done:hover {
-  background: var(--vscode-button-hoverBackground);
+body:not([data-size='wide']) .mpv-tray-label,
+body:not([data-size='wide']) .mpv-tray .mpv-kbd {
+  display: none;
 }
 
-.mpv-done:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: 2px;
+body[data-size='medium'] .mpv-tray,
+body[data-size='narrow'] .mpv-tray {
+  gap: 4px;
 }
 
-.mpv-done .mpv-svg-icon {
-  width: 14px;
-  height: 14px;
+/* Narrow: one row, which wraps when the tool's controls need more room. */
+body[data-size='narrow'] .mpv-tray {
+  flex-wrap: wrap;
+}
+
+/* Mini: two rows, the tool's main group first, then color, sizes and Done. */
+body[data-size='mini'] .mpv-tray {
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 6px;
+}
+
+/* Done stays at the right end, also when it wraps to a row of its own. */
+.mpv-tray .mpv-done {
+  margin-left: auto;
+}
+
+/* In a tray that can wrap, the hint takes the room that is left on its row (and is cut with "…")
+   instead of pushing Done to a second row. */
+body[data-size='narrow'] .mpv-tray .mpv-hint,
+body[data-size='mini'] .mpv-tray .mpv-hint {
+  flex: 1 1 0;
+}
+
+body[data-size='narrow'] .mpv-tray .mpv-hint + .mpv-grow,
+body[data-size='mini'] .mpv-tray .mpv-hint + .mpv-grow {
+  display: none;
+}
+
+body[data-size='mini'] .mpv-highlight-tray .mpv-hint,
+body[data-size='mini'] .mpv-highlight-tray .mpv-sep,
+body[data-size='narrow'] .mpv-highlight-tray .mpv-sep,
+body[data-size='mini'] .mpv-select-tray .mpv-hint,
+body[data-size='mini'] .mpv-select-tray .mpv-sep,
+body[data-size='narrow'] .mpv-select-tray .mpv-sep {
+  display: none;
+}
+
+body[data-size='mini'] .mpv-highlight-tray .mpv-hint + .mpv-grow,
+body[data-size='mini'] .mpv-select-tray .mpv-hint + .mpv-grow {
+  display: block;
+}
+
+/* The actions of the select tray say what they are in words where there is room; elsewhere they are icons. */
+body:not([data-size='wide']) .mpv-select-tray .mpv-btn-label {
+  padding: 0;
+}
+
+body:not([data-size='wide']) .mpv-select-tray .mpv-btn-label .mpv-label {
+  display: none;
+}
+
+/* The text tray in a mini panel: format and alignment fill the first row; the size, the color
+   and Done share the second. */
+body[data-size='mini'] .mpv-textbar > .mpv-size-select,
+body[data-size='mini'] .mpv-textbar > .mpv-color-button,
+body[data-size='mini'] .mpv-textbar > .mpv-grow,
+body[data-size='mini'] .mpv-textbar > .mpv-done {
+  order: 1;
 }
 
 /* ---------- Progress, banner ---------- */
 
+/* A 2 px line on the bottom edge of the bars while a conversion runs. It takes no room. */
 .mpv-progress {
   position: relative;
-  height: 2px;
-  overflow: hidden;
+  z-index: 4;
   flex: 0 0 auto;
-  background: transparent;
+  height: 0;
 }
 
 .mpv-progress::before {
   content: '';
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: -2px;
+  left: 0;
   width: 30%;
-  background: var(--vscode-progressBar-background, #0e70c0);
+  height: 2px;
+  background: var(--mpv-accent-fg);
   animation: mpv-progress 1.1s ease-in-out infinite;
+}
+
+.mpv-progress {
+  overflow-x: clip;
 }
 
 @keyframes mpv-progress {
@@ -430,59 +882,50 @@ body[data-page-theme='dark'] .mpv-ink {
 
 .mpv-banner {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
-  padding: 4px 8px;
-  flex: 0 0 auto;
-  background: var(--vscode-inputValidation-warningBackground, rgba(255, 196, 0, 0.15));
-  border-bottom: 1px solid var(--vscode-inputValidation-warningBorder, rgba(255, 196, 0, 0.5));
+  box-sizing: border-box;
+  min-height: 32px;
+  padding: 4px 4px 4px 12px;
+  background: var(--bn-bg);
+  box-shadow: inset 0 -1px 0 var(--bn-line);
+  --bn-bg: var(--vscode-inputValidation-warningBackground, rgba(255, 196, 0, 0.15));
+  --bn-line: var(--vscode-inputValidation-warningBorder, rgba(255, 196, 0, 0.5));
+  --bn-icon: var(--mpv-warn);
 }
 
 .mpv-banner[data-kind='error'] {
-  background: var(--vscode-inputValidation-errorBackground, rgba(255, 0, 0, 0.12));
-  border-bottom-color: var(--vscode-inputValidation-errorBorder, rgba(255, 0, 0, 0.5));
+  --bn-bg: var(--vscode-inputValidation-errorBackground, rgba(255, 0, 0, 0.12));
+  --bn-line: var(--vscode-inputValidation-errorBorder, rgba(255, 0, 0, 0.5));
+  --bn-icon: var(--mpv-danger);
 }
 
 .mpv-banner[data-kind='info'] {
-  background: var(--vscode-inputValidation-infoBackground, rgba(0, 120, 212, 0.12));
-  border-bottom-color: var(--vscode-inputValidation-infoBorder, rgba(0, 120, 212, 0.5));
+  --bn-bg: var(--vscode-inputValidation-infoBackground, rgba(0, 120, 212, 0.12));
+  --bn-line: var(--vscode-inputValidation-infoBorder, rgba(0, 120, 212, 0.5));
+  --bn-icon: var(--mpv-fg);
 }
 
 /* The icon is a box of its own, so it is centered like the text and the buttons. */
 .mpv-banner-icon {
   display: inline-flex;
   flex: 0 0 auto;
+  color: var(--bn-icon);
 }
 
 .mpv-banner-text {
   flex: 1 1 auto;
-  /* Cut at the right edge only: the line is trimmed to its capitals, and letters reach beyond them. */
-  overflow: clip;
-  overflow-clip-margin: 5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
 }
 
 .mpv-banner-actions {
   display: flex;
-  gap: 10px;
+  flex: 0 0 auto;
+  gap: 2px;
 }
 
-.mpv-link-button {
-  padding: 4px 0;
-  border: none;
-  background: none;
-  color: var(--vscode-textLink-foreground);
-  font: inherit;
-  cursor: pointer;
-}
-
-.mpv-link-button:hover {
-  text-decoration: underline;
-  color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
-}
-
-/* ---------- Main area, sidebar ---------- */
+/* ---------- Main area ---------- */
 
 .mpv-main {
   position: relative;
@@ -504,18 +947,20 @@ body.mpv-sidebar-open .mpv-viewer-container {
   left: var(--mpv-sidebar-width);
 }
 
+/* ---------- Annotations list ---------- */
+
 .mpv-sidebar {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 0;
-  width: var(--mpv-sidebar-width);
-  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  background: var(--vscode-sideBar-background, var(--mpv-surface));
-  color: var(--vscode-sideBar-foreground, var(--vscode-foreground));
-  border-right: 1px solid var(--vscode-sideBar-border, var(--mpv-border));
+  box-sizing: border-box;
+  width: var(--mpv-sidebar-width);
+  background: var(--mpv-panel-bg);
+  color: var(--mpv-fg);
+  box-shadow: inset -1px 0 0 var(--mpv-border);
 }
 
 /* Narrow panels (split view): the list floats over the pages instead of squeezing them. */
@@ -526,112 +971,458 @@ body.mpv-sidebar-open .mpv-viewer-container {
 
   .mpv-sidebar {
     z-index: 20;
-    width: min(var(--mpv-sidebar-width), 85vw);
-    box-shadow: 4px 0 18px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
+    width: min(var(--mpv-sidebar-width), 100%);
+    box-shadow:
+      inset -1px 0 0 var(--mpv-border),
+      var(--mpv-shadow);
+  }
+}
+
+/* Mini panels: the list takes the whole width. */
+@media (max-width: 299px) {
+  .mpv-sidebar {
+    width: 100%;
   }
 }
 
 .mpv-sidebar-header {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
-  justify-content: space-between;
-  padding: 6px 6px 6px 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  gap: 8px;
+  box-sizing: border-box;
+  height: var(--mpv-bar);
+  padding: 0 4px 0 12px;
+}
+
+.mpv-count {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border: 1px solid var(--mpv-inset-line);
+  border-radius: 8px;
+  background: var(--mpv-badge-bg);
+  color: var(--mpv-badge-fg);
+  font-size: var(--mpv-fs-3);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.mpv-list-tools {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 12px 8px;
+}
+
+.mpv-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: var(--mpv-ctl);
+  padding: 0 2px 0 8px;
+  border: 1px solid var(--mpv-field-line);
+  border-radius: var(--mpv-r-field);
+  background: var(--mpv-field-bg);
+  color: var(--mpv-fg-2);
+  cursor: text;
+}
+
+.mpv-search:focus-within {
+  border-color: var(--mpv-focus);
+}
+
+.mpv-search input {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--mpv-field-fg);
+  font: inherit;
+}
+
+.mpv-search input::placeholder {
+  color: var(--mpv-placeholder);
+}
+
+/* The dots are 10 px inside 24 px targets: pulled left so the first dot lines up with the field. */
+.mpv-filter {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: -7px;
+}
+
+.mpv-chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  height: 22px;
+  margin: 0 0 0 auto;
+  padding: 0 8px 0 6px;
+  border: 1px solid var(--mpv-field-line);
+  border-radius: 11px;
+  background: none;
+  color: var(--mpv-fg-2);
+  font: inherit;
+  font-size: var(--mpv-fs-2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mpv-chip:hover {
+  border-color: var(--mpv-fg-2);
+  color: var(--mpv-fg);
+}
+
+.mpv-chip.mpv-active {
+  background: var(--mpv-accent-soft);
+  border-color: var(--mpv-accent-line);
+  color: var(--mpv-fg-strong);
+}
+
+.mpv-chip .codicon {
+  font-size: 14px;
 }
 
 .mpv-list {
   flex: 1 1 auto;
-  overflow-y: auto;
+  min-height: 0;
   padding: 0 0 8px;
+  overflow-y: auto;
 }
 
-.mpv-empty {
-  padding: 8px 14px;
-  opacity: 0.8;
-  line-height: 1.4;
+.mpv-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.mpv-empty p {
-  margin: 0 0 6px;
+/* The reading marker's row keeps a little clear of the first section under it. The room is part
+   of the row (padding, not a margin), so it lights up with the row under the pointer. */
+.mpv-list-marker .mpv-row:not(.mpv-selected) .mpv-row-main,
+.mpv-list-marker .mpv-row.mpv-selected .mpv-row-actions {
+  padding-bottom: 12px;
 }
 
-.mpv-list-group {
+/* A section header: a chevron that collapses it, its name, its count, and its action. */
+.mpv-sec {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 10px 12px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: var(--vscode-editorWarning-foreground, var(--vscode-foreground));
+  gap: 4px;
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 4px 0 6px;
+  box-shadow: inset 0 1px 0 var(--mpv-border);
 }
 
-.mpv-item {
-  position: relative;
+.mpv-sec-toggle {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 6px 8px 6px 12px;
-  cursor: pointer;
-  outline: none;
-}
-
-.mpv-item:hover {
-  background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
-}
-
-.mpv-item.mpv-orphan {
-  cursor: default;
-  opacity: 0.8;
-}
-
-.mpv-dot {
-  width: 10px;
-  height: 10px;
-  margin-top: 4px;
-  border-radius: 50%;
-  flex: 0 0 auto;
-  background: var(--swatch);
-  border: 1px solid rgba(0, 0, 0, 0.25);
-}
-
-.mpv-orphan .mpv-dot {
-  background: transparent;
-  border: 2px dashed var(--swatch);
-}
-
-.mpv-item-body {
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
   min-width: 0;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mpv-r-ctl);
+  background: none;
+  color: var(--mpv-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.mpv-item-text {
-  line-height: 1.35;
-  overflow-wrap: anywhere;
+.mpv-sec-toggle .mpv-count {
+  margin-left: 2px;
+}
+
+.mpv-sec-warn .mpv-sec-toggle {
+  color: var(--mpv-warn);
+}
+
+.mpv-sec .mpv-link {
+  font-size: var(--mpv-fs-2);
+}
+
+.mpv-row {
+  position: relative;
+}
+
+.mpv-row:hover {
+  background: var(--mpv-row-hover);
+}
+
+.mpv-row.mpv-selected {
+  background: var(--mpv-row-selected);
+  outline: var(--mpv-chip-ring);
+  outline-offset: -1px;
+}
+
+/* A row: a 16 px lead column (the dot, the bookmark) and the body, 8 px apart. */
+.mpv-row-main {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 6px 12px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mpv-row-main-thumb {
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+}
+
+.mpv-row-body,
+.mpv-row-body > * {
+  display: block;
+}
+
+/* The dot is centered on the first line of the text (a line is 18 px: 4 px above a 10 px dot). */
+.mpv-row-lead {
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+}
+
+.mpv-row-lead .codicon {
+  margin-top: -3px;
+  color: var(--mpv-marker-color);
+}
+
+.mpv-row-text {
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
-.mpv-item-meta {
+.mpv-row-body > .mpv-row-text + .mpv-row-text {
   margin-top: 2px;
-  font-size: 11px;
-  opacity: 0.7;
 }
 
-.mpv-item-actions {
+.mpv-row-old {
+  color: var(--mpv-fg-2);
+  text-decoration: line-through;
+}
+
+.mpv-row-meta {
+  margin-top: 2px;
+  color: var(--mpv-fg-2);
+  font-size: var(--mpv-fs-3);
+}
+
+/* A note: a quiet block inside a surface. */
+.mpv-note {
   display: flex;
-  gap: 1px;
-  visibility: hidden;
+  gap: 6px;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--mpv-inset-line);
+  border-radius: var(--mpv-r-ctl);
+  background: var(--mpv-inset);
+  color: var(--mpv-fg);
+  font-size: var(--mpv-fs-2);
+  text-align: left;
 }
 
-.mpv-item:hover .mpv-item-actions,
-.mpv-item:focus-within .mpv-item-actions {
-  visibility: visible;
+.mpv-note .codicon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--mpv-fg-2);
+  font-size: 14px;
+}
+
+.mpv-note-text {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mpv-row .mpv-note {
+  display: flex;
+  margin-top: 4px;
+  padding: 4px 6px;
+}
+
+.mpv-row .mpv-note-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+}
+
+/* The actions of the selected row, under it. The icon of the first one stands where the text of
+   the row starts: 36 px from the edge, less the 6 px of padding and the 1 px border of the button. */
+.mpv-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px 6px 29px;
+}
+
+.mpv-row-actions-thumb {
+  padding-left: 41px;
+}
+
+.mpv-mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: var(--mpv-accent-soft);
+  box-shadow: 0 0 0 1px var(--mpv-accent-line);
+  color: var(--mpv-fg-strong);
+}
+
+.mpv-list-note {
+  margin: 0;
+  padding: 0 12px 6px 36px;
+  color: var(--mpv-fg-2);
+  font-size: var(--mpv-fs-3);
+}
+
+.mpv-tag {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 16px;
+  margin-right: 4px;
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  color: var(--mpv-warn);
+  font-size: var(--mpv-fs-3);
+  vertical-align: 1px;
+}
+
+/* Drawings and text boxes in the list: a thumbnail on a chip in the page color. */
+.mpv-thumb {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--mpv-r-ctl);
+  background: var(--mpv-page);
+  box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.35);
+}
+
+.mpv-row.mpv-orphan .mpv-thumb {
+  opacity: 0.55;
+}
+
+.mpv-thumb-ink {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.6px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+[data-width='thin'] > .mpv-thumb-ink {
+  stroke-width: 1.2px;
+}
+
+[data-width='thick'] > .mpv-thumb-ink {
+  stroke-width: 2.4px;
+}
+
+/* A text box in the list: an "A" in its color, on the chip. */
+.mpv-text-thumb {
+  color: var(--ink);
+}
+
+.mpv-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 20px;
+  text-align: center;
+}
+
+.mpv-empty p {
+  margin: 0;
+}
+
+.mpv-empty-title {
+  font-weight: 600;
+}
+
+.mpv-empty-text {
+  color: var(--mpv-fg-2);
+}
+
+.mpv-empty-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  color: var(--mpv-fg-2);
+  font-size: var(--mpv-fs-2);
+  list-style: none;
+  text-align: left;
+}
+
+.mpv-empty-steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The mark: an open book with the red ribbon. */
+.mpv-book {
+  display: block;
+  flex: 0 0 auto;
+  color: var(--mpv-fg-2);
+}
+
+.mpv-book-ribbon {
+  fill: var(--mpv-marker-color);
+}
+
+.mpv-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--mpv-fg);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.mpv-wordmark .mpv-book {
+  color: var(--mpv-fg);
 }
 
 /* ---------- Pages ---------- */
@@ -687,20 +1478,21 @@ body[data-page-theme='dark'] .mpv-hl {
   mix-blend-mode: normal;
 }
 
-/* The highlight whose popover is open (Delete deletes it). */
+/* A selected highlight (its popover is open, or the select tool took it): stronger, and with
+   the dashed outline of everything that is selected. */
 .mpv-hl.mpv-selected,
 body[data-page-theme='dark'] .mpv-hl.mpv-selected {
   opacity: 0.66;
 }
 
-/* What the eraser would delete (under it now, or touched by this drag). */
-.mpv-hl.mpv-erasing,
-body[data-page-theme='dark'] .mpv-hl.mpv-erasing {
-  opacity: 0.12;
-}
-
-.mpv-note-badge.mpv-erasing {
-  opacity: 0.3;
+.mpv-hl-outline {
+  position: absolute;
+  box-sizing: border-box;
+  margin: -1px;
+  padding: 1px;
+  border: 1px dashed var(--mpv-on-paper-select);
+  border-radius: 2px;
+  pointer-events: none;
 }
 
 .mpv-link-layer {
@@ -818,18 +1610,34 @@ body.mpv-tool-active .textLayer span {
   cursor: move;
 }
 
+/* A selected drawing or text box: a dashed outline in a color that shows on the paper. */
 .mpv-drawing-selection {
   fill: none;
-  stroke: var(--vscode-focusBorder, #0078d4);
-  stroke-width: 1.25px;
+  stroke: var(--mpv-on-paper-select);
+  stroke-width: 1px;
   stroke-dasharray: 4 3;
   vector-effect: non-scaling-stroke;
+  /* The whole box of a selected drawing takes the pointer: a drag anywhere in it moves it. */
+  pointer-events: all;
+  cursor: move;
+}
+
+/* (The select tool, drawing and typing have a surface above the pages that takes the pointer.) */
+.mpv-text-new,
+body.mpv-draw-mode .mpv-drawing-selection,
+body.mpv-text-mode .mpv-drawing-selection,
+body.mpv-select-mode .mpv-drawing-selection,
+body.mpv-placing-marker .mpv-drawing-selection {
   pointer-events: none;
 }
 
-/* What the eraser would delete (under it now, or touched by this drag). */
-.mpv-drawing.mpv-erasing {
-  opacity: 0.28;
+/* The two pages of the download menu: the marks of the one with annotations keep their colors. */
+.mpv-page-mark {
+  fill: #ffd84d;
+}
+
+.mpv-page-pen {
+  stroke: var(--mpv-marker-color);
 }
 
 .mpv-drawing.mpv-flash .mpv-drawing-halo {
@@ -846,14 +1654,14 @@ body.mpv-tool-active .textLayer span {
   }
 }
 
-/* Drawings are not clickable while drawing, adding text or erasing (the capture surface is on top) or placing the marker. */
+/* Drawings are not clickable while drawing, adding text or selecting (the capture surface is on top) or placing the marker. */
 .mpv-drawing-preview .mpv-drawing-ink,
 body.mpv-draw-mode .mpv-drawing-ink,
 body.mpv-draw-mode .mpv-drawing-hit,
 body.mpv-text-mode .mpv-drawing-ink,
 body.mpv-text-mode .mpv-drawing-hit,
-body.mpv-erase-mode .mpv-drawing-ink,
-body.mpv-erase-mode .mpv-drawing-hit,
+body.mpv-select-mode .mpv-drawing-ink,
+body.mpv-select-mode .mpv-drawing-hit,
 body.mpv-placing-marker .mpv-drawing-ink,
 body.mpv-placing-marker .mpv-drawing-hit {
   pointer-events: none;
@@ -891,154 +1699,151 @@ body.mpv-rubbing .mpv-viewer-container {
   cursor: none;
 }
 
+/* A ring of exactly the eraser's size: white, with a dark line outside it, so it shows on anything. */
 .mpv-rubber-ring {
   position: fixed;
   left: 0;
   top: 0;
   z-index: 100010;
   box-sizing: border-box;
-  border: 1.2px solid #333;
+  border: 1px solid #fff;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.35);
-  box-shadow:
-    0 0 0 1.2px rgba(255, 255, 255, 0.9),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  outline: 1px solid rgba(0, 0, 0, 0.65);
   pointer-events: none;
   will-change: transform;
 }
 
-/* The remove tool: the surface takes the pointer; the cursor is a pointer with a red ×, and its tip points. */
-body.mpv-erase-mode .mpv-draw-capture {
+/* The select tool: the surface takes the pointer (no text selection, no links); the pointer is
+   the plain arrow, and says what a press would do over an annotation (set from the code). */
+body.mpv-select-mode .mpv-draw-capture {
   pointer-events: auto;
   touch-action: none;
-  cursor:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cpath d='M3 2v15.4l4.2-3.8 3 6.5 2.8-1.3-3-6.4h5.6Z' fill='white' stroke='%23222' stroke-width='1.4' stroke-linejoin='round'/%3E%3Cpath d='M17.5 17.5l6 6M23.5 17.5l-6 6' fill='none' stroke='white' stroke-width='4.4' stroke-linecap='round'/%3E%3Cpath d='M17.5 17.5l6 6M23.5 17.5l-6 6' fill='none' stroke='%23d92d3a' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E")
-      3 2,
-    cell;
+  cursor: default;
 }
 
-body.mpv-erase-mode .pdfViewer .page {
+body.mpv-select-mode .pdfViewer .page {
   touch-action: none;
 }
 
-/* Drawings in the list: a thumbnail on a chip in the page color. */
-.mpv-drawings-group {
-  justify-content: space-between;
-  padding-right: 8px;
-  color: inherit;
+body.mpv-select-mode .mpv-viewer-container {
+  cursor: default;
 }
 
-.mpv-drawing-item {
-  align-items: center;
+/* The rectangle a drag of the select tool opens: it selects what it touches. */
+.mpv-marquee {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 900;
+  box-sizing: border-box;
+  border: 1px solid var(--mpv-on-paper-select);
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--mpv-on-paper-select) 12%, transparent);
+  pointer-events: none;
 }
 
-.mpv-thumb {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 26px;
-  border-radius: 4px;
-  background: var(--mpv-page);
-  box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.35);
-}
+/* ---------- Popovers ---------- */
 
-.mpv-thumb-ink {
-  fill: none;
-  stroke: var(--ink);
-  stroke-width: 1.6px;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-
-[data-width='thin'] > .mpv-thumb-ink {
-  stroke-width: 1.2px;
-}
-
-[data-width='thick'] > .mpv-thumb-ink {
-  stroke-width: 2.4px;
-}
-
-.mpv-item-meta-inline {
-  font-size: 12px;
-  opacity: 0.7;
-}
-
-.mpv-drawing-popover .mpv-popover-row {
-  gap: 2px;
-}
-
-/* ---------- Popovers and menus ---------- */
-
-.mpv-popover,
-.mpv-menu {
+/* Floating parts share one shell: the selection bar, the highlight, drawing, text box and marker
+   popovers, the color picker and the sounds panel. Inside every one: what it looks like, then
+   what can be done with it, then delete (last, behind a separator). */
+.mpv-popover {
   position: fixed;
   z-index: 1000;
-  background: var(--vscode-editorWidget-background, var(--mpv-surface));
-  color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
-  border: 1px solid var(--vscode-editorWidget-border, var(--mpv-border));
-  border-radius: 6px;
-  box-shadow: 0 2px 10px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
-}
-
-.mpv-popover {
-  padding: 4px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+  max-width: min(332px, calc(100vw - 8px));
+  padding: 6px;
+  border: 1px solid var(--mpv-float-line);
+  border-radius: var(--mpv-r-float);
+  background: var(--mpv-surface);
+  color: var(--mpv-fg);
+  box-shadow: var(--mpv-shadow);
 }
 
 .mpv-popover-row {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
 }
 
-.mpv-popover-row .mpv-swatch {
-  width: 18px;
-  height: 18px;
+/* In a panel too narrow for a row, it wraps (never wider than the viewer). */
+.mpv-popover-row.mpv-wraps {
+  flex-wrap: wrap;
 }
 
 .mpv-popover-label {
-  margin-right: 2px;
-  font-size: 12px;
-  opacity: 0.85;
+  padding: 0 2px 0 6px;
+  color: var(--mpv-fg-2);
+  font-size: var(--mpv-fs-2);
 }
 
-.mpv-popover-sep {
-  flex: 0 0 auto;
-  width: 1px;
-  height: 18px;
-  margin: 0 5px;
-  background: var(--mpv-border);
+.mpv-popover-title {
+  padding: 2px 4px 0;
+  font-weight: 600;
 }
+
+/* ---------- Menus ---------- */
 
 .mpv-menu {
+  position: fixed;
+  z-index: 1003;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-width: 168px;
+  max-width: calc(100vw - 8px);
+  max-height: calc(100vh - 8px);
   padding: 4px;
-  min-width: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--mpv-float-line);
+  border-radius: var(--mpv-r-float);
+  background: var(--mpv-menu-bg);
+  color: var(--mpv-menu-fg);
+  box-shadow: var(--mpv-shadow);
+  user-select: none;
+}
+
+/* A list of short values (font sizes): narrow, and it scrolls. */
+/* The panel itself takes the keyboard when it is opened with the pointer: it shows no focus ring. */
+.mpv-menu:focus {
+  outline: none;
+}
+
+.mpv-menu-narrow {
+  min-width: 76px;
+  max-height: min(220px, calc(100vh - 8px));
 }
 
 .mpv-menu-item {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
   box-sizing: border-box;
   width: 100%;
-  min-height: 27px;
-  padding: 5px 8px;
-  border: none;
-  border-radius: 3px;
-  background: transparent;
+  height: var(--mpv-ctl);
+  margin: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mpv-r-ctl);
+  background: none;
   color: inherit;
   font: inherit;
   text-align: left;
+  white-space: nowrap;
   cursor: pointer;
 }
 
+/* The pointer and the keyboard mark the same item: the one that has the focus. */
 .mpv-menu-item:hover:not(:disabled),
-.mpv-menu-item:focus-visible {
-  background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
-  color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
-  outline: none;
+.mpv-menu-item:focus {
+  background: var(--mpv-menu-hover-bg);
+  color: var(--mpv-menu-hover-fg);
+  outline: var(--mpv-hover-ring);
+  outline-offset: -1px;
 }
 
 .mpv-menu-item:disabled {
@@ -1046,101 +1851,143 @@ body.mpv-erase-mode .pdfViewer .page {
   cursor: default;
 }
 
+.mpv-menu-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: clip;
+  overflow-clip-margin: 6px;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The end slot: a shortcut, the current value, the check of the current item, a submenu arrow. */
+.mpv-menu-end {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin-left: auto;
+  padding-left: 16px;
+  font-size: var(--mpv-fs-2);
+  opacity: 0.75;
+}
+
+.mpv-menu-sep {
+  flex: 0 0 auto;
+  height: 1px;
+  margin: 4px 0;
+  background: var(--mpv-border);
+}
+
+.mpv-menu-head {
+  padding: 4px 8px 2px;
+  color: var(--mpv-fg-2);
+  font-size: var(--mpv-fs-3);
+}
+
+/* "Go to page…" of the More menu in a mini panel: the page field in a popover. */
+.mpv-goto .mpv-popover-row {
+  padding: 0 2px 0 6px;
+}
+
 /* ---------- Status overlay (first render) ---------- */
 
 .mpv-status {
   position: absolute;
   inset: 0;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--mpv-canvas);
-  z-index: 10;
+}
+
+.mpv-status-box,
+.mpv-password-form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  max-width: 300px;
+  margin: 0;
+  text-align: center;
 }
 
 .mpv-status-box {
-  max-width: 560px;
-  padding: 24px;
-  text-align: center;
-  line-height: 1.5;
+  padding: 16px;
+}
+
+.mpv-status-box p {
+  margin: 0;
 }
 
 .mpv-status-icon {
-  font-size: 28px !important;
-  opacity: 0.8;
+  font-size: 20px !important;
+  color: var(--mpv-fg-2);
 }
 
-.mpv-error-icon {
-  color: var(--vscode-errorForeground, #f14c4c);
+.mpv-status-icon.mpv-error-icon {
+  color: var(--mpv-danger);
+}
+
+/* (The spinner stands clear of the name above it and of the line under it.) */
+.mpv-spinner {
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+  margin: 12px 0 8px;
+  border: 2px solid var(--mpv-field-line);
+  border-top-color: var(--mpv-accent-fg);
+  border-radius: 50%;
+  animation: mpv-spin 0.9s linear infinite;
+}
+
+@keyframes mpv-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mpv-spinner {
+    animation-duration: 2.4s;
+  }
 }
 
 .mpv-status-title {
   font-weight: 600;
-  font-size: 1.1em;
-  margin-bottom: 4px;
 }
 
 .mpv-status-detail {
+  color: var(--mpv-fg-2);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  opacity: 0.9;
 }
 
 .mpv-status-actions {
   display: flex;
   justify-content: center;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 4px;
 }
 
-.mpv-button {
-  box-sizing: border-box;
-  min-height: 27px;
-  padding: 0 14px;
-  border: 1px solid var(--vscode-button-border, transparent);
-  border-radius: 2px;
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
-  font: inherit;
-  cursor: pointer;
+.mpv-password-input {
+  width: min(220px, 80vw);
 }
 
-.mpv-button:hover {
-  background: var(--vscode-button-hoverBackground);
+.mpv-password-input:focus {
+  border-color: var(--mpv-focus);
 }
 
-.mpv-status-actions .mpv-button + .mpv-button,
-.mpv-button.mpv-button-secondary {
-  background: var(--vscode-button-secondaryBackground);
-  color: var(--vscode-button-secondaryForeground);
-}
-
-.mpv-status-actions .mpv-button + .mpv-button:hover,
-.mpv-button.mpv-button-secondary:hover {
-  background: var(--vscode-button-secondaryHoverBackground);
-}
-
-.mpv-button-small {
-  min-height: 23px;
-  padding: 0 10px;
-}
-
-/* An icon and a label. */
-.mpv-button:has(> .codicon) {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.mpv-button-small .codicon {
-  font-size: 13px;
+.mpv-status-detail.mpv-error-text {
+  color: var(--mpv-danger);
 }
 
 /* ---------- Notes on highlights ---------- */
 
-/* A highlight with a note gets a darker underline. */
+/* A highlight with a note gets an underline in its color, darkened. */
 .mpv-hl.mpv-noted {
-  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--hl) 55%, #000);
+  box-shadow: inset 0 -1.5px 0 color-mix(in srgb, var(--hl) 70%, #000);
 }
 
 .mpv-badge-layer,
@@ -1156,27 +2003,29 @@ body.mpv-erase-mode .pdfViewer .page {
   z-index: 100002;
 }
 
+/* The badge in the margin: filled with the highlight color, three round corners and one small one. */
 .mpv-note-badge {
   position: absolute;
   right: calc(4px + var(--stack, 0) * 21px);
-  width: 19px;
-  height: 18px;
-  margin-top: -3px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  margin-top: -3px;
   padding: 0;
-  border: 1px solid rgba(0, 0, 0, 0.35);
-  border-radius: 9px 9px 9px 2px;
+  border: 0;
+  border-radius: 9px 9px 9px 3px;
   background: var(--hl);
-  color: #1f2328;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  color: rgba(0, 0, 0, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.22);
   cursor: pointer;
   pointer-events: auto;
 }
 
 .mpv-note-badge .codicon {
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .mpv-note-badge:hover {
@@ -1184,104 +2033,87 @@ body.mpv-erase-mode .pdfViewer .page {
 }
 
 .mpv-note-badge:focus-visible {
-  outline: 2px solid var(--vscode-focusBorder);
+  outline: 2px solid var(--mpv-focus);
   outline-offset: 1px;
 }
 
-.mpv-hl-popover {
-  max-width: min(360px, calc(100vw - 16px));
-}
-
+/* The note under the row of a highlight's popover: a click opens it for writing. */
 .mpv-note-view {
-  margin: 6px 0 2px;
-  padding: 5px 8px;
+  width: 100%;
   max-height: 200px;
+  margin: 0;
   overflow: auto;
-  border-left: 3px solid var(--vscode-textLink-foreground, #3794ff);
-  border-radius: 2px;
-  background: var(--vscode-textBlockQuote-background, rgba(127, 127, 127, 0.1));
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  line-height: 1.45;
-  cursor: text;
+  font-family: inherit;
+  cursor: pointer;
 }
 
-.mpv-note-view:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder);
+/* The note editor: the same popover, grown in place. */
+.mpv-popover.mpv-editing {
+  width: min(286px, calc(100vw - 8px));
+}
+
+.mpv-popover.mpv-editing > .mpv-popover-row:first-child {
+  display: none;
 }
 
 .mpv-note-editor {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  width: min(330px, calc(100vw - 32px));
-  margin-top: 6px;
+}
+
+.mpv-note-label {
+  padding: 0 2px;
+  color: var(--mpv-fg-2);
+  font-size: var(--mpv-fs-2);
 }
 
 .mpv-note-input {
-  width: 100%;
-  min-height: 76px;
-  max-height: 280px;
+  display: block;
   box-sizing: border-box;
+  width: 100%;
+  min-height: 56px;
+  max-height: 280px;
+  margin: 0;
   padding: 6px 8px;
   resize: vertical;
-  border: 1px solid var(--vscode-input-border, var(--mpv-border));
-  border-radius: 3px;
-  background: var(--vscode-input-background);
-  color: var(--vscode-input-foreground);
+  border: 1px solid var(--mpv-focus);
+  border-radius: var(--mpv-r-field);
+  outline: 0;
+  background: var(--mpv-field-bg);
+  color: var(--mpv-field-fg);
   font: inherit;
-  line-height: 1.45;
-}
-
-.mpv-note-input:focus {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: -1px;
+  line-height: 1.4;
 }
 
 .mpv-note-input::placeholder {
-  color: var(--vscode-input-placeholderForeground);
+  color: var(--mpv-placeholder);
 }
 
-.mpv-note-editor-footer {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.mpv-hint {
-  flex: 1 1 auto;
-  font-size: 11px;
-  opacity: 0.7;
+.mpv-note-hint {
+  padding-left: 2px;
+  color: var(--mpv-fg-2);
+  font-size: var(--mpv-fs-3);
 }
 
 .mpv-tooltip {
   position: fixed;
   z-index: 1001;
-  max-width: min(340px, calc(100vw - 16px));
-  padding: 6px 9px;
-  border: 1px solid var(--vscode-editorHoverWidget-border, var(--mpv-border));
-  border-radius: 4px;
-  background: var(--vscode-editorHoverWidget-background, var(--mpv-surface));
-  color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
-  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
+  box-sizing: border-box;
+  max-width: min(240px, calc(100vw - 8px));
+  padding: 4px 8px;
+  border: 1px solid var(--mpv-float-line);
+  border-radius: var(--mpv-r-ctl);
+  background: var(--mpv-surface);
+  color: var(--mpv-fg);
+  box-shadow: var(--mpv-shadow);
+  font-size: var(--mpv-fs-2);
   pointer-events: none;
-  line-height: 1.45;
 }
 
 .mpv-tooltip-title {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-bottom: 3px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  opacity: 0.75;
-}
-
-.mpv-tooltip-title .codicon {
-  font-size: 12px;
+  color: var(--mpv-fg-2);
+  font-size: var(--mpv-fs-3);
 }
 
 .mpv-tooltip-body {
@@ -1291,31 +2123,6 @@ body.mpv-erase-mode .pdfViewer .page {
   overflow: hidden;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-
-.mpv-item-note {
-  display: flex;
-  gap: 5px;
-  margin-top: 3px;
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.mpv-item-note .codicon {
-  flex: 0 0 auto;
-  margin-top: 1px;
-  font-size: 12px;
-  opacity: 0.75;
-}
-
-.mpv-item-note span:last-child {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  font-style: italic;
-  opacity: 0.9;
 }
 
 /* ---------- Reading marker ---------- */
@@ -1331,58 +2138,70 @@ body.mpv-erase-mode .pdfViewer .page {
   height: 0;
 }
 
+/* A 2 px line across the page, 3 px above the marked line of text. */
 .mpv-marker-line {
   position: absolute;
   left: 0;
   right: 0;
-  top: -3px;
+  top: -4px;
   height: 0;
   border-top: 2px solid var(--mpv-marker-color);
-  opacity: 0.9;
 }
 
-.mpv-marker-ghost .mpv-marker-line {
-  border-top-style: dashed;
-  opacity: 0.65;
-}
-
+/* The tab in the left margin, centered on the line. */
 .mpv-marker-tab {
   position: absolute;
-  left: -13px;
+  left: -11px;
   top: -14px;
-  width: 20px;
-  height: 22px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: 0;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   background: var(--mpv-marker-color);
   color: #ffffff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   cursor: pointer;
   pointer-events: auto;
 }
 
 .mpv-marker-tab .codicon {
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .mpv-marker-tab:focus-visible {
-  outline: 2px solid var(--vscode-focusBorder);
+  outline: 2px solid var(--mpv-focus);
   outline-offset: 1px;
+}
+
+/* While placing: the same line dashed and the tab at 55 %, following the pointer. */
+.mpv-marker-ghost .mpv-marker-line {
+  border-top-style: dashed;
+}
+
+.mpv-marker-ghost .mpv-marker-tab {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* The marker stands where its line was: a dashed line, like a guess. */
+.mpv-marker-approximate .mpv-marker-line {
+  border-top-style: dashed;
 }
 
 .mpv-marker-label {
   position: absolute;
-  left: 12px;
+  left: 16px;
   top: -24px;
   padding: 1px 7px;
-  border-radius: 3px;
+  border-radius: var(--mpv-r-ctl);
   background: var(--mpv-marker-color);
   color: #ffffff;
-  font-size: 11px;
+  font-size: var(--mpv-fs-3);
   font-weight: 600;
   white-space: nowrap;
   opacity: 0;
@@ -1433,76 +2252,58 @@ body.mpv-placing-marker .mpv-viewer-container .annotationLayer * {
   user-select: none;
 }
 
-.mpv-btn.mpv-has-marker .codicon {
-  color: var(--mpv-marker-color);
-}
-
-.mpv-marker-item {
-  margin-bottom: 4px;
-  border-bottom: 1px solid var(--mpv-border);
-}
-
-.mpv-marker-dot {
-  flex: 0 0 auto;
-  margin-top: 1px;
-  color: var(--mpv-marker-color);
-}
-
-.mpv-item-quote {
-  margin-top: 2px;
-  font-size: 12px;
-  opacity: 0.8;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+/* The marker's popover: "You stopped at", the marked line, then Move and Remove. */
 .mpv-marker-popover {
-  padding: 8px 10px;
-  max-width: 300px;
+  max-width: min(300px, calc(100vw - 8px));
 }
 
+/* The text starts where the icons of the buttons under it start. */
 .mpv-marker-popover-title {
-  margin-bottom: 8px;
-  line-height: 1.4;
+  padding: 2px 9px;
 }
 
-.mpv-marker-popover-actions {
-  display: flex;
-  gap: 6px;
+.mpv-marker-popover-label {
+  display: block;
+  color: var(--mpv-fg-2);
+  font-size: var(--mpv-fs-3);
 }
 
 /* ---------- Toast ---------- */
 
+/* A pill at the bottom center of the pages. */
 .mpv-toast {
   position: absolute;
   left: 50%;
-  bottom: 18px;
+  bottom: 16px;
   z-index: 30;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 8px;
   box-sizing: border-box;
-  min-height: 34px;
-  max-width: min(560px, calc(100% - 32px));
-  padding: 10px 12px;
+  min-height: 32px;
+  max-width: min(560px, calc(100% - 16px));
+  padding: 3px 12px;
   transform: translateX(-50%);
-  border: 1px solid var(--vscode-notifications-border, var(--mpv-border));
-  border-radius: 6px;
-  background: var(--vscode-notifications-background, var(--mpv-surface));
-  color: var(--vscode-notifications-foreground, var(--vscode-foreground));
-  box-shadow: 0 3px 14px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
+  border: 1px solid var(--mpv-float-line);
+  border-radius: 16px;
+  background: var(--mpv-surface);
+  color: var(--mpv-fg);
+  box-shadow: var(--mpv-shadow);
   animation: mpv-toast-in 0.16s ease-out;
 }
 
-.mpv-toast-text {
-  overflow-wrap: anywhere;
-  line-height: 1.45;
+.mpv-toast.mpv-toast-action {
+  padding-right: 6px;
 }
 
-.mpv-toast .mpv-link-button {
+.mpv-toast-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mpv-toast-icon {
   flex: 0 0 auto;
-  white-space: nowrap;
+  color: var(--mpv-marker-color);
 }
 
 @keyframes mpv-toast-in {
@@ -1514,37 +2315,6 @@ body.mpv-placing-marker .mpv-viewer-container .annotationLayer * {
     opacity: 1;
     transform: translate(-50%, 0);
   }
-}
-
-/* ---------- Password prompt ---------- */
-
-.mpv-password-form {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-
-.mpv-password-input {
-  width: min(260px, 80vw);
-  height: 26px;
-  box-sizing: border-box;
-  margin-top: 6px;
-  padding: 0 8px;
-  border: 1px solid var(--vscode-input-border, var(--mpv-border));
-  border-radius: 3px;
-  background: var(--vscode-input-background);
-  color: var(--vscode-input-foreground);
-  font: inherit;
-}
-
-.mpv-password-input:focus {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: -1px;
-}
-
-.mpv-error-text {
-  color: var(--vscode-errorForeground, #f14c4c);
 }
 
 /* ---------- Dark pages for PDF files ---------- */
@@ -1563,96 +2333,26 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
 
 /* ---------- Reading sounds ---------- */
 
-.mpv-svg-icon {
-  display: block;
-  flex: 0 0 auto;
-}
-
-.mpv-sounds-button {
-  position: relative;
-}
-
-/* A small dot tells that a sound is playing while the panel is closed. */
-.mpv-sounds-button.mpv-playing::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--vscode-activityBarBadge-background, #0078d4);
-  box-shadow: 0 0 0 1.5px var(--mpv-surface);
-}
-
+/* The panel hangs from the headphones. It is built from the parts the rest of the interface uses. */
 .mpv-sounds {
-  width: 296px;
-  padding: 10px 12px 12px;
+  gap: 8px;
+  width: min(280px, calc(100vw - 8px));
+  max-width: none;
+  padding: 8px;
 }
 
 .mpv-sounds:focus {
   outline: none;
 }
 
-.mpv-sounds-header {
-  margin-bottom: 10px;
-}
-
-.mpv-sounds-title {
-  font-weight: 600;
-}
-
-.mpv-sound-tiles {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.mpv-sound-tile {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  height: 62px;
-  padding: 6px;
-  border: 1px solid var(--mpv-border);
-  border-radius: 8px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-.mpv-sound-tile:hover {
-  background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
-}
-
-.mpv-sound-tile[aria-checked='true'] {
-  border-color: var(--vscode-focusBorder, #0078d4);
-  background: color-mix(in srgb, var(--vscode-focusBorder, #0078d4) 16%, transparent);
-}
-
-.mpv-sound-tile:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: 2px;
-}
-
-.mpv-sound-tile svg {
-  opacity: 0.9;
-}
-
-.mpv-sound-name {
-  font-size: 12px;
-}
-
-/* Equalizer bars on the recording that is playing (in place of its radio ring). */
+/* Equalizer bars on the recording that is playing, at the right end of its row. */
 .mpv-eq {
   display: none;
+  flex: 0 0 auto;
   align-items: flex-end;
   gap: 2px;
   height: 10px;
+  margin-left: auto;
 }
 
 .mpv-sound-playing .mpv-eq {
@@ -1663,7 +2363,7 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
   width: 2px;
   height: 100%;
   border-radius: 1px;
-  background: var(--vscode-focusBorder, #0078d4);
+  background: var(--mpv-accent-fg);
   transform-origin: bottom;
   animation: mpv-eq 1.1s ease-in-out infinite;
 }
@@ -1693,30 +2393,32 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
   }
 }
 
-/* The recordings of the category picked above: a radio list; the playing one shows the bars. */
+/* The recordings of the kind picked above: radio rows; the playing one shows the bars. */
 .mpv-sound-list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
   max-height: 196px;
-  margin-top: 10px;
   overflow-y: auto;
 }
 
 .mpv-sound-row {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 2px;
-  min-height: 28px;
-  border-radius: var(--mpv-radius);
+  box-sizing: border-box;
+  height: var(--mpv-ctl);
+  border-radius: var(--mpv-r-ctl);
 }
 
-.mpv-sound-row:hover {
-  background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
+.mpv-sound-row:hover,
+.mpv-sound-row.mpv-selected {
+  background: var(--mpv-row-hover);
 }
 
-.mpv-sound-row:has(.mpv-sound-item[aria-checked='true']) {
-  background: color-mix(in srgb, var(--vscode-focusBorder, #0078d4) 14%, transparent);
+.mpv-sound-row.mpv-selected {
+  color: var(--mpv-fg-strong);
+  outline: var(--mpv-chip-ring);
+  outline-offset: -1px;
 }
 
 .mpv-sound-item {
@@ -1724,11 +2426,13 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
   flex: 1 1 auto;
   align-items: center;
   gap: 8px;
+  box-sizing: border-box;
   min-width: 0;
-  height: 28px;
+  height: var(--mpv-ctl);
+  margin: 0;
   padding: 0 8px;
   border: none;
-  border-radius: var(--mpv-radius);
+  border-radius: var(--mpv-r-ctl);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -1736,317 +2440,232 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
   cursor: pointer;
 }
 
-.mpv-sound-item:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: -1px;
-}
-
 .mpv-sound-item-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* A radio mark, filled for the chosen recording. */
 .mpv-sound-mark {
-  display: inline-flex;
   flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
-  height: 12px;
-}
-
-/* A radio ring, filled for the chosen recording. */
-.mpv-sound-mark::before {
-  content: '';
   box-sizing: border-box;
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid currentColor;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--mpv-fg-2);
   border-radius: 50%;
-  opacity: 0.55;
 }
 
-.mpv-sound-item[aria-checked='true'] .mpv-sound-mark::before {
-  border-color: var(--vscode-focusBorder, #0078d4);
-  background: var(--vscode-focusBorder, #0078d4);
-  opacity: 1;
+.mpv-sound-row.mpv-selected .mpv-sound-mark {
+  border-color: var(--mpv-accent-fg);
+  background: radial-gradient(circle, var(--mpv-accent-fg) 0 3px, transparent 3.5px);
 }
 
-.mpv-sound-row.mpv-sound-playing .mpv-sound-mark::before {
-  display: none;
-}
-
-/* Rename and remove: shown on hover or keyboard focus. */
+/* Rename and remove: on the picked row, at all times. */
 .mpv-sound-actions {
-  display: flex;
+  display: none;
   flex: 0 0 auto;
-  opacity: 0;
+  gap: 2px;
+  padding-right: 3px;
 }
 
-.mpv-sound-row:hover .mpv-sound-actions,
-.mpv-sound-row:focus-within .mpv-sound-actions {
-  opacity: 1;
-}
-
-.mpv-sound-action {
-  width: 24px;
+.mpv-sound-row.mpv-selected .mpv-sound-actions {
+  display: flex;
 }
 
 .mpv-sound-editing {
   gap: 6px;
-  padding: 2px 4px;
+  padding: 0 3px;
 }
 
 .mpv-sound-rename {
   flex: 1 1 auto;
   min-width: 0;
-  height: 24px;
-  padding: 0 6px;
-  border: 1px solid var(--vscode-focusBorder, #0078d4);
-  border-radius: 3px;
-  outline: none;
-  background: var(--vscode-input-background, transparent);
-  color: var(--vscode-input-foreground, inherit);
-  font: inherit;
+  height: 22px;
+  padding: 0 5px;
+  border-color: var(--mpv-focus);
+  border-radius: var(--mpv-r-ctl);
 }
 
 .mpv-sound-question {
   flex: 1 1 auto;
   min-width: 0;
+  padding-left: 5px;
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--mpv-fs-2);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .mpv-sound-confirm,
-.mpv-sound-cancel {
-  flex: 0 0 auto;
-  height: 22px;
-  padding: 0 8px;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.mpv-sound-confirm {
+.mpv-sound-confirm:hover,
+.mpv-sound-confirm:active {
   background: var(--vscode-statusBarItem-errorBackground, #c72e0f);
   color: var(--vscode-statusBarItem-errorForeground, #fff);
 }
 
-.mpv-sound-cancel {
-  background: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.25));
-  color: var(--vscode-button-secondaryForeground, inherit);
+.mpv-sound-rows {
+  display: flex;
+  flex-direction: column;
 }
 
-.mpv-sound-confirm:focus-visible,
-.mpv-sound-cancel:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: 1px;
+.mpv-sounds .mpv-menu-sep {
+  margin: 0;
 }
 
 .mpv-sounds-empty {
-  margin: 10px 2px 0;
-  font-size: 12px;
-  line-height: 1.45;
-  opacity: 0.8;
+  margin: 0;
+  padding: 0 4px;
+  color: var(--mpv-fg-2);
+  font-size: var(--mpv-fs-2);
 }
 
+/* "Add sound files…": a row like the recordings, with a plus where their radio mark is. */
 .mpv-sounds-add {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 100%;
-  height: 28px;
-  margin-top: 8px;
-  border: 1px dashed var(--mpv-border);
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
+  color: var(--mpv-fg-2);
 }
 
 .mpv-sounds-add:hover {
-  background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
+  background: var(--mpv-row-hover);
+  color: var(--mpv-fg);
 }
 
-.mpv-sounds-add:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: 2px;
+.mpv-sounds-add .codicon {
+  width: 14px;
+  font-size: 14px;
 }
 
 .mpv-sounds-controls {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 12px;
+  padding-right: 4px;
 }
 
-.mpv-sound-play {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
+.mpv-btn.mpv-sound-play {
   width: 32px;
   height: 32px;
-  padding: 0;
-  border: none;
+  min-width: 32px;
+  border-color: var(--mpv-float-line);
   border-radius: 50%;
-  background: var(--vscode-button-background, #0078d4);
-  color: var(--vscode-button-foreground, #fff);
-  cursor: pointer;
+  background: var(--mpv-accent);
+  color: var(--mpv-on-accent);
 }
 
-.mpv-sound-play:hover {
-  background: var(--vscode-button-hoverBackground, var(--vscode-button-background));
+.mpv-btn.mpv-sound-play:hover {
+  background: var(--mpv-accent-hover);
+  color: var(--mpv-on-accent);
 }
 
-.mpv-sound-play:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder);
+.mpv-btn.mpv-sound-play:focus-visible {
   outline-offset: 2px;
 }
 
 .mpv-sounds-volume-icon {
   display: inline-flex;
-  opacity: 0.8;
+  flex: 0 0 auto;
+  color: var(--mpv-icon);
 }
 
+/* A 4 px track filled up to the value, and a 12 px thumb. */
 .mpv-sounds-slider {
   --mpv-fill: 70%;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   height: 4px;
   margin: 0;
   border-radius: 2px;
-  background: linear-gradient(
-    to right,
-    var(--vscode-button-background, #0078d4) var(--mpv-fill),
-    var(--vscode-scrollbarSlider-background, rgba(128, 128, 128, 0.4)) var(--mpv-fill)
-  );
+  background: linear-gradient(to right, var(--mpv-accent-fg) var(--mpv-fill), var(--mpv-field-line) var(--mpv-fill));
   appearance: none;
   cursor: pointer;
 }
 
 .mpv-sounds-slider::-webkit-slider-thumb {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--vscode-button-background, #0078d4);
+  width: 12px;
+  height: 12px;
+  border: 0;
   border-radius: 50%;
-  background: var(--vscode-editorWidget-background, #fff);
+  background: var(--mpv-fg-strong);
+  box-shadow: 0 0 0 1px var(--mpv-accent-fg);
   appearance: none;
 }
 
 .mpv-sounds-slider:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: 4px;
+  outline: 1px solid var(--mpv-focus);
+  outline-offset: 5px;
 }
 
 .mpv-sounds-percent {
-  width: 34px;
-  font-size: 12px;
+  flex: 0 0 auto;
+  width: 30px;
+  color: var(--mpv-fg-2);
+  font-size: var(--mpv-fs-2);
   font-variant-numeric: tabular-nums;
   text-align: right;
-  opacity: 0.85;
 }
 
 /* ---------- Color picker ---------- */
 
 .mpv-color-picker {
-  display: flex;
-  flex-direction: column;
   gap: 8px;
-  box-sizing: border-box;
-  /* Six swatches of 24px, 8px apart (the same as between the two rows), inside 10px of padding and a 1px border. */
-  width: 206px;
-  padding: 10px;
+  width: 212px;
+  max-width: calc(100vw - 8px);
+  padding: 8px;
 }
 
 .mpv-cp-label {
-  margin-bottom: -3px;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+  padding: 2px 4px 0;
+  color: var(--mpv-fg-2);
 }
 
+/* Six swatches per row, each centered in its column. */
 .mpv-cp-swatches {
   display: grid;
-  grid-template-columns: repeat(6, 24px);
-  justify-content: space-between;
-  row-gap: 8px;
-}
-
-.mpv-cp-swatch {
-  width: 24px;
-  height: 24px;
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-  border-radius: 50%;
-  border: 1px solid rgba(0, 0, 0, 0.22);
-  background: var(--ink);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-foreground, #888) 30%, transparent);
-  cursor: pointer;
-}
-
-.mpv-cp-swatch:hover {
-  transform: scale(1.1);
-}
-
-.mpv-cp-swatch:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: 3px;
-}
-
-.mpv-cp-swatch.mpv-selected {
-  box-shadow:
-    0 0 0 2px var(--vscode-editorWidget-background, var(--mpv-surface)),
-    0 0 0 3.5px var(--mpv-on);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  justify-items: center;
+  gap: 4px 0;
 }
 
 /* Saturation (left to right) and brightness (bottom to top) at the hue below. */
 .mpv-cp-area {
   position: relative;
-  height: 112px;
-  border-radius: var(--mpv-radius);
+  height: 104px;
+  border-radius: var(--mpv-r-ctl);
   background: linear-gradient(to top, #000, rgba(0, 0, 0, 0)), linear-gradient(to right, #fff, hsl(var(--hue, 0) 100% 50%));
   cursor: crosshair;
   touch-action: none;
 }
 
-.mpv-cp-area:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder);
+.mpv-cp-area:focus-visible,
+.mpv-cp-hue:focus-visible {
+  outline: 1px solid var(--mpv-focus);
   outline-offset: 2px;
 }
 
 .mpv-cp-thumb {
   position: absolute;
+  box-sizing: border-box;
   width: 12px;
   height: 12px;
   margin: -6px 0 0 -6px;
-  box-sizing: border-box;
-  border-radius: 50%;
   border: 2px solid #fff;
+  border-radius: 50%;
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.45),
     inset 0 0 0 1px rgba(0, 0, 0, 0.2);
   pointer-events: none;
 }
 
+/* The hue: an 8 px track and a 14 px round thumb. */
 .mpv-cp-hue {
   -webkit-appearance: none;
   appearance: none;
   display: block;
   width: 100%;
-  height: 12px;
-  margin: 0;
-  border-radius: 6px;
+  height: 8px;
+  margin: 3px 0;
+  border-radius: 4px;
   background: linear-gradient(to right, #f00 0%, #ff0 16.67%, #0f0 33.33%, #0ff 50%, #00f 66.67%, #f0f 83.33%, #f00 100%);
   cursor: pointer;
 }
@@ -2056,51 +2675,27 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
   appearance: none;
   width: 14px;
   height: 14px;
-  border-radius: 50%;
   border: 2px solid #fff;
+  border-radius: 50%;
   background: transparent;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
 }
 
-.mpv-cp-hue:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: 2px;
-}
-
+/* The color as a dot (as wide a column as a swatch above it), and its hex value. */
 .mpv-cp-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .mpv-cp-preview {
-  flex: 0 0 auto;
-  width: var(--mpv-input);
-  height: var(--mpv-input);
-  box-sizing: border-box;
-  border-radius: var(--mpv-radius);
-  border: 1px solid rgba(0, 0, 0, 0.22);
+  margin: 0 4px;
 }
 
 .mpv-cp-hex {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
-  box-sizing: border-box;
-  height: var(--mpv-input);
-  margin: 0;
-  padding: 0 6px;
-  border: 1px solid var(--vscode-input-border, transparent);
-  border-radius: var(--mpv-radius);
-  background: var(--vscode-input-background);
-  color: var(--vscode-input-foreground);
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 12px;
   text-transform: uppercase;
-}
-
-.mpv-cp-hex:focus {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: -1px;
 }
 
 /* ---------- Text boxes ---------- */
@@ -2182,7 +2777,7 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
 }
 
 .mpv-textbox:hover .mpv-text-hit {
-  stroke: var(--vscode-focusBorder, #0078d4);
+  stroke: var(--mpv-on-paper-select);
   stroke-opacity: 0.5;
   stroke-width: 1px;
   stroke-dasharray: 3 3;
@@ -2204,7 +2799,7 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
 @keyframes mpv-text-flash {
   0%,
   35% {
-    fill: color-mix(in srgb, var(--vscode-focusBorder, #0078d4) 22%, transparent);
+    fill: color-mix(in srgb, var(--mpv-on-paper-select) 22%, transparent);
   }
   100% {
     fill: transparent;
@@ -2217,9 +2812,9 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
 
 /* The handles of a selected text box: drag one to make the box wider or narrower. */
 .mpv-text-handle {
-  fill: var(--vscode-editorWidget-background, #fff);
-  stroke: var(--vscode-focusBorder, #0078d4);
-  stroke-width: 1.25px;
+  fill: #fff;
+  stroke: var(--mpv-on-paper-select);
+  stroke-width: 1px;
   vector-effect: non-scaling-stroke;
   pointer-events: all;
   cursor: ew-resize;
@@ -2229,8 +2824,8 @@ body.mpv-draw-mode .mpv-text-hit,
 body.mpv-draw-mode .mpv-text-handle,
 body.mpv-text-mode .mpv-text-hit,
 body.mpv-text-mode .mpv-text-handle,
-body.mpv-erase-mode .mpv-text-hit,
-body.mpv-erase-mode .mpv-text-handle,
+body.mpv-select-mode .mpv-text-hit,
+body.mpv-select-mode .mpv-text-handle,
 body.mpv-placing-marker .mpv-text-hit,
 body.mpv-placing-marker .mpv-text-handle {
   pointer-events: none;
@@ -2254,8 +2849,8 @@ body.mpv-text-mode .pdfViewer .page {
   z-index: 100005;
   min-height: calc(1.25em + 2px);
   transform-origin: 0 0;
-  outline: calc(1.25px * var(--mpv-unscale, 1)) dashed var(--vscode-focusBorder, #0078d4);
-  outline-offset: 0;
+  outline: calc(1px * var(--mpv-unscale, 1)) solid var(--mpv-on-paper-select);
+  outline-offset: calc(2px * var(--mpv-unscale, 1));
   caret-color: var(--ink);
   cursor: text;
   user-select: text;
@@ -2263,11 +2858,7 @@ body.mpv-text-mode .pdfViewer .page {
 
 .mpv-text-editor::selection,
 .mpv-text-editor ::selection {
-  background: color-mix(in srgb, var(--vscode-focusBorder, #0078d4) 35%, transparent);
-}
-
-.mpv-text-editor:focus {
-  outline-style: solid;
+  background: color-mix(in srgb, var(--mpv-on-paper-select) 35%, transparent);
 }
 
 /* While dragging out a new text box. */
@@ -2275,68 +2866,17 @@ body.mpv-text-mode .pdfViewer .page {
   stroke-dasharray: 4 3;
 }
 
-/* A text box in the list: a T in its color, on a chip in the page color. */
-.mpv-text-thumb .mpv-svg-icon {
-  color: var(--ink);
-}
+/* ---------- Motion ---------- */
 
-.mpv-text-thumb .mpv-icon-band {
-  fill: var(--ink);
-  stroke: none;
-}
-
-/* ---------- Annotations whose content changed or is gone ---------- */
-
-.mpv-list-group-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--vscode-editorWarning-foreground, var(--vscode-foreground));
-}
-
-/* "was … / now …": both lines in full, the old text dimmed and struck through. */
-.mpv-item.mpv-changed .mpv-item-text {
-  display: block;
-  overflow: visible;
-}
-
-.mpv-item-was,
-.mpv-item-now {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.mpv-item-was > span:last-child {
-  opacity: 0.65;
-  text-decoration: line-through;
-}
-
-.mpv-item-label {
-  font-size: 11px;
-  opacity: 0.7;
-}
-
-/* The marker stands where its line was: a dashed line, like a guess. */
-.mpv-marker-approximate .mpv-marker-line {
-  border-top-style: dashed;
-}
-
-/* Rows with several actions: the buttons float over the end of the row instead of taking a column. */
-.mpv-item-actions-over {
-  position: absolute;
-  /* With the 1px of padding, the buttons stand exactly where a row's own buttons do. */
-  top: 5px;
-  right: 7px;
-  padding: 1px;
-  border-radius: 4px;
-  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
-  box-shadow: 0 0 0 1px var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
-}
-
-/* What a drawing or text box follows (in its popover). */
-.mpv-attach-select {
-  width: auto;
-  max-width: 124px;
+@media (prefers-reduced-motion: no-preference) {
+  .mpv-btn,
+  .mpv-menu-item,
+  .mpv-row,
+  .mpv-swatch,
+  .mpv-chip {
+    transition:
+      background-color 0.12s ease,
+      border-color 0.12s ease,
+      color 0.12s ease;
+  }
 }

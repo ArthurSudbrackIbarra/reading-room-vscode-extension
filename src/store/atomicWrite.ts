@@ -106,3 +106,15 @@ export function copyFolderOnce(source: string, target: string): boolean {
     throw err;
   }
 }
+
+/**
+ * Brings `folder` into the storage folder `target` from the first of `sources` (storage folders
+ * of the extension's earlier ids, newest first) that has it. Nothing happens when the target has
+ * the folder already. Returns the source it was copied from.
+ */
+export function copyFolderFromFirst(sources: string[], target: string, folder: string): string | undefined {
+  for (const source of sources) {
+    if (copyFolderOnce(join(source, folder), join(target, folder))) return source;
+  }
+  return undefined;
+}

@@ -12,6 +12,7 @@ import type { DocumentRef, HighlightStore } from '../store/HighlightStore';
 import { SoundLibrary, type SoundFile } from '../store/SoundLibrary';
 import { RENDER_SETTINGS, SECTION, readSettings } from '../util/settings';
 import { duplicateOf, hintFor } from './copyHints';
+import { sanitizeSections } from '../shared/ui';
 import { MAX_CACHE_BYTES, PreviewPanel, kindOf, panelTitle, type PanelHost, type UiState } from './PreviewPanel';
 import type { RenderService } from './RenderService';
 import { SoundCoordinator } from './SoundCoordinator';
@@ -67,6 +68,7 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
       theme: saved.theme === 'dark' ? 'dark' : 'light',
       toolActive: saved.toolActive === true,
       listOpen: saved.listOpen === true,
+      collapsedSections: sanitizeSections(saved.collapsedSections),
       drawTool: isDrawTool(saved.drawTool) ? saved.drawTool : DEFAULT_DRAW_TOOL,
       inkColor: sanitizeInk(saved.inkColor) ?? DEFAULT_INK,
       inkWidth: isInkWidth(saved.inkWidth) ? saved.inkWidth : DEFAULT_INK_WIDTH,
