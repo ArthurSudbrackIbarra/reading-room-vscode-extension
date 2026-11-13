@@ -1,18 +1,18 @@
 // Drawings and text boxes in the viewer: one SVG per page whose content is in PDF units (zoom and
-// resize never recompute anything), draw mode, text mode and erase mode (a capture surface above
-// every page layer), typing text, selecting, moving and resizing, and hit-testing. Two erasers:
-// the one of draw mode rubs out the part of a drawing it goes over; erase mode deletes whole
-// things, highlights included. The App records undo steps and talks to the host.
+// resize never recompute anything), draw mode, text mode and select mode (a capture surface above
+// every page layer), typing text, selecting, moving and resizing, and hit-testing. The selection
+// is kept here for everything on the pages: drawings and text boxes, and highlights (which the
+// select tool, or a click with Ctrl or Shift, can select with them). The eraser of draw mode rubs
+// out the part of a drawing it goes over. The App records undo steps and talks to the host.
 import type { AnchorState } from '../src/anchoring/anchor';
 import type { BindingFlag, DrawingBinding } from '../src/anchoring/binding';
 import type { DrawingInput, DrawingResult } from '../src/anchoring/runs';
 import { inkShades, type Ink } from '../src/shared/colors';
 import {
-  clampMove,
   clampToPage,
   flattenPath,
+  linesTouchRect,
   pageGeometry,
-  pageRectToPdf,
   pathBounds,
   polylineDistance,
   round2,
@@ -31,6 +31,7 @@ import {
 } from '../src/shared/drawingGeometry';
 import { eraseShape } from '../src/shared/erase';
 import { sameSpans, sanitizeSpans, type CharStyle, type CharStyleName } from '../src/shared/richText';
+import { MAX_CLIP_ITEMS, clampGroupMove, detached, rangeBetween, refKey, toPdfDelta, type ClipItem, type Ref } from '../src/shared/selection';
 import {
   DEFAULT_DRAW_TOOL,
   DEFAULT_INK,
@@ -70,9 +71,8 @@ const CLICK_SLOP_PX = 3;
 const SIMPLIFY_PX = 0.6;
 /** A pen that moves less than this (pixels) made a dot. */
 const DOT_PX = 1.5;
-/** How far from a stroke (pixels, beyond half its width) a click or the eraser of erase mode still hits it. */
+/** How far from a stroke (pixels, beyond half its width) a click still hits it. */
 const HIT_PX = 5;
-const ERASER_PX = 7;
 /** Radius (pixels) of the eraser of draw mode, by its size: it rubs out what is under the ring that follows the pointer. */
 export const RUBBER_PX: Record<InkWidth, number> = { thin: 4, medium: 8, thick: 16 };
 /** What the rubber leaves is dropped when it is shorter than this (pixels): crumbs. */
@@ -87,27 +87,24 @@ const TEXT_MIN_ROOM = 72;
 /** Fallback page geometry (US Letter) for thumbnails of pages PDF.js has not fetched yet. */
 const FALLBACK_PAGE = pageGeometry([0, 0, 612, 792]);
 
-export type DrawingMode = 'off' | 'draw' | 'text' | 'erase';
+export type DrawingMode = 'off' | 'draw' | 'text' | 'select';
 
-/** What erase mode would delete under the pointer. */
-interface EraseTarget {
-  kind: 'drawing' | 'highlight';
-  id: string;
-  pageIndex: number;
+/** What is selected: drawings and text boxes, and highlights. */
+export interface Selection {
+  drawings: string[];
+  highlights: string[];
 }
 
 export interface DrawingEvents {
   /** A shape was drawn (already shown). */
   drawn(drawing: InkDrawing): void;
-  /** Erase mode went over these drawings, text boxes and highlights in one gesture (they are still shown). */
-  erased(drawings: Drawing[], highlights: string[]): void;
   /**
    * The eraser of draw mode rubbed out parts of drawings in one gesture (already shown): the
    * drawings it touched are gone, and what is left of them are new drawings.
    */
   rubbed(removed: InkDrawing[], added: InkDrawing[]): void;
-  /** A drawing or text box was dragged to a new place (already shown there). */
-  moved(before: Drawing, after: Drawing): void;
+  /** Drawings and text boxes were dragged to a new place, one or several at once (already shown there). */
+  moved(before: Drawing[], after: Drawing[]): void;
   /** A text box was made wider or narrower (already shown so). */
   resized(before: TextDrawing, after: TextDrawing): void;
   /**
@@ -119,8 +116,12 @@ export interface DrawingEvents {
   editingChanged(text: TextDrawing | undefined): void;
   /** A double click on a text box outside text mode: the App turns text mode on and edits it there. */
   editRequested(id: string, clientX: number, clientY: number): void;
-  /** The selection changed; `popover`: show the selected drawing's popover. */
-  selectionChanged(id: string | undefined, popover: boolean): void;
+  /**
+   * The selection changed. `id`: the drawing or text box that is selected alone, if so. `popover`:
+   * one thing is selected, by a click: show its popover (`at`: where the click was, in client
+   * coordinates, when it was on a highlight).
+   */
+  selectionChanged(id: string | undefined, popover: boolean, at?: [number, number]): void;
   /** Drawings were added, removed or changed (for the list). */
   changed(): void;
   /** Something to tell the reader. */
@@ -135,19 +136,6 @@ interface DrawGesture {
   /** Pen: the points so far. Shapes: start and current end. */
   points: PdfPoint[];
   shift: boolean;
-  client: [number, number];
-}
-
-/** Erase mode: everything the pointer goes over is deleted when the button is released. */
-interface EraseGesture {
-  kind: 'erase';
-  pointerId: number;
-  pageIndex: number;
-  erased: Set<string>;
-  highlights: Set<string>;
-  /** The pages with something erased. */
-  pages: Set<number>;
-  last?: [number, number];
   client: [number, number];
 }
 
@@ -168,10 +156,15 @@ interface RubGesture {
 interface PressGesture {
   kind: 'press';
   pointerId: number;
+  /** The page of the one that was pressed. */
   pageIndex: number;
   id: string;
+  /** What a drag moves: the one pressed, or everything selected when it is one of several. */
+  ids: string[];
+  /** Where the press was on its page as shown (points from its top left corner). */
   start: PdfPoint;
   startClient: [number, number];
+  /** The move so far, on the page as shown (points; the same on every page). */
   delta: [number, number];
   moving: boolean;
   /** Text mode: a click (without moving) on a text box types in it. */
@@ -204,7 +197,33 @@ interface ResizeGesture {
   client: [number, number];
 }
 
-type Gesture = DrawGesture | EraseGesture | RubGesture | PressGesture | CreateGesture | ResizeGesture;
+/** The select tool: a press on anything but a drawing or text box, and the rectangle a drag from there opens. */
+interface MarqueeGesture {
+  kind: 'marquee';
+  pointerId: number;
+  /** Not on one page (-1). */
+  pageIndex: number;
+  /** Where the press was, in the scrolled content of the viewer: that corner stays on the page while the pages scroll. */
+  start: [number, number];
+  /** What was selected when it started (Esc brings it back). */
+  before: Selection;
+  /** With Ctrl or Shift held, what the rectangle takes joins what was selected. */
+  adding: boolean;
+  /** The press was on a highlight: a click without a drag selects it. */
+  click?: Ref;
+  moving: boolean;
+  client: [number, number];
+}
+
+/** A click with Ctrl or Shift on an annotation (it changed the selection when it was pressed): only the click that follows is left to take. */
+interface TapGesture {
+  kind: 'tap';
+  pointerId: number;
+  pageIndex: number;
+  client: [number, number];
+}
+
+type Gesture = DrawGesture | RubGesture | PressGesture | CreateGesture | ResizeGesture | MarqueeGesture | TapGesture;
 
 interface Outline {
   drawing: InkDrawing;
@@ -314,12 +333,19 @@ export class DrawingController {
   /** Where the pointer was last seen over the pages (client coordinates). */
   private pointerAt?: [number, number];
   private textStyleValue: TextStyle = { ...DEFAULT_TEXT_STYLE };
-  private selected?: string;
+  /** The selected drawings and text boxes. */
+  private readonly picked = new Set<string>();
+  /** The selected highlights. */
+  private readonly pickedHighlights = new Set<string>();
+  /** The last one clicked: Shift+click selects from it. */
+  private anchor?: Ref;
+  /** The rectangle of the select tool. */
+  private readonly marquee = document.createElement('div');
+  private marqueeFrame = 0;
   private gesture?: Gesture;
   private edit?: TextEdit;
   private preview?: SVGPathElement;
   private previewFrame = 0;
-  private eraseHover?: EraseTarget;
   private flashing?: string;
   private flashTimer?: ReturnType<typeof setTimeout>;
   private clickConsumed = false;
@@ -348,7 +374,6 @@ export class DrawingController {
       if (e.pointerId === this.gesture?.pointerId) this.cancelGesture();
     });
     const pointerLeft = () => {
-      this.setEraseHover(undefined);
       this.pointerAt = undefined;
       this.placeRing();
     };
@@ -358,7 +383,9 @@ export class DrawingController {
     window.addEventListener('blur', pointerLeft);
     this.ring.className = 'mpv-rubber-ring';
     this.ring.hidden = true;
-    document.body.append(this.ring);
+    this.marquee.className = 'mpv-marquee';
+    this.marquee.hidden = true;
+    document.body.append(this.ring, this.marquee);
     // The page moves under a still pointer: the shape follows the pointer, not the page.
     c.addEventListener('scroll', () => this.followPointer(), { passive: true });
     new ResizeObserver(() => this.placeEditor()).observe(c);
@@ -393,7 +420,7 @@ export class DrawingController {
     this.results.clear();
     this.liveStates.clear();
     this.outlines.clear();
-    if (this.selected) this.select(undefined);
+    if (this.picked.size > 0) this.setSelection([], this.pickedHighlights);
     this.layers.redraw(LAYER);
   }
 
@@ -432,7 +459,7 @@ export class DrawingController {
       } else {
         this.resolvedShown.delete(id);
         if (id !== editing) this.drawings.delete(id);
-        if (this.selected === id) this.select(undefined);
+        this.unpick(id);
       }
     }
     this.layers.redraw(LAYER);
@@ -595,8 +622,7 @@ export class DrawingController {
     }
     this.drawings.delete(id);
     this.outlines.delete(id);
-    if (this.eraseHover?.kind === 'drawing' && this.eraseHover.id === id) this.eraseHover = undefined;
-    if (this.selected === id) this.select(undefined);
+    this.unpick(id);
     this.redraw(drawing.pageIndex);
     this.events.changed();
   }
@@ -672,9 +698,9 @@ export class DrawingController {
     return this.modeValue === 'text';
   }
 
-  /** Erase mode is on. */
-  get erasing(): boolean {
-    return this.modeValue === 'erase';
+  /** The select tool is on. */
+  get selecting(): boolean {
+    return this.modeValue === 'select';
   }
 
   /** A gesture (drawing, erasing, pressing, moving or resizing) is in progress. */
@@ -687,12 +713,13 @@ export class DrawingController {
     this.commitEditing();
     this.cancelGesture();
     this.modeValue = mode;
-    this.setEraseHover(undefined);
     // A mode starts, and ends, with nothing selected (typing leaves its box selected while in text mode).
-    this.select(undefined);
+    this.setSelection([], []);
+    // (Text mode and the select tool set the pointer's shape on the surface under it.)
+    for (const surface of document.querySelectorAll<HTMLElement>(`.${CAPTURE}`)) surface.style.cursor = '';
     document.body.classList.toggle('mpv-draw-mode', mode === 'draw');
     document.body.classList.toggle('mpv-text-mode', mode === 'text');
-    document.body.classList.toggle('mpv-erase-mode', mode === 'erase');
+    document.body.classList.toggle('mpv-select-mode', mode === 'select');
     document.body.dataset.drawTool = this.toolValue;
     this.placeRing();
   }
@@ -765,18 +792,219 @@ export class DrawingController {
 
   // ---------- Selection ----------
 
+  /** The drawing or text box that is selected alone: it has a popover, and a text box its handles. */
   get selectedId(): string | undefined {
-    return this.selected;
+    if (this.picked.size !== 1 || this.pickedHighlights.size > 0) return undefined;
+    return [...this.picked][0];
   }
 
+  /** Everything that is selected. */
+  get selection(): Selection {
+    return { drawings: [...this.picked], highlights: [...this.pickedHighlights] };
+  }
+
+  get selectionCount(): number {
+    return this.picked.size + this.pickedHighlights.size;
+  }
+
+  /** Selects one drawing or text box and nothing else, or nothing. */
   select(id: string | undefined, popover = true): void {
-    const before = this.selected;
-    this.selected = id && this.drawings.has(id) ? id : undefined;
-    if (before !== this.selected) {
-      const pages = new Set([before, this.selected].map((x) => (x ? this.drawings.get(x)?.pageIndex : undefined)));
-      for (const page of pages) if (page !== undefined) this.redraw(page);
+    this.setSelection(id ? [id] : [], [], popover);
+  }
+
+  /**
+   * Selects these drawings, text boxes and highlights, and nothing else. `popover`: when that is
+   * one thing, show its popover (`at`: where the click was, in client coordinates).
+   */
+  setSelection(drawings: Iterable<string>, highlights: Iterable<string> = [], popover = false, at?: [number, number]): void {
+    const next = new Set([...drawings].filter((id) => this.drawings.has(id)));
+    const nextHighlights = new Set([...highlights].filter((id) => this.highlights.get(id) !== undefined));
+    const alone = this.selectedId;
+    const changed = next.size !== this.picked.size || [...next].some((id) => !this.picked.has(id));
+    // Everything that was or is selected is drawn again: the outlines, and the handles of a text box selected alone.
+    const pages = new Set<number>();
+    for (const id of [...this.picked, ...next]) {
+      const page = this.drawings.get(id)?.pageIndex;
+      if (page !== undefined) pages.add(page);
     }
-    this.events.selectionChanged(this.selected, popover && this.selected !== undefined);
+    this.picked.clear();
+    for (const id of next) this.picked.add(id);
+    this.pickedHighlights.clear();
+    for (const id of nextHighlights) this.pickedHighlights.add(id);
+    if (changed || alone !== this.selectedId) for (const page of pages) this.redraw(page);
+    this.highlights.setSelected(nextHighlights);
+    if (this.anchor && !this.isPicked(this.anchor)) this.anchor = undefined;
+    this.events.selectionChanged(this.selectedId, popover && this.selectionCount === 1, at);
+  }
+
+  clearSelection(): void {
+    if (this.selectionCount > 0) this.setSelection([], []);
+  }
+
+  /** Every drawing, text box and highlight that is shown. */
+  selectAll(): void {
+    this.setSelection(
+      this.drawings.keys(),
+      this.highlights.places().map((place) => place.id),
+    );
+  }
+
+  /** A highlight was removed (or is not shown any more): it leaves the selection. */
+  highlightsChanged(): void {
+    if ([...this.pickedHighlights].some((id) => this.highlights.get(id)?.data.status !== 'anchored')) {
+      this.setSelection(
+        this.picked,
+        [...this.pickedHighlights].filter((id) => this.highlights.get(id)?.data.status === 'anchored'),
+      );
+    }
+  }
+
+  /**
+   * A highlight was clicked outside the select tool (the App finds those clicks: they are clicks
+   * on the text). Alone it becomes the selection and gets its popover at the click; with `toggle`
+   * (Ctrl, or the command key) it joins or leaves the selection.
+   */
+  highlightClicked(id: string, toggle: boolean, at: [number, number]): void {
+    this.clickOn({ kind: 'highlight', id }, toggle ? 'toggle' : 'set', at);
+  }
+
+  private isPicked(ref: Ref): boolean {
+    return ref.kind === 'drawing' ? this.picked.has(ref.id) : this.pickedHighlights.has(ref.id);
+  }
+
+  /** A drawing or text box is gone: it leaves the selection. */
+  private unpick(id: string): void {
+    if (!this.picked.has(id)) return;
+    this.setSelection(
+      [...this.picked].filter((other) => other !== id),
+      this.pickedHighlights,
+    );
+  }
+
+  /**
+   * A click on an annotation. Alone ('set') it becomes the selection. With Ctrl ('toggle') it
+   * joins or leaves the selection. With Shift ('range') everything from the last one clicked to
+   * it is selected, in reading order.
+   */
+  private clickOn(ref: Ref, how: 'set' | 'toggle' | 'range', at?: [number, number]): void {
+    const ids = (refs: Ref[], kind: Ref['kind']) => refs.filter((r) => r.kind === kind).map((r) => r.id);
+    if (how === 'range') {
+      const from = this.anchor;
+      const range = rangeBetween(this.order(), refKey, from ? refKey(from) : undefined, refKey(ref));
+      this.setSelection(ids(range, 'drawing'), ids(range, 'highlight'));
+      this.anchor = from && this.isPicked(from) ? from : ref;
+      return;
+    }
+    if (how === 'toggle') {
+      const drawings = new Set(this.picked);
+      const highlights = new Set(this.pickedHighlights);
+      const set = ref.kind === 'drawing' ? drawings : highlights;
+      if (!set.delete(ref.id)) set.add(ref.id);
+      this.setSelection(drawings, highlights);
+      if (this.isPicked(ref)) this.anchor = ref;
+      return;
+    }
+    this.setSelection(ids([ref], 'drawing'), ids([ref], 'highlight'), true, at);
+    this.anchor = ref;
+  }
+
+  /** Everything that can be selected, in reading order: by page, then from the top of the page, then from the left. */
+  private order(): Ref[] {
+    const items: { ref: Ref; page: number; top: number; left: number }[] = [];
+    for (const drawing of this.drawings.values()) {
+      const g = this.geometry(drawing.pageIndex) ?? FALLBACK_PAGE;
+      const [x0, y0] = this.pageRectOf(drawing, g);
+      items.push({ ref: { kind: 'drawing', id: drawing.id }, page: drawing.pageIndex, top: y0 / g.height, left: x0 / g.width });
+    }
+    for (const place of this.highlights.places()) items.push({ ref: { kind: 'highlight', id: place.id }, page: place.page, top: place.top, left: place.left });
+    return items.sort((a, b) => a.page - b.page || a.top - b.top || a.left - b.left).map((item) => item.ref);
+  }
+
+  /** The selection in reading order. */
+  selectionInOrder(): Ref[] {
+    return this.order().filter((ref) => this.isPicked(ref));
+  }
+
+  /** The annotation under a point (client coordinates): a drawing or text box (the smallest, where they overlap), else the highlight there. */
+  private itemAt(clientX: number, clientY: number): Ref | undefined {
+    const pageIndex = this.viewer.pageIndexAt(clientX, clientY);
+    const box = pageIndex === undefined ? undefined : this.pageBox(pageIndex);
+    if (pageIndex === undefined || !box) return undefined;
+    const p = this.toPdf(pageIndex, clientX, clientY, false);
+    const id = p ? this.hitsAt(pageIndex, p, HIT_PX)[0] : undefined;
+    if (id) return { kind: 'drawing', id };
+    const highlight = this.highlights.hitTestOnPage(pageIndex, (clientX - box.left) / box.width, (clientY - box.top) / box.height);
+    return highlight ? { kind: 'highlight', id: highlight } : undefined;
+  }
+
+  // ---------- Copy and paste ----------
+
+  /** The selected drawings and text boxes as Copy takes them, in reading order. */
+  clipItems(): ClipItem[] {
+    const items: ClipItem[] = [];
+    for (const ref of this.selectionInOrder()) {
+      const drawing = ref.kind === 'drawing' ? this.drawings.get(ref.id) : undefined;
+      const g = drawing ? this.geometry(drawing.pageIndex) : undefined;
+      if (!drawing || !g || items.length >= MAX_CLIP_ITEMS) continue;
+      const page = drawing.points.map((p): PdfPoint => {
+        const [x, y] = toPageSpace(g, p);
+        return [round2(x), round2(y)];
+      });
+      items.push({ drawing: detached(drawing), page });
+    }
+    return items;
+  }
+
+  /**
+   * Puts copies of copied drawings and text boxes on the pages (they are shown; the App stores
+   * them). The first page of what was copied lands on `ontoPage`, and the rest as many pages
+   * after it as they were. Each copy is where the original was on its page, `offset` points
+   * further down and to the right, and inside the page.
+   */
+  paste(items: ClipItem[], ontoPage: number, offset: number): Drawing[] {
+    const pages = this.viewer.pagesCount;
+    if (items.length === 0 || pages === 0) return [];
+    if (this.drawings.size + items.length > MAX_DRAWINGS) {
+      this.events.notice(`This file can have ${MAX_DRAWINGS} drawings and text boxes at most. Delete some to paste more.`);
+      return [];
+    }
+    const first = Math.min(...items.map((item) => item.drawing.pageIndex));
+    const now = new Date().toISOString();
+    const hash = this.highlights.textModel?.hash;
+    const placed: Drawing[] = [];
+    for (const item of items) {
+      const pageIndex = Math.min(pages - 1, Math.max(0, item.drawing.pageIndex - first + ontoPage));
+      const g = this.geometry(pageIndex);
+      if (!g) continue;
+      const copy = detached(item.drawing);
+      copy.id = crypto.randomUUID();
+      copy.pageIndex = pageIndex;
+      copy.createdAt = now;
+      copy.updatedAt = now;
+      if (hash) copy.textModelHash = hash;
+      const size = isTextDrawing(copy) ? this.measurer.size(copy) : undefined;
+      const [x0, y0, x1, y1] = size ? [item.page[0][0], item.page[0][1], item.page[0][0] + size.width, item.page[0][1] + size.height] : pointsBounds(item.page);
+      // Back inside the page when the offset (or a smaller page) put it over an edge.
+      const fit = (low: number, high: number, limit: number): number => (high - low >= limit || low < 0 ? -low : high > limit ? limit - high : 0);
+      const dx = offset + fit(x0 + offset, x1 + offset, g.width);
+      const dy = offset + fit(y0 + offset, y1 + offset, g.height);
+      copy.points = item.page.map(([x, y]): PdfPoint => {
+        const [px, py] = toPdfSpace(g, [x + dx, y + dy]);
+        return [round2(px), round2(py)];
+      });
+      if ((copy.tool === 'rect' || copy.tool === 'ellipse') && copy.points.length === 2) {
+        const [bx0, by0, bx1, by1] = pointsBounds(copy.points);
+        copy.points = [
+          [bx0, by0],
+          [bx1, by1],
+        ];
+      }
+      this.drawings.set(copy.id, copy);
+      placed.push(structuredClone(copy));
+    }
+    for (const page of new Set(placed.map((d) => d.pageIndex))) this.redraw(page);
+    if (placed.length > 0) this.events.changed();
+    return placed;
   }
 
   /** True once after a press on a drawing ended: the click that follows is ours. */
@@ -784,6 +1012,12 @@ export class DrawingController {
     const consumed = this.clickConsumed;
     this.clickConsumed = false;
     return consumed;
+  }
+
+  /** The click that follows the release of the button is ours. */
+  private takeClick(): void {
+    this.clickConsumed = true;
+    setTimeout(() => (this.clickConsumed = false), 0);
   }
 
   /** Screen rectangle of a drawing (with its stroke) or text box, if its page is shown. */
@@ -928,16 +1162,10 @@ export class DrawingController {
     return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
   }
 
-  /** What has to stay inside the page when a drawing or text box moves (PDF units). */
-  private moveBounds(drawing: Drawing, g: PageGeometry): [number, number, number, number] {
-    if (!isTextDrawing(drawing)) return pointsBounds(drawing.points);
-    return pageRectToPdf(g, this.pageRectOf(drawing, g));
-  }
-
-  /** A move in PDF units, as a move on the page as shown. */
-  private pageDelta(g: PageGeometry, [dx, dy]: [number, number]): [number, number] {
-    const [a, b, c, d] = g.transform;
-    return [a * dx + c * dy, b * dx + d * dy];
+  /** What has to stay inside the page when a drawing or text box moves: its points (a text box: its box), on the page as shown. */
+  private moveRect(drawing: Drawing, g: PageGeometry): [number, number, number, number] {
+    if (isTextDrawing(drawing)) return this.pageRectOf(drawing, g);
+    return pointsBounds(drawing.points.map((p) => toPageSpace(g, p)));
   }
 
   // ---------- Rendering ----------
@@ -956,6 +1184,10 @@ export class DrawingController {
     const texts = svgEl('g', { class: 'mpv-text-boxes' });
     svg.append(root, texts);
     const gesture = this.gesture;
+    // A move in progress: what moves is drawn where it is now.
+    const moving = gesture?.kind === 'press' && gesture.moving ? gesture.ids : [];
+    const move = gesture?.kind === 'press' && gesture.moving ? toPdfDelta(g.transform, gesture.delta) : [0, 0];
+    const moved = `translate(${move[0]} ${move[1]})`;
     for (const drawing of this.drawings.values()) {
       if (drawing.pageIndex !== pageIndex) continue;
       if (isTextDrawing(drawing)) {
@@ -963,13 +1195,20 @@ export class DrawingController {
         continue;
       }
       const el = this.drawingElement(drawing);
-      if (gesture?.kind === 'press' && gesture.moving && gesture.id === drawing.id) el.setAttribute('transform', `translate(${gesture.delta[0]} ${gesture.delta[1]})`);
+      if (moving.includes(drawing.id)) el.setAttribute('transform', moved);
       root.append(el);
     }
-    const selected = this.selected ? this.drawings.get(this.selected) : undefined;
-    if (selected?.pageIndex === pageIndex && this.edit?.draft.id !== selected.id) {
-      if (isTextDrawing(selected)) texts.append(this.textSelectionElement(selected, g, pageIndex));
-      else root.append(this.selectionElement(selected));
+    const alone = this.selectedId;
+    for (const id of this.picked) {
+      const selected = this.drawings.get(id);
+      if (!selected || selected.pageIndex !== pageIndex || this.edit?.draft.id === id) continue;
+      if (isTextDrawing(selected)) {
+        texts.append(this.textSelectionElement(selected, g, pageIndex, alone === id));
+        continue;
+      }
+      const outline = this.selectionElement(selected);
+      if (moving.includes(id)) outline.setAttribute('transform', moved);
+      root.append(outline);
     }
     if (gesture?.kind === 'draw' && gesture.pageIndex === pageIndex) root.append(this.previewElement(gesture));
     if (gesture?.kind === 'create' && gesture.pageIndex === pageIndex) texts.append(this.createPreview(gesture));
@@ -980,8 +1219,7 @@ export class DrawingController {
     const group = svgEl('g', { class: 'mpv-drawing', 'data-id': drawing.id, 'data-tool': drawing.tool });
     setInk(group, drawing.color);
     if (this.flashing === drawing.id) group.classList.add('mpv-flash');
-    if (this.selected === drawing.id) group.classList.add('mpv-selected');
-    if (this.isErasing(drawing.id)) group.classList.add('mpv-erasing');
+    if (this.picked.has(drawing.id)) group.classList.add('mpv-selected');
     const d = svgPathData(shapePath(drawingShape(drawing)));
     const width = INK_WIDTH_PT[drawing.width];
     group.append(
@@ -1002,10 +1240,7 @@ export class DrawingController {
   private textOrigin(text: TextDrawing, g: PageGeometry): PdfPoint {
     const [x, y] = toPageSpace(g, text.points[0]);
     const gesture = this.gesture;
-    if (gesture?.kind === 'press' && gesture.moving && gesture.id === text.id) {
-      const [dx, dy] = this.pageDelta(g, gesture.delta);
-      return [x + dx, y + dy];
-    }
+    if (gesture?.kind === 'press' && gesture.moving && gesture.ids.includes(text.id)) return [x + gesture.delta[0], y + gesture.delta[1]];
     return [x, y];
   }
 
@@ -1015,38 +1250,36 @@ export class DrawingController {
     const [x, y] = this.textOrigin(text, g);
     const group = svgEl('g', { class: 'mpv-drawing mpv-textbox', 'data-id': text.id, 'data-tool': 'text', transform: `translate(${x} ${y})` });
     if (this.flashing === text.id) group.classList.add('mpv-flash');
-    if (this.selected === text.id) group.classList.add('mpv-selected');
+    if (this.picked.has(text.id)) group.classList.add('mpv-selected');
     if (this.edit?.draft.id === text.id) group.classList.add('mpv-editing');
-    if (this.isErasing(text.id)) group.classList.add('mpv-erasing');
     const object = svgEl('foreignObject', { x: '0', y: '0', width: String(width + 1), height: String(height + 1) });
     object.append(textContentElement(text));
     group.append(svgEl('rect', { class: 'mpv-text-hit', x: '0', y: '0', width: String(width), height: String(height) }), object);
     return group;
   }
 
-  /** The dashed outline around the selected drawing. */
+  /** The dashed outline around a selected drawing. */
   private selectionElement(drawing: InkDrawing): SVGRectElement {
     const [x0, y0, x1, y1] = pathBounds(shapePath(drawingShape(drawing)));
     const pad = INK_WIDTH_PT[drawing.width] / 2 + 3;
-    const rect = svgEl('rect', {
+    return svgEl('rect', {
       class: 'mpv-drawing-selection',
+      'data-for': drawing.id,
       x: String(x0 - pad),
       y: String(y0 - pad),
       width: String(x1 - x0 + 2 * pad),
       height: String(y1 - y0 + 2 * pad),
     });
-    const g = this.gesture;
-    if (g?.kind === 'press' && g.moving && g.id === drawing.id) rect.setAttribute('transform', `translate(${g.delta[0]} ${g.delta[1]})`);
-    return rect;
   }
 
-  /** The dashed outline around the selected text box, with a handle on each side to change its width. */
-  private textSelectionElement(stored: TextDrawing, g: PageGeometry, pageIndex: number): SVGGElement {
+  /** The dashed outline around a selected text box; selected alone (`handles`), with a handle on each side to change its width. */
+  private textSelectionElement(stored: TextDrawing, g: PageGeometry, pageIndex: number, handles: boolean): SVGGElement {
     const text = this.shownText(stored);
     const { width, height } = this.textSize(text);
     const [x, y] = this.textOrigin(text, g);
     const group = svgEl('g', { class: 'mpv-text-selection', transform: `translate(${x} ${y})` });
     group.append(svgEl('rect', { class: 'mpv-drawing-selection', x: '0', y: '0', width: String(width), height: String(height) }));
+    if (!handles) return group;
     const size = HANDLE_PX / this.pxPerPagePoint(pageIndex);
     for (const side of ['left', 'right'] as const) {
       const cx = side === 'left' ? 0 : width;
@@ -1157,16 +1390,8 @@ export class DrawingController {
     const target = e.target as Element | null;
     if (target && this.editor.element.contains(target)) return;
     const client: [number, number] = [e.clientX, e.clientY];
-    if (this.modeValue === 'erase') {
-      const pageIndex = this.pageUnder(target);
-      if (pageIndex === undefined) return;
-      e.preventDefault();
-      this.viewer.container.focus({ preventScroll: true });
-      const gesture: EraseGesture = { kind: 'erase', pointerId: e.pointerId, pageIndex, erased: new Set(), highlights: new Set(), pages: new Set(), client };
-      this.gesture = gesture;
-      this.setEraseHover(undefined);
-      this.eraseTo(gesture, e.clientX, e.clientY);
-      this.capture(e.pointerId);
+    if (this.modeValue === 'select') {
+      this.selectPointerDown(e, target, client);
       return;
     }
     if (this.modeValue === 'draw') {
@@ -1202,12 +1427,68 @@ export class DrawingController {
     const handle = target?.closest?.('.mpv-text-handle') as SVGElement | null;
     if (handle?.dataset.id && this.startResize(e, handle.dataset.id, handle.dataset.side === 'left' ? 'left' : 'right')) return;
     const hitId = (target?.closest?.('.mpv-drawing') as SVGElement | null)?.dataset.id;
+    const toggle = e.ctrlKey || e.metaKey;
     if (!hitId) {
-      if (this.selected) this.select(undefined);
+      // (With Ctrl held, the click may be on a highlight, which then joins the selection: the App sees to that.)
+      if (!toggle) this.clearSelection();
       if (target?.closest('.textLayer')) this.textSelectionStarted();
       return;
     }
-    this.startPress(e, this.pick(e.clientX, e.clientY) ?? hitId, false);
+    const id = this.pick(e.clientX, e.clientY) ?? hitId;
+    if (toggle || e.shiftKey) {
+      // Ctrl+click adds it to the selection (or takes it out); Shift+click selects up to it.
+      e.preventDefault();
+      this.viewer.container.focus({ preventScroll: true });
+      this.clickOn({ kind: 'drawing', id }, e.shiftKey ? 'range' : 'toggle');
+      this.gesture = { kind: 'tap', pointerId: e.pointerId, pageIndex: -1, client };
+      this.capture(e.pointerId);
+      return;
+    }
+    this.startPress(e, id, false);
+  }
+
+  /**
+   * The select tool. A press on a drawing or text box selects it, and a drag moves it with
+   * everything else that is selected. A press anywhere else starts a rectangle that selects what
+   * it touches. Ctrl adds to the selection (or takes out of it), Shift selects a range.
+   */
+  private selectPointerDown(e: PointerEvent, target: Element | null, client: [number, number]): void {
+    const c = this.viewer.container;
+    // (A press on the scrollbar of the pages is not a press on them.)
+    if (target === c && (e.offsetX >= c.clientWidth || e.offsetY >= c.clientHeight)) return;
+    if (target && !c.contains(target)) return;
+    e.preventDefault();
+    c.focus({ preventScroll: true });
+    const toggle = e.ctrlKey || e.metaKey;
+    const adding = toggle || e.shiftKey;
+    const pageIndex = this.viewer.pageIndexAt(e.clientX, e.clientY);
+    if (pageIndex !== undefined && !adding) {
+      const handle = this.handleAt(pageIndex, e.clientX, e.clientY);
+      if (handle && this.startResize(e, handle.id, handle.side)) return;
+    }
+    const hit = this.itemAt(e.clientX, e.clientY);
+    if (hit && adding) {
+      this.clickOn(hit, e.shiftKey ? 'range' : 'toggle');
+      this.gesture = { kind: 'tap', pointerId: e.pointerId, pageIndex: -1, client };
+      this.capture(e.pointerId);
+      return;
+    }
+    if (hit?.kind === 'drawing') {
+      this.startPress(e, hit.id, false);
+      return;
+    }
+    this.gesture = {
+      kind: 'marquee',
+      pointerId: e.pointerId,
+      pageIndex: -1,
+      start: [e.clientX + c.scrollLeft, e.clientY + c.scrollTop],
+      before: this.selection,
+      adding,
+      click: hit,
+      moving: false,
+      client,
+    };
+    this.capture(e.pointerId);
   }
 
   /**
@@ -1249,7 +1530,7 @@ export class DrawingController {
       this.startPress(e, hit, true);
       return;
     }
-    if (this.selected) this.select(undefined);
+    this.clearSelection();
     if (wasEditing) return;
     if (this.drawings.size >= MAX_DRAWINGS) {
       this.events.notice(`This file has ${MAX_DRAWINGS} drawings and text boxes, the most it can have. Delete some to add more.`);
@@ -1261,7 +1542,7 @@ export class DrawingController {
 
   private startPress(e: PointerEvent, id: string, editOnClick: boolean): void {
     const drawing = this.drawings.get(id);
-    const start = drawing ? this.toPdf(drawing.pageIndex, e.clientX, e.clientY, false) : undefined;
+    const start = drawing ? this.toPage(drawing.pageIndex, e.clientX, e.clientY) : undefined;
     if (!drawing || !start) return;
     e.preventDefault();
     this.viewer.container.focus({ preventScroll: true });
@@ -1270,6 +1551,8 @@ export class DrawingController {
       pointerId: e.pointerId,
       pageIndex: drawing.pageIndex,
       id,
+      // A press on one of several selected things moves them all.
+      ids: this.picked.has(id) && this.picked.size > 1 ? [...this.picked] : [id],
       start,
       startClient: [e.clientX, e.clientY],
       delta: [0, 0],
@@ -1311,7 +1594,7 @@ export class DrawingController {
       this.placeRing();
     }
     if (!g) {
-      if (this.modeValue === 'erase' && e.buttons === 0) this.hoverEraser(e.clientX, e.clientY);
+      if (this.modeValue === 'select' && e.buttons === 0) this.hoverSelect(e);
       if (this.modeValue === 'text' && e.buttons === 0) this.hoverText(e);
       return;
     }
@@ -1328,11 +1611,11 @@ export class DrawingController {
   }
 
   private continueGesture(g: Exclude<Gesture, DrawGesture>, x: number, y: number): void {
-    if (g.kind === 'erase') this.eraseTo(g, x, y);
-    else if (g.kind === 'rub') this.rubTo(g, x, y);
+    if (g.kind === 'rub') this.rubTo(g, x, y);
     else if (g.kind === 'press') this.pressMove(g, x, y);
     else if (g.kind === 'create') this.createMove(g, x, y);
-    else this.resizeMove(g, x, y);
+    else if (g.kind === 'resize') this.resizeMove(g, x, y);
+    else if (g.kind === 'marquee') this.marqueeMove(g, x, y);
   }
 
   /** After a scroll, a gesture continues at the pointer's (unchanged) screen position. */
@@ -1360,16 +1643,18 @@ export class DrawingController {
     if (g.kind === 'draw') {
       if (g.tool !== 'pen') g.shift = e.shiftKey;
       this.finishDrawing(g);
-    } else if (g.kind === 'erase') {
-      this.finishErasing(g);
     } else if (g.kind === 'rub') {
       this.finishRubbing(g);
     } else if (g.kind === 'press') {
       this.finishPress(g, e.clientX, e.clientY);
     } else if (g.kind === 'create') {
       this.finishCreate(g);
-    } else {
+    } else if (g.kind === 'resize') {
       this.finishResize(g);
+    } else if (g.kind === 'marquee') {
+      this.finishMarquee(g);
+    } else {
+      this.takeClick();
     }
   }
 
@@ -1390,11 +1675,13 @@ export class DrawingController {
       }
       for (const drawing of g.originals.values()) this.drawings.set(drawing.id, drawing);
     }
-    if (g.kind === 'erase') {
-      this.syncErasingHighlights();
-      for (const page of g.pages) this.redraw(page);
+    if (g.kind === 'marquee') {
+      this.hideMarquee();
+      this.setSelection(g.before.drawings, g.before.highlights);
     }
-    this.redraw(g.pageIndex);
+    // What was moving goes back to where it was.
+    if (g.kind === 'press') for (const page of this.pagesOf(g.ids)) this.redraw(page);
+    if (g.pageIndex >= 0) this.redraw(g.pageIndex);
     return true;
   }
 
@@ -1476,7 +1763,7 @@ export class DrawingController {
     this.events.changed();
   }
 
-  // ---------- Erasing ----------
+  // ---------- Hit-testing ----------
 
   private outline(drawing: InkDrawing): Outline {
     const cached = this.outlines.get(drawing.id);
@@ -1539,7 +1826,8 @@ export class DrawingController {
 
   /** The resize handle of the selected text box under a point, if any. */
   private handleAt(pageIndex: number, clientX: number, clientY: number): { id: string; side: 'left' | 'right' } | undefined {
-    const selected = this.selected ? this.drawings.get(this.selected) : undefined;
+    const alone = this.selectedId;
+    const selected = alone ? this.drawings.get(alone) : undefined;
     const g = this.geometry(pageIndex);
     const page = this.toPage(pageIndex, clientX, clientY);
     if (!selected || !isTextDrawing(selected) || selected.pageIndex !== pageIndex || !g || !page) return undefined;
@@ -1552,83 +1840,119 @@ export class DrawingController {
     return undefined;
   }
 
-  /**
-   * What erase mode would delete at a point: the drawing or text box there (the smallest, where
-   * they overlap), else the highlight under it. `skip`: what this gesture already took.
-   */
-  private eraseTargetAt(clientX: number, clientY: number, skip?: EraseGesture): EraseTarget | undefined {
-    const pageIndex = this.viewer.pageIndexAt(clientX, clientY);
-    const box = pageIndex === undefined ? undefined : this.pageBox(pageIndex);
-    if (pageIndex === undefined || !box) return undefined;
-    const p = this.toPdf(pageIndex, clientX, clientY, false);
-    const id = p ? this.hitsAt(pageIndex, p, ERASER_PX).find((hit) => !skip?.erased.has(hit)) : undefined;
-    if (id) return { kind: 'drawing', id, pageIndex };
-    const highlight = this.highlights.hitTestOnPage(pageIndex, (clientX - box.left) / box.width, (clientY - box.top) / box.height, skip?.highlights);
-    return highlight ? { kind: 'highlight', id: highlight, pageIndex } : undefined;
+  // ---------- The rectangle of the select tool ----------
+
+  /** The rectangle on screen (client coordinates): from where the press is now (the pages may have scrolled) to the pointer. */
+  private marqueeRect(g: MarqueeGesture): [number, number, number, number] {
+    const c = this.viewer.container;
+    const sx = g.start[0] - c.scrollLeft;
+    const sy = g.start[1] - c.scrollTop;
+    return [Math.min(sx, g.client[0]), Math.min(sy, g.client[1]), Math.max(sx, g.client[0]), Math.max(sy, g.client[1])];
   }
 
-  /** Whether a drawing or text box is shown dimmed: erase mode would delete it, or already took it in this gesture. */
-  private isErasing(id: string): boolean {
-    if (this.eraseHover?.kind === 'drawing' && this.eraseHover.id === id) return true;
-    return this.gesture?.kind === 'erase' && this.gesture.erased.has(id);
-  }
-
-  /** Tells the highlights which of them to show dimmed. */
-  private syncErasingHighlights(): void {
-    const ids = new Set<string>(this.gesture?.kind === 'erase' ? this.gesture.highlights : []);
-    if (this.eraseHover?.kind === 'highlight') ids.add(this.eraseHover.id);
-    this.highlights.setErasing(ids);
-  }
-
-  private eraseTo(g: EraseGesture, clientX: number, clientY: number): void {
-    const from = g.last ?? [clientX, clientY];
-    g.last = [clientX, clientY];
-    // Test along the way from the last position, so a fast drag cannot jump over a stroke. A
-    // click takes the one thing under it; a drag takes whatever it passes, one thing per step.
-    const steps = Math.min(300, Math.ceil(Math.hypot(clientX - from[0], clientY - from[1]) / 3));
-    const pages = new Set<number>();
-    let highlights = false;
-    for (let i = 0; i <= steps; i++) {
-      const t = steps === 0 ? 1 : i / steps;
-      const target = this.eraseTargetAt(from[0] + t * (clientX - from[0]), from[1] + t * (clientY - from[1]), g);
-      if (!target) continue;
-      if (target.kind === 'drawing') {
-        g.erased.add(target.id);
-        pages.add(target.pageIndex);
-      } else {
-        g.highlights.add(target.id);
-        highlights = true;
-      }
+  private marqueeMove(g: MarqueeGesture, clientX: number, clientY: number): void {
+    g.client = [clientX, clientY];
+    const [x0, y0, x1, y1] = this.marqueeRect(g);
+    if (!g.moving) {
+      if (Math.hypot(x1 - x0, y1 - y0) < CLICK_SLOP_PX) return;
+      g.moving = true;
     }
-    for (const page of pages) {
-      g.pages.add(page);
-      this.redraw(page);
+    // Shown inside the area of the pages only (its first corner may have scrolled out of it).
+    const c = this.viewer.container;
+    const area = c.getBoundingClientRect();
+    const left = Math.max(area.left, x0);
+    const top = Math.max(area.top, y0);
+    const right = Math.min(area.left + c.clientWidth, x1);
+    const bottom = Math.min(area.top + c.clientHeight, y1);
+    this.marquee.style.transform = `translate(${left}px, ${top}px)`;
+    this.marquee.style.width = `${Math.max(0, right - left)}px`;
+    this.marquee.style.height = `${Math.max(0, bottom - top)}px`;
+    this.marquee.hidden = false;
+    // What it takes is worked out once per frame.
+    if (this.marqueeFrame) return;
+    this.marqueeFrame = requestAnimationFrame(() => {
+      this.marqueeFrame = 0;
+      if (this.gesture === g) this.marqueeSelect(g);
+    });
+  }
+
+  private hideMarquee(): void {
+    this.marquee.hidden = true;
+    if (this.marqueeFrame) cancelAnimationFrame(this.marqueeFrame);
+    this.marqueeFrame = 0;
+  }
+
+  /** Selects what the rectangle touches: the stroke of a drawing, the box of a text box, a line of a highlight. */
+  private marqueeSelect(g: MarqueeGesture): void {
+    const rect = this.marqueeRect(g);
+    const boxes = new Map<number, DOMRect | undefined>();
+    /** The page's box on screen, if the rectangle reaches it. */
+    const reached = (pageIndex: number): DOMRect | undefined => {
+      if (!boxes.has(pageIndex)) boxes.set(pageIndex, this.pageBox(pageIndex));
+      const box = boxes.get(pageIndex);
+      return box && box.right >= rect[0] && box.left <= rect[2] && box.bottom >= rect[1] && box.top <= rect[3] ? box : undefined;
+    };
+    const drawings = new Set(g.adding ? g.before.drawings : []);
+    for (const drawing of this.drawings.values()) {
+      if (reached(drawing.pageIndex) && this.inRect(drawing, rect)) drawings.add(drawing.id);
     }
-    if (highlights) this.syncErasingHighlights();
+    const highlights = new Set(g.adding ? g.before.highlights : []);
+    const touched = this.highlights.touching((pageIndex) => {
+      const box = reached(pageIndex);
+      return box ? [(rect[0] - box.left) / box.width, (rect[1] - box.top) / box.height, (rect[2] - box.left) / box.width, (rect[3] - box.top) / box.height] : undefined;
+    });
+    for (const id of touched) highlights.add(id);
+    // (Only when it changed: every change draws pages again.)
+    const same =
+      drawings.size === this.picked.size &&
+      highlights.size === this.pickedHighlights.size &&
+      [...drawings].every((id) => this.picked.has(id)) &&
+      [...highlights].every((id) => this.pickedHighlights.has(id));
+    if (!same) this.setSelection(drawings, highlights);
   }
 
-  private finishErasing(g: EraseGesture): void {
-    const erased = [...g.erased].map((id) => this.drawings.get(id)).filter((d): d is Drawing => d !== undefined);
-    this.syncErasingHighlights();
-    for (const page of g.pages) this.redraw(page);
-    if (erased.length > 0 || g.highlights.size > 0)
-      this.events.erased(
-        erased.map((d) => structuredClone(d)),
-        [...g.highlights],
-      );
+  /** Whether a rectangle on screen (client coordinates) touches a drawing (its stroke) or a text box (its box). */
+  private inRect(drawing: Drawing, rect: [number, number, number, number]): boolean {
+    const g = this.geometry(drawing.pageIndex);
+    const a = this.toPage(drawing.pageIndex, rect[0], rect[1]);
+    const b = this.toPage(drawing.pageIndex, rect[2], rect[3]);
+    if (!g || !a || !b) return false;
+    if (isTextDrawing(drawing)) {
+      const [x0, y0, x1, y1] = this.pageRectOf(drawing, g);
+      return x0 <= b[0] && x1 >= a[0] && y0 <= b[1] && y1 >= a[1];
+    }
+    const p = toPdfSpace(g, a);
+    const q = toPdfSpace(g, b);
+    return linesTouchRect(this.outline(drawing).lines, [p[0], p[1], q[0], q[1]], INK_WIDTH_PT[drawing.width] / 2);
   }
 
-  /** In erase mode, what is under the pointer dims before a click deletes it. */
-  private hoverEraser(clientX: number, clientY: number): void {
-    this.setEraseHover(this.eraseTargetAt(clientX, clientY));
+  private finishMarquee(g: MarqueeGesture): void {
+    this.hideMarquee();
+    this.takeClick();
+    if (g.moving) {
+      this.marqueeSelect(g);
+      // The first one it took is where a Shift+click continues from.
+      this.anchor = this.selectionInOrder()[0];
+      return;
+    }
+    // A click: on a highlight, it is selected; on nothing, nothing is.
+    if (g.click) this.clickOn(g.click, 'set', g.client);
+    else if (!g.adding) this.clearSelection();
   }
 
-  private setEraseHover(target: EraseTarget | undefined): void {
-    const before = this.eraseHover;
-    if (before?.kind === target?.kind && before?.id === target?.id) return;
-    this.eraseHover = target;
-    for (const t of [before, target]) if (t?.kind === 'drawing') this.redraw(t.pageIndex);
-    if (before?.kind === 'highlight' || target?.kind === 'highlight') this.syncErasingHighlights();
+  /** The select tool: the pointer says what a press would do (resize, move what is selected, select). */
+  private hoverSelect(e: PointerEvent): void {
+    const capture = (e.target as Element | null)?.closest?.(`.${CAPTURE}`) as HTMLElement | null;
+    if (!capture) return;
+    const pageIndex = this.pageUnder(capture);
+    let cursor = '';
+    if (pageIndex !== undefined && this.handleAt(pageIndex, e.clientX, e.clientY)) {
+      cursor = 'ew-resize';
+    } else {
+      const hit = this.itemAt(e.clientX, e.clientY);
+      if (hit) cursor = hit.kind === 'drawing' && this.picked.has(hit.id) ? 'move' : 'pointer';
+    }
+    capture.style.cursor = cursor;
   }
 
   // ---------- Rubbing out (the eraser of draw mode) ----------
@@ -1702,7 +2026,7 @@ export class DrawingController {
     const removed = [...g.originals.values()];
     if (removed.length === 0) return;
     const added = [...g.pieces].map((id) => this.drawings.get(id)).filter((d): d is InkDrawing => d !== undefined && !isTextDrawing(d));
-    if (this.selected && !this.drawings.has(this.selected)) this.select(undefined);
+    for (const id of g.originals.keys()) this.unpick(id);
     this.events.rubbed(
       removed.map((d) => structuredClone(d)),
       added.map((d) => structuredClone(d)),
@@ -1726,43 +2050,71 @@ export class DrawingController {
 
   // ---------- Selecting and moving ----------
 
+  private pagesOf(ids: string[]): Set<number> {
+    const pages = new Set<number>();
+    for (const id of ids) {
+      const page = this.drawings.get(id)?.pageIndex;
+      if (page !== undefined) pages.add(page);
+    }
+    return pages;
+  }
+
   private pressMove(g: PressGesture, clientX: number, clientY: number): void {
-    const drawing = this.drawings.get(g.id);
-    const geometry = this.geometry(g.pageIndex);
-    if (!drawing || !geometry) return;
     if (!g.moving) {
       if (Math.hypot(clientX - g.startClient[0], clientY - g.startClient[1]) < CLICK_SLOP_PX) return;
       g.moving = true;
       // Selected while it moves (the dashed outline), without its popover.
-      if (this.selected !== g.id) this.select(g.id, false);
-      else this.events.selectionChanged(g.id, false);
+      if (!this.picked.has(g.id)) this.setSelection([g.id]);
+      else this.events.selectionChanged(this.selectedId, false);
     }
-    const p = this.toPdf(g.pageIndex, clientX, clientY, false);
+    const p = this.toPage(g.pageIndex, clientX, clientY);
     if (!p) return;
-    g.delta = clampMove(this.moveBounds(drawing, geometry), geometry.view, p[0] - g.start[0], p[1] - g.start[1]);
-    if (isTextDrawing(drawing)) {
-      this.redraw(g.pageIndex);
-      return;
+    // Everything that moves stays on its page, and the group keeps its shape.
+    const across: [number, number][] = [];
+    const down: [number, number][] = [];
+    for (const id of g.ids) {
+      const drawing = this.drawings.get(id);
+      const geometry = drawing ? this.geometry(drawing.pageIndex) : undefined;
+      if (!drawing || !geometry) continue;
+      const [x0, y0, x1, y1] = this.moveRect(drawing, geometry);
+      across.push([-x0, geometry.width - x1]);
+      down.push([-y0, geometry.height - y1]);
     }
-    const transform = `translate(${g.delta[0]} ${g.delta[1]})`;
-    const layer = this.viewer.pageView(g.pageIndex)?.div.querySelector(`:scope > .${LAYER}`);
-    const group = layer?.querySelector(`.mpv-drawing[data-id="${CSS.escape(g.id)}"]`);
-    if (!group) {
-      this.redraw(g.pageIndex);
-      return;
+    g.delta = [clampGroupMove(p[0] - g.start[0], across), clampGroupMove(p[1] - g.start[1], down)];
+    this.showMove(g);
+  }
+
+  /** Shows a move in progress. Drawings: by a transform on what is on the page already. A page where a text box moves is drawn again. */
+  private showMove(g: PressGesture): void {
+    for (const pageIndex of this.pagesOf(g.ids)) {
+      const moving = g.ids.map((id) => this.drawings.get(id)).filter((d): d is Drawing => d?.pageIndex === pageIndex);
+      const geometry = this.geometry(pageIndex);
+      const layer = this.viewer.pageView(pageIndex)?.div.querySelector(`:scope > .${LAYER}`);
+      if (!geometry || !layer || moving.some(isTextDrawing)) {
+        this.redraw(pageIndex);
+        continue;
+      }
+      const [dx, dy] = toPdfDelta(geometry.transform, g.delta);
+      const transform = `translate(${dx} ${dy})`;
+      for (const drawing of moving) {
+        const group = layer.querySelector(`.mpv-drawing[data-id="${CSS.escape(drawing.id)}"]`);
+        if (!group) {
+          this.redraw(pageIndex);
+          break;
+        }
+        group.setAttribute('transform', transform);
+        layer.querySelector(`.mpv-drawing-selection[data-for="${CSS.escape(drawing.id)}"]`)?.setAttribute('transform', transform);
+      }
     }
-    group.setAttribute('transform', transform);
-    layer?.querySelector('.mpv-drawing-selection')?.setAttribute('transform', transform);
   }
 
   private finishPress(g: PressGesture, clientX: number, clientY: number): void {
     const drawing = this.drawings.get(g.id);
     if (!drawing) return;
-    this.clickConsumed = true;
-    setTimeout(() => (this.clickConsumed = false), 0);
+    this.takeClick();
     const [dx, dy] = g.delta;
     if (!g.moving || (Math.abs(dx) < 0.005 && Math.abs(dy) < 0.005)) {
-      this.redraw(g.pageIndex);
+      for (const page of this.pagesOf(g.ids)) this.redraw(page);
       // (A double click is found here: the dblclick event goes to the container, which has the pointer.)
       const now = performance.now();
       const last = this.lastClick;
@@ -1775,20 +2127,31 @@ export class DrawingController {
         window.getSelection()?.removeAllRanges();
         this.events.editRequested(drawing.id, clientX, clientY);
       } else {
-        this.select(g.id);
+        // (A click on one of several selected things leaves it selected alone.)
+        this.clickOn({ kind: 'drawing', id: g.id }, 'set');
       }
       return;
     }
-    const after: Drawing = {
-      ...drawing,
-      points: drawing.points.map(([x, y]): PdfPoint => [round2(x + dx), round2(y + dy)]),
-      updatedAt: new Date().toISOString(),
-    };
-    this.drawings.set(after.id, after);
-    this.outlines.delete(after.id);
-    this.redraw(g.pageIndex);
-    this.select(g.id, this.modeValue === 'off');
-    this.events.moved(structuredClone(drawing), structuredClone(after));
+    const before: Drawing[] = [];
+    const after: Drawing[] = [];
+    const updatedAt = new Date().toISOString();
+    const pages = new Set<number>();
+    for (const id of g.ids) {
+      const from = this.drawings.get(id);
+      const geometry = from ? this.geometry(from.pageIndex) : undefined;
+      if (!from || !geometry) continue;
+      const [mx, my] = toPdfDelta(geometry.transform, g.delta);
+      const to: Drawing = { ...from, points: from.points.map(([x, y]): PdfPoint => [round2(x + mx), round2(y + my)]), updatedAt };
+      this.drawings.set(id, to);
+      this.outlines.delete(id);
+      pages.add(from.pageIndex);
+      before.push(structuredClone(from));
+      after.push(structuredClone(to));
+    }
+    for (const page of pages) this.redraw(page);
+    // What moved stays selected; one thing alone gets its popover back (not in text mode, which has the text tray).
+    this.events.selectionChanged(this.selectedId, this.modeValue !== 'text' && this.selectionCount === 1);
+    this.events.moved(before, after);
     this.events.changed();
   }
 
@@ -1959,7 +2322,7 @@ export class DrawingController {
 
   private openEditor(edit: TextEdit, caret?: number, typing?: CharStyle): void {
     this.cancelGesture();
-    if (this.selected !== edit.draft.id && this.selected) this.select(undefined);
+    if (this.selectedId !== edit.draft.id) this.clearSelection();
     this.edit = edit;
     this.editor.show(edit.draft, caret, typing);
     this.placeEditor();
@@ -2038,7 +2401,7 @@ export class DrawingController {
     if (!text) {
       if (before && this.drawings.has(before.id)) {
         this.drawings.delete(before.id);
-        if (this.selected === before.id) this.select(undefined);
+        this.unpick(before.id);
         this.redraw(pageIndex);
         this.events.textCommitted(before, undefined);
         this.events.changed();

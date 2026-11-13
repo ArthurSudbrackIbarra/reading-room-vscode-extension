@@ -343,7 +343,7 @@ export class Sidebar {
       if (found.length === 0) items.push(h('p', { class: 'mpv-list-note', text: 'No highlight matches.' }));
       items.push(h('p', { class: 'mpv-list-note', text: 'Drawings and text boxes are hidden while a search or filter is on.' }));
     } else {
-      if (marker) items.push(h('ul', {}, this.markerItem(marker)));
+      if (marker) items.push(h('ul', { class: 'mpv-list-marker' }, this.markerItem(marker)));
       if (total === 0) items.push(this.empty());
       if (anchored.length > 0) {
         items.push(
@@ -656,8 +656,8 @@ export interface PopoverActions {
   remove(id: string): void;
   copy(id: string): void;
   saveNote(id: string, note: string): void;
-  /** The popover opened for a highlight, or closed (undefined). */
-  shown(id: string | undefined): void;
+  /** The popover of this highlight closed. */
+  hidden(id: string): void;
 }
 
 /**
@@ -743,7 +743,6 @@ export class HighlightPopover {
     this.editor.hidden = true;
     this.element.classList.remove('mpv-editing');
     placeFloating(this.element, x, y);
-    this.actions.shown(id);
     if (options.editNote) this.startEditing();
   }
 
@@ -784,8 +783,8 @@ export class HighlightPopover {
     this.element.hidden = true;
     this.editor.hidden = true;
     this.currentId = undefined;
-    this.actions.shown(undefined);
     if (editing && commit && id && value !== this.note.replace(/\s+$/, '')) this.actions.saveNote(id, value);
+    if (id) this.actions.hidden(id);
   }
 }
 
@@ -814,6 +813,8 @@ export interface DrawingPopoverActions {
   setWidth(id: string, width: InkWidth): void;
   /** The reader chose what the drawing follows. */
   attach(id: string, to: Attachment): void;
+  /** Copies it (it is the selection). */
+  copy(id: string): void;
   remove(id: string): void;
 }
 
@@ -840,13 +841,17 @@ export class DrawingPopover {
     this.widths = widthRadios((width) => {
       if (this.currentId) actions.setWidth(this.currentId, width);
     });
+    const copy = iconButton('copy', `Copy drawing (${MOD_KEY}+C)`);
+    copy.addEventListener('click', () => {
+      if (this.currentId) actions.copy(this.currentId);
+    });
     const remove = iconButton('trash', 'Delete drawing (Delete)', { class: 'mpv-btn mpv-btn-danger' });
     remove.addEventListener('click', () => {
       const id = this.currentId;
       this.hide();
       if (id) actions.remove(id);
     });
-    const row = h('div', { class: 'mpv-popover-row mpv-wraps' }, this.color.element, this.widths.group, this.attached.element, sep(), remove);
+    const row = h('div', { class: 'mpv-popover-row mpv-wraps' }, this.color.element, this.widths.group, this.attached.element, copy, sep(), remove);
     // Esc reaches the viewer's handler, which deselects the drawing (and so closes this).
     this.element = h('div', { class: 'mpv-popover mpv-drawing-popover', role: 'dialog', 'aria-label': 'Edit drawing', hidden: true }, row);
     document.body.append(this.element);
@@ -886,6 +891,8 @@ export interface TextPopoverActions {
   /** Opens (or closes) the color picker for the text color, under `anchor`. */
   pickColor(id: string, anchor: HTMLElement): void;
   edit(id: string): void;
+  /** Copies it (it is the selection). */
+  copy(id: string): void;
   remove(id: string): void;
 }
 
@@ -921,6 +928,10 @@ export class TextPopover {
       this.hide();
       if (id) actions.edit(id);
     });
+    const copy = iconButton('copy', `Copy text box (${MOD_KEY}+C)`);
+    copy.addEventListener('click', () => {
+      if (this.currentId) actions.copy(this.currentId);
+    });
     const remove = iconButton('trash', 'Delete text box (Delete)', { class: 'mpv-btn mpv-btn-danger' });
     remove.addEventListener('click', () => {
       const id = this.currentId;
@@ -931,7 +942,7 @@ export class TextPopover {
       'div',
       { class: 'mpv-popover mpv-drawing-popover mpv-text-popover', role: 'dialog', 'aria-label': 'Edit text box', hidden: true },
       h('div', { class: 'mpv-popover-row mpv-wraps' }, this.color.element, this.controls.size, this.controls.format, this.controls.align),
-      h('div', { class: 'mpv-popover-row' }, this.attached.element, h('span', { class: 'mpv-grow' }), edit, sep(), remove),
+      h('div', { class: 'mpv-popover-row' }, this.attached.element, h('span', { class: 'mpv-grow' }), edit, copy, sep(), remove),
     );
     document.body.append(this.element);
   }

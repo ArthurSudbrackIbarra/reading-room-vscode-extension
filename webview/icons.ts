@@ -75,15 +75,9 @@ export function toolIcon(tool: DrawingTool): SVGSVGElement {
   return icon16(TOOL_ICONS[tool]);
 }
 
-/**
- * The remove tool of the toolbar (a click deletes a whole highlight, drawing or text box): a wand
- * facing left with an × below it. The × is a little heavier, so it reads at this size.
- */
-export function removeIcon(): SVGSVGElement {
-  return icon16([
-    ['path', { ...STROKE, d: 'M5.6 2.3 14.4 11.1l-2.1 2.1L3.5 4.4ZM7.2 3.9 5.1 6' }],
-    ['path', { ...STROKE, 'stroke-width': '1.6', d: 'M1.2 9.6l4.4 4.4M5.6 9.6l-4.4 4.4' }],
-  ]);
+/** The select tool of the toolbar (click or drag around annotations to select them): the arrow of a pointer. */
+export function selectIcon(): SVGSVGElement {
+  return icon16([['path', { ...STROKE, d: 'M4 1.9v10.8l2.8-2.6 1.9 4 1.7-.8-1.9-4h3.8Z' }]]);
 }
 
 /** The eraser of the drawing bar (it rubs out part of a drawing): a block at 45°, on a pen stroke with a gap. */

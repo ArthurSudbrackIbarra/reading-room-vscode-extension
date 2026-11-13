@@ -2,7 +2,7 @@
   "name": "reading-room",
   "displayName": "Reading Room",
   "description": "A quiet place to read and study inside VS Code. Open PDF, Markdown and text files as pages, highlight them, write notes, draw and type on them, keep your place, play rain or a fireplace while you read, and download it all as a PDF.",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "publisher": "local",
   "license": "MIT",
   "repository": {
@@ -55,12 +55,18 @@
       {
         "command": "readingRoom.openPreviewToSide",
         "title": "Open in Reading Room to the Side",
-        "icon": "$(book)"
+        "icon": {
+          "light": "media/preview-light.svg",
+          "dark": "media/preview-dark.svg"
+        }
       },
       {
         "command": "readingRoom.openPreview",
         "title": "Open in Reading Room",
-        "icon": "$(book)"
+        "icon": {
+          "light": "media/preview-light.svg",
+          "dark": "media/preview-dark.svg"
+        }
       },
       {
         "command": "readingRoom.showSource",
@@ -122,8 +128,8 @@
         "category": "Reading Room"
       },
       {
-        "command": "readingRoom.toggleRemoveTool",
-        "title": "Toggle Remove Tool",
+        "command": "readingRoom.toggleSelectTool",
+        "title": "Toggle Select Mode",
         "category": "Reading Room"
       },
       {
@@ -286,7 +292,7 @@
           "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {
-          "command": "readingRoom.toggleRemoveTool",
+          "command": "readingRoom.toggleSelectTool",
           "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {

@@ -83,7 +83,7 @@ export function activate(context: vscode.ExtensionContext): void {
     'readingRoom.toggleHighlightTool': withPanel((p) => p.toggleTool()),
     'readingRoom.toggleDrawing': withPanel((p) => p.toggleDrawing()),
     'readingRoom.toggleText': withPanel((p) => p.toggleText()),
-    'readingRoom.toggleRemoveTool': withPanel((p) => p.toggleRemove()),
+    'readingRoom.toggleSelectTool': withPanel((p) => p.toggleSelect()),
     'readingRoom.deleteAllDrawings': () => m.deleteAllDrawings(undefined, 'ink'),
     'readingRoom.deleteAllTextBoxes': () => m.deleteAllDrawings(undefined, 'text'),
     'readingRoom.toggleHighlightsList': withPanel((p) => p.toggleList()),

@@ -17,7 +17,8 @@
 - **Highlight** text in five colors and write a **note** on any highlight.
 - **Draw** anywhere on a page: pen strokes, lines, arrows, rectangles and ellipses, in any color and three widths.
 - **Type** anywhere on a page: text boxes in any color and size, with bold, italic and underline on any part of the text.
-- **Take things back**: an undo button and `Ctrl+Z`, a remove tool that deletes whole annotations with a click, and an eraser that rubs out part of a drawing.
+- **Select** several annotations at once, with a click or a rectangle, to move, copy, paste or delete them together.
+- **Take things back**: an undo button and `Ctrl+Z`, and an eraser that rubs out part of a drawing.
 - **Your annotations stay on their content** when the file changes. They follow the words (or the picture) they are on through your edits. If that content is deleted they are kept and listed, and they return when it does.
 - A side list shows every highlight, note, drawing and text box. Search it, filter it by color, click an entry to jump to it.
 
@@ -44,7 +45,8 @@
 - [Highlights and notes](#highlights-and-notes)
 - [Drawing](#drawing)
 - [Text boxes](#text-boxes)
-- [Removing and undoing](#removing-and-undoing)
+- [Selecting, copying and pasting](#selecting-copying-and-pasting)
+- [Deleting and undoing](#deleting-and-undoing)
 - [When the document changes](#when-the-document-changes)
 - [Where you stopped reading](#where-you-stopped-reading)
 - [Reading sounds](#reading-sounds)
@@ -91,14 +93,14 @@ One row, in three groups: finding your place on the left, the tools in the middl
 | Highlighter | **Highlight tool**: while it is on, every text selection becomes a highlight. The band under the icon shows the current color |
 | Pencil | **Draw tool**: pen, lines, arrows, rectangles, ellipses and an eraser (see [Drawing](#drawing)). The band shows the current ink |
 | AA | **Text tool**: type anywhere on a page (see [Text boxes](#text-boxes)). The band shows the color new text gets |
-| Wand with × | **Remove tool**: a click deletes the highlight, drawing or text box under the pointer; a drag deletes everything it goes over |
+| Pointer | **Select tool**: click an annotation, or drag a rectangle around several, then move, copy, paste or delete them together (see [Selecting, copying and pasting](#selecting-copying-and-pasting)) |
 | 🔖 ▾ | **Reading marker**: click, then click the line where you stopped. The menu also has _Go to_ and _Remove_ |
 | ↶ | **Undo** the last change. Its tooltip says what it will take back |
 | 🎧 | **Reading sounds**: play rain, a fireplace or your own sounds |
 | ⤓ ▾ | Download a PDF, with your annotations (the default) or without |
 | ⋯ | **More**: **Dark pages**, **Full view** (Markdown, text: the pages take the source's editor group instead of standing next to it) and **Convert the document again** (PDF files: **Reload from disk**) |
 
-**One tool at a time.** The four tools share one frame, and turning one on turns the others off. The tool that is on is tinted and outlined, and a second row opens under the toolbar: its **tray**. The tray says which tool is on, holds that tool's options, and ends with **Done**. Done, a second click on the tool and **Esc** all turn the tool off. Placing the reading marker works the same way, with **Cancel**.
+**One tool at a time.** The four tools share one frame, and turning one on turns the others off. The tool that is on is tinted and outlined, and a second row opens under the toolbar: its **tray**. The tray looks like the toolbar. It starts with the name of the mode (**DRAW MODE**, **TEXT MODE**, …), holds that tool's options right after it, and ends with **Done**. Done, a second click on the tool and **Esc** all turn the tool off. Placing the reading marker works the same way, with **Cancel**.
 
 **In a narrow panel** the toolbar stays one row. What does not fit moves into ⋯, which always lists exactly what is missing from the bar: first the zoom and the download, then the reading marker and the sounds, and in a very narrow panel the page number.
 
@@ -119,7 +121,7 @@ Circle a figure, underline a line, point at something with an arrow, scribble in
 
 Click the pencil in the toolbar. Its tray opens, and every drag on a page draws:
 
-<img src="docs/drawing-bar.png" alt="The toolbar with the draw tool on: the pencil is tinted and outlined, and a small arrow under it points at its tray. The tray: the word DRAW, the tools (pen, line, arrow, rectangle, ellipse, eraser) in one frame with the pen picked, the ink color, three widths in one frame, the Esc key and a Done button on the right" width="870">
+<img src="docs/drawing-bar.png" alt="The toolbar with the draw tool on: the pencil is tinted and outlined. Under it, its tray: the words DRAW MODE, the tools (pen, line, arrow, rectangle, ellipse, eraser) in one frame with the pen picked, the ink color, three widths in one frame, the Esc key and a Done button on the right" width="870">
 
 | Tool | Key | Draws | With Shift |
 | --- | --- | --- | --- |
@@ -143,7 +145,7 @@ Click the pencil in the toolbar. Its tray opens, and every drag on a page draws:
 
 Write a word in the margin, label an arrow, add a correction. Click **AA** in the toolbar. Its tray opens:
 
-<img src="docs/text-bar.png" alt="The toolbar with the text tool on: the AA button is tinted and outlined, and a small arrow under it points at its tray. The tray: the word TEXT, the font size, bold, italic and underline, the four alignments in one frame with left picked, the text color, the Esc key and a Done button on the right" width="870">
+<img src="docs/text-bar.png" alt="The toolbar with the text tool on: the AA button is tinted and outlined. Under it, its tray: the words TEXT MODE, the font size, bold, italic and underline, the four alignments in one frame with left picked, the text color, the Esc key and a Done button on the right" width="870">
 
 - **Click** on a page and type. The box grows as you type; **Enter** starts a new line.
 - **Drag** across a page instead to choose the box's width first: the text wraps inside it.
@@ -153,12 +155,26 @@ Write a word in the margin, label an arrow, add a correction. Click **AA** in th
 
 **Change a text box**: with the text tool on, click its text to type in it, or drag it to move it. With the tool off, click a box to select it: a small bar changes its color, size, alignment and style, edits it (**Enter** or a double click) or deletes it. Drag a handle on its side to make it wider or narrower.
 
-## Removing and undoing
+## Selecting, copying and pasting
+
+Click the pointer in the toolbar to turn the **select tool** on. Its tray has the actions and says how many things are selected:
+
+<img src="docs/select-bar.png" alt="The toolbar with the select tool on: the pointer is tinted and outlined. Under it, its tray: the words SELECT MODE, the buttons Select all, Copy, Paste and Delete, the text 4 selected, the Esc key and a Done button on the right" width="870">
+
+- **Click** a highlight, a drawing or a text box to select it. **Drag** from anywhere else to open a rectangle: everything it touches is selected.
+- **Ctrl+click** adds one more to the selection, or takes it out. **Shift+click** selects everything from the last one you clicked to this one, in reading order. Hold `Ctrl` or `Shift` while you drag a rectangle to add what it touches. `Ctrl+A`, or **Select all**, takes everything.
+- **Drag** one of the selected drawings or text boxes and they all move together. Each stays on its own page. Highlights stay on their text.
+- **Delete** (the key or the button) deletes everything that is selected. One undo brings it all back.
+- **Copy** (`Ctrl+C`), **cut** (`Ctrl+X`) and **paste** (`Ctrl+V`) work on drawings and text boxes. They are pasted on the page in view, at the place they had on their own page. On the page of the original, the copy lands a little down and to the right, so it does not cover it. What is pasted is selected, ready to be dragged where it belongs. Highlights belong to their text, so they cannot be pasted: copying them copies their text.
+- **Esc** lets go of the selection. **Esc** again, **Done** or the pointer turns the tool off.
+
+**With no tool on**, the same keys work on what you click. Click a drawing, a text box or a highlight to select it, `Ctrl+click` others to add them, then use `Delete`, `Ctrl+C`, `Ctrl+X` and `Ctrl+V`. The bar of a drawing and of a text box has a **Copy** button too.
+
+## Deleting and undoing
 
 - **Undo**: the ↶ button in the toolbar, or `Ctrl+Z`, takes back the last change to your highlights, notes, drawings, text boxes and reading marker. `Ctrl+Y` or `Ctrl+Shift+Z` redoes it. While you type in a note or a text box, undo takes back the typing instead.
-- **Remove tool** (the wand with an ×): point at a highlight, drawing or text box and it fades, to show what a click would delete. Click to delete it, or drag to delete everything the pointer goes over. The tip of the wand is what points. Each click or drag is one undo step. **Esc** or **Done** turns the tool off.
+- **Delete** or **Backspace** deletes whatever is selected: one thing you clicked, or everything the select tool took.
 - **Eraser** (in the draw tool's tray): rubs out only the part of a drawing under its ring. It leaves highlights and text boxes alone.
-- **Delete** or **Backspace** deletes whatever is selected.
 - Deleting everything of one kind: the 🗑 next to **Drawings** or **Text boxes** in the ☰ list, or the commands **Delete All Highlights / Drawings / Text Boxes for This File**. They ask first, and undo brings everything back.
 
 ## When the document changes
@@ -229,9 +245,13 @@ The sound never ends and never clicks, and all recordings are equally loud. One 
 | `Ctrl+Z` | Undo | Reading Room is focused |
 | `Ctrl+Y`, `Ctrl+Shift+Z` | Redo | Reading Room is focused |
 | `Delete`, `Backspace` | Delete what is selected | Something is selected |
+| `Ctrl+C`, `Ctrl+X` | Copy or cut what is selected (highlights: their text) | Something is selected |
+| `Ctrl+V` | Paste copied drawings and text boxes on the page in view | Reading Room is focused |
+| `Ctrl+click`, `Shift+click` | Add to the selection or take out of it; select a range | Over an annotation |
+| `Ctrl+A` | Select every highlight, drawing and text box | The select tool is on |
 | `Enter` | Edit what is selected: type in the text box, write the highlight's note | A text box or a highlight is selected |
 | `Ctrl+Enter` | Save the note; stop typing in a text box | Writing a note or typing in a text box |
-| `Esc` | Back out of one thing at a time: what is in progress, an open menu or popup, the selected entry of the list, the tool that is on | Reading Room is focused |
+| `Esc` | Back out of one thing at a time: what is in progress, an open menu or popup, the selected entry of the list, what the select tool selected, the tool that is on | Reading Room is focused |
 | `P`, `L`, `A`, `R`, `O`, `E` | Pen, Line, Arrow, Rectangle, Ellipse, Eraser | The draw tool is on |
 | `↓`, `Enter`, `Space` | Open a menu; `↑` `↓` `Home` `End` move in it, typing jumps to an item | A button with a ▾ (or ⋯) is focused |
 | `Shift` (held) | Lines and arrows in 15° steps; squares and circles | Drawing a shape |

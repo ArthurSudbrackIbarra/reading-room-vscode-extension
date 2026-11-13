@@ -783,7 +783,7 @@ class SoundsPanel {
   private readonly list = h('div', { class: 'mpv-sound-list', role: 'radiogroup' });
   private readonly empty = h('p', {
     class: 'mpv-sounds-empty',
-    text: 'Your own audio files loop like the sounds above, just as loud. MP3, Ogg Vorbis, WAV or FLAC.',
+    text: 'You can add your own audio files. They play in a loop. Accepted formats: MP3, Ogg Vorbis, WAV and FLAC.',
   });
   private readonly addButton = h(
     'button',

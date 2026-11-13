@@ -91,7 +91,7 @@ export type HostToViewer =
   | { type: 'toggleTool' }
   | { type: 'toggleDrawing' }
   | { type: 'toggleText' }
-  | { type: 'toggleRemove' }
+  | { type: 'toggleSelect' }
   | { type: 'fullView'; full: boolean }
   | { type: 'theme'; theme: PageTheme }
   | { type: 'document'; fileName: string; uri: string }

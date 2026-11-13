@@ -839,8 +839,8 @@ export class PreviewPanel implements vscode.Disposable {
     this.post({ type: 'toggleDrawing' });
   }
 
-  toggleRemove(): void {
-    this.post({ type: 'toggleRemove' });
+  toggleSelect(): void {
+    this.post({ type: 'toggleSelect' });
   }
 
   toggleText(): void {

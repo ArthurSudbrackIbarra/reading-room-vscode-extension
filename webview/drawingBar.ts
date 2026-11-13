@@ -1,13 +1,12 @@
 // The tool trays: a second row, docked under the toolbar, shown only while a tool is on or the
-// reading marker is being placed. Same height, padding and grid as the toolbar. Every tray says
-// what its tool is (a caps label; all labels take the same room, so the trays line up), holds the
-// tool's options, and ends with Done at the right: Done, a second click on the tool and Esc all
-// end the tool.
-//   HIGHLIGHT  ● ● ● ● ● │ Select text to highlight it.                         [Esc] [✓ Done]
-//   DRAW       [pen line arrow rect ellipse eraser] [● ▾] [─ ━ ▬]               [Esc] [✓ Done]
-//   TEXT       [12 ▾] [B] [I] [U] [≡ ≡ ≡ ≡] [● ▾]                               [Esc] [✓ Done]
-//   REMOVE     Click a highlight, drawing or text box to delete it, …           [Esc] [✓ Done]
-//   MARKER     Click the line where you stopped reading.                        [Esc] [Cancel]
+// reading marker is being placed. It looks like the toolbar: same height, padding, grid and
+// colors. Every tray says which mode is on (a caps label), holds its options right after that,
+// and ends with Done at the right: Done, a second click on the tool and Esc all end the tool.
+//   HIGHLIGHT MODE  ● ● ● ● ● │ Select text to highlight it.                    [Esc] [✓ Done]
+//   DRAW MODE  [pen line arrow rect ellipse eraser] [● ▾] [─ ━ ▬]               [Esc] [✓ Done]
+//   TEXT MODE  [12 ▾] [B] [I] [U] [≡ ≡ ≡ ≡] [● ▾]                               [Esc] [✓ Done]
+//   SELECT MODE  [Select all] [Copy] [Paste] [Delete] │ 3 selected              [Esc] [✓ Done]
+//   MARKER MODE  Click the line where you stopped reading.                      [Esc] [Cancel]
 // A group where exactly one is picked sits in a well; toggles (bold, italic, underline) stand
 // alone. With the eraser picked, the three widths are its three sizes and the ink button rests.
 // The controls of the color, widths and text style are shared with the popovers.
@@ -15,7 +14,7 @@ import type { Ink } from '../src/shared/colors';
 import { ALIGN_NAMES, DRAWING_TOOLS, INK_WIDTHS, TEXT_ALIGNS, TEXT_SIZES, WIDTH_NAMES, type DrawTool, type InkWidth, type TextAlign, type TextStyle } from '../src/shared/drawings';
 import { HIGHLIGHT_COLORS, HIGHLIGHT_HEX, type HighlightColor } from '../src/shared/types';
 import { ColorButton } from './colorPicker';
-import { h, swatchButton } from './dom';
+import { MOD_KEY, h, icon, labelButton, swatchButton } from './dom';
 import { alignIcon, boldIcon, checkIcon, italicIcon, rubberIcon, sizeIcon, toolIcon, underlineIcon, widthIcon } from './icons';
 import { MenuButton } from './menu';
 
@@ -184,7 +183,7 @@ export function textStyleControls(onChange: (patch: Partial<TextStyle>) => void,
   };
 }
 
-/** Done (or Cancel) of a tray: outlined in the tray's own line. */
+/** Done (or Cancel) of a tray: a quiet outlined button. */
 function doneButton(title: string, onClick: () => void, text = 'Done'): HTMLButtonElement {
   const cancel = text !== 'Done';
   const button = h(
@@ -202,7 +201,7 @@ function hint(text: string): HTMLElement {
   return h('span', { class: 'mpv-hint', title: text, text });
 }
 
-/** A tray: its name in caps, its controls, flexible space, the Esc key and Done. */
+/** A tray: the name of its mode in caps, its controls, flexible space, the Esc key and Done. */
 function tray(className: string, label: string, name: string, parts: HTMLElement[], done: HTMLButtonElement): HTMLElement {
   return h(
     'div',
@@ -256,8 +255,8 @@ export class HighlightTray extends Tray {
     super(
       tray(
         'mpv-highlight-tray',
-        'Highlight',
-        'Highlight',
+        'Highlight mode',
+        'Highlight mode',
         [colors, h('span', { class: 'mpv-sep' }), hint('Select text to highlight it.')],
         doneButton('Stop highlighting (Esc)', () => actions.done()),
       ),
@@ -270,7 +269,7 @@ export class HighlightTray extends Tray {
   }
 }
 
-/** A tray that only says what to do: the remove tool, and placing the reading marker (which ends with Cancel). */
+/** A tray that only says what to do: placing the reading marker (which ends with Cancel). */
 export class HintTray extends Tray {
   constructor(className: string, name: string, text: string, done: { title: string; text?: string; run(): void }) {
     super(
@@ -282,6 +281,55 @@ export class HintTray extends Tray {
         doneButton(done.title, () => done.run(), done.text),
       ),
     );
+  }
+}
+
+export interface SelectTrayActions {
+  selectAll(): void;
+  copy(): void;
+  paste(): void;
+  remove(): void;
+  done(): void;
+}
+
+const SELECT_HINT = `Click an annotation, or drag around several. ${MOD_KEY}+click adds one, Shift+click a range.`;
+
+/** The tray of the select tool: what can be done with what is selected, and how many that is. */
+export class SelectTray extends Tray {
+  private readonly status: HTMLElement;
+  private readonly needSelection: HTMLButtonElement[];
+
+  constructor(actions: SelectTrayActions) {
+    const all = labelButton(icon('check-all'), 'Select all', `Select every highlight, drawing and text box (${MOD_KEY}+A)`);
+    const copy = labelButton(icon('copy'), 'Copy', `Copy what is selected (${MOD_KEY}+C)`);
+    const paste = labelButton(icon('clippy'), 'Paste', `Paste copied drawings and text boxes on the page in view (${MOD_KEY}+V)`);
+    const remove = labelButton(icon('trash'), 'Delete', 'Delete what is selected (Delete)', 'mpv-btn mpv-btn-label mpv-btn-danger');
+    all.addEventListener('click', () => actions.selectAll());
+    copy.addEventListener('click', () => actions.copy());
+    paste.addEventListener('click', () => actions.paste());
+    remove.addEventListener('click', () => actions.remove());
+    const status = hint(SELECT_HINT);
+    status.setAttribute('role', 'status');
+    super(
+      tray(
+        'mpv-select-tray',
+        'Select mode',
+        'Select mode',
+        [h('div', { class: 'mpv-group', role: 'group', 'aria-label': 'Selection' }, all, copy, paste, remove), h('span', { class: 'mpv-sep' }), status],
+        doneButton('Stop selecting (Esc)', () => actions.done()),
+      ),
+    );
+    this.status = status;
+    this.needSelection = [copy, remove];
+    this.setCount(0);
+  }
+
+  /** How many annotations are selected: said in the tray, and Copy and Delete need at least one. */
+  setCount(count: number): void {
+    const text = count === 0 ? SELECT_HINT : `${count} selected`;
+    this.status.textContent = text;
+    this.status.title = text;
+    for (const button of this.needSelection) button.disabled = count === 0;
   }
 }
 
@@ -312,8 +360,8 @@ export class DrawingBar extends Tray {
     super(
       tray(
         'mpv-drawbar',
-        'Drawing tools',
-        'Draw',
+        'Draw mode',
+        'Draw mode',
         [toolGroup, color.element, widths.group],
         doneButton('Stop drawing (Esc)', () => actions.done()),
       ),
@@ -361,8 +409,8 @@ export class TextBar extends Tray {
     super(
       tray(
         'mpv-textbar',
-        'Text tools',
-        'Text',
+        'Text mode',
+        'Text mode',
         [controls.size, controls.format, controls.align, color.element],
         doneButton('Stop adding text (Esc)', () => actions.done()),
       ),

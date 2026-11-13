@@ -1,10 +1,10 @@
 // The viewer toolbar: one row in three zones, with flexible space between them.
 //   find your place:  [☰] [↑ n / N ↓] [− zoom ▾ +]
-//   annotate:         [highlight │ draw │ text │ remove] [🔖 ▾] [↶]
+//   annotate:         [highlight │ draw │ text │ select] [🔖 ▾] [↶]
 //   the room:         [🎧] [⤓ ▾] [⋯]
 // The four tools sit in one well: at most one is on, and the one that is on gets a tinted, ringed
-// chip with a small arrow that ties it to its tray (the row under the toolbar). The three tools
-// that make something show their color in a band under their icon.
+// chip; its options are in its tray (the row under the toolbar). The three tools that make
+// something show their color in a band under their icon.
 // The toolbar never wraps. As the viewer gets narrower, controls move into the More menu, which
 // always lists exactly what is not on the bar (see `layout`).
 import type { Ink } from '../src/shared/colors';
@@ -13,7 +13,7 @@ import { HIGHLIGHT_HEX, MAX_ZOOM, MIN_ZOOM, type DocumentKind, type HighlightCol
 import { narrower, sizeClassOf, type SizeClass } from '../src/shared/ui';
 import { h, iconButton, MOD_KEY, placeUnder } from './dom';
 import { setInk } from './drawings';
-import { chevronIcon, drawIcon, highlighterIcon, removeIcon, textIcon } from './icons';
+import { chevronIcon, drawIcon, highlighterIcon, selectIcon, textIcon } from './icons';
 import { byKeyboard, menu, type MenuPart } from './menu';
 import { headphonesIcon } from './sounds';
 
@@ -28,7 +28,7 @@ export interface ToolbarActions {
   toggleTool(): void;
   toggleDrawing(): void;
   toggleText(): void;
-  toggleRemove(): void;
+  toggleSelect(): void;
   /** Takes back the last change (or, while typing, the last typing). */
   undo(): void;
   placeMarker(): void;
@@ -49,8 +49,8 @@ const DRAW_TITLE = 'Draw on the page: pen, lines, arrows, rectangles, ellipses';
 const DRAW_ON_TITLE = 'Drawing is on (Esc to stop)';
 const TEXT_TITLE = 'Add text: click on the page and type';
 const TEXT_ON_TITLE = 'Adding text is on (Esc to stop)';
-const REMOVE_TITLE = 'Remove: click a highlight, drawing or text box to delete it, or drag over several';
-const REMOVE_ON_TITLE = 'Removing is on: what a click would delete is shown faded (Esc to stop)';
+const SELECT_TITLE = 'Select: click a highlight, drawing or text box, or drag around several, to move, copy or delete them';
+const SELECT_ON_TITLE = 'Selecting is on (Esc to stop)';
 const DOWNLOAD_TITLE = 'Download PDF with annotations';
 
 const ZOOM_FITS: { value: ZoomValue; label: string; icon: string }[] = [
@@ -83,7 +83,7 @@ export class Toolbar {
   private readonly highlightButton = toolButton('mpv-highlight-tool', HIGHLIGHT_TITLE, highlighterIcon());
   private readonly drawButton = toolButton('mpv-draw-button', DRAW_TITLE, drawIcon());
   private readonly textButton = toolButton('mpv-text-button', TEXT_TITLE, textIcon());
-  private readonly removeButton = toolButton('mpv-remove-button', REMOVE_TITLE, removeIcon());
+  private readonly selectButton = toolButton('mpv-select-button', SELECT_TITLE, selectIcon());
   private readonly markerButton = iconButton('bookmark', 'Mark where you stopped reading: click this, then click a line', { 'aria-pressed': 'false' });
   private readonly markerMenu = menuToggle('Reading marker options');
   private readonly markerSplit: HTMLElement;
@@ -133,7 +133,7 @@ export class Toolbar {
     this.zoomStep = h('div', { class: 'mpv-step', role: 'group', 'aria-label': 'Zoom' }, zoomOut, this.zoomButton, zoomIn);
     this.markerSplit = h('div', { class: 'mpv-split' }, this.markerButton, this.markerMenu);
     this.downloadSplit = h('div', { class: 'mpv-split' }, this.downloadButton, this.downloadMenu);
-    const tools = h('div', { class: 'mpv-seg mpv-seg-tools', role: 'group', 'aria-label': 'Tools' }, this.highlightButton, this.drawButton, this.textButton, this.removeButton);
+    const tools = h('div', { class: 'mpv-seg mpv-seg-tools', role: 'group', 'aria-label': 'Tools' }, this.highlightButton, this.drawButton, this.textButton, this.selectButton);
 
     this.element = h(
       'header',
@@ -155,7 +155,7 @@ export class Toolbar {
     this.highlightButton.addEventListener('click', () => actions.toggleTool());
     this.drawButton.addEventListener('click', () => actions.toggleDrawing());
     this.textButton.addEventListener('click', () => actions.toggleText());
-    this.removeButton.addEventListener('click', () => actions.toggleRemove());
+    this.selectButton.addEventListener('click', () => actions.toggleSelect());
     // The button does not take the keyboard: while typing in a text box, it undoes the typing.
     this.undoButton.addEventListener('pointerdown', (e) => e.preventDefault());
     this.undoButton.addEventListener('click', () => actions.undo());
@@ -210,11 +210,6 @@ export class Toolbar {
     // What a menu was opened from may be gone, and More may list something else now.
     menu().close();
     if (this.goTo) this.goTo.element.hidden = true;
-  }
-
-  /** The row under the toolbar is open: the toolbar drops its bottom line, and the tool that is on points at it. */
-  setTrayOpen(open: boolean): void {
-    this.element.classList.toggle('mpv-bar-open', open);
   }
 
   // ---------- Menus ----------
@@ -410,8 +405,8 @@ export class Toolbar {
     this.setPressed(this.textButton, active, active ? TEXT_ON_TITLE : TEXT_TITLE);
   }
 
-  setRemoving(active: boolean): void {
-    this.setPressed(this.removeButton, active, active ? REMOVE_ON_TITLE : REMOVE_TITLE);
+  setSelecting(active: boolean): void {
+    this.setPressed(this.selectButton, active, active ? SELECT_ON_TITLE : SELECT_TITLE);
   }
 
   /** What the undo button would take back (`label`), or nothing. */

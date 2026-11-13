@@ -60,8 +60,6 @@
   --mpv-tool-bg: color-mix(in srgb, var(--mpv-accent) 42%, transparent);
   --mpv-tool-fg: var(--mpv-fg-strong);
   --mpv-tool-line: var(--mpv-accent-line);
-  --mpv-tray-bg: color-mix(in srgb, var(--mpv-accent) 11%, var(--mpv-surface));
-  --mpv-tray-line: color-mix(in srgb, var(--mpv-accent-fg) 45%, var(--mpv-surface));
 
   /* State that high contrast shows with lines instead of fills (see below). */
   --mpv-hover-ring: 0 solid transparent;
@@ -92,8 +90,6 @@ body.vscode-high-contrast-light {
   --mpv-tool-bg: transparent;
   --mpv-tool-fg: var(--vscode-foreground);
   --mpv-tool-line: var(--vscode-contrastActiveBorder, #f38518);
-  --mpv-tray-bg: var(--mpv-surface);
-  --mpv-tray-line: var(--vscode-contrastBorder, #6fc3df);
   --mpv-hover-ring: 1px dashed var(--vscode-contrastActiveBorder, #f38518);
   --mpv-chip-ring: 1px solid var(--vscode-contrastActiveBorder, #f38518);
   --mpv-row-selected: transparent;
@@ -321,10 +317,10 @@ body[data-page-theme='dark'] .mpv-ink {
   color: var(--mpv-btn2-fg);
 }
 
-/* Done and Cancel in a tool tray: outlined in the tray's own line, so the button belongs to the tray. */
+/* Done and Cancel in a tool tray: a quiet outlined button, in the colors of the bar it sits on. */
 .mpv-done {
   padding: 0 10px 0 8px;
-  border-color: var(--mpv-tray-line);
+  border-color: var(--mpv-field-line);
   color: var(--mpv-fg);
   font-size: var(--mpv-fs-2);
 }
@@ -334,13 +330,11 @@ body[data-page-theme='dark'] .mpv-ink {
 }
 
 .mpv-done .mpv-svg-icon {
-  color: var(--mpv-accent-fg);
+  color: var(--mpv-icon);
 }
 
 .mpv-done:hover {
-  background: var(--mpv-accent-soft);
-  border-color: var(--mpv-accent-line);
-  color: var(--mpv-fg-strong);
+  border-color: var(--mpv-fg-2);
 }
 
 .mpv-link {
@@ -367,12 +361,13 @@ body[data-page-theme='dark'] .mpv-ink {
 
 /* ---------- Split button ---------- */
 
-/* An action and its menu, read as one control: the marker and download. 41 px wide.
-   The chevron rule, the same for every control that opens a menu or a picker: the 8 px chevron
-   sits 7 px from the control's right edge, 6 px after a text label, and about 8 px after the
-   visible edge of an icon or a color dot. */
+/* An action and its menu, read as one control: the marker and download. 42 px wide. Each half is
+   its own target with its own hover, so the icon and the chevron are each centered in their half
+   (5 px on both sides of the icon, 4 px on both sides of the chevron).
+   The chevron rule for controls that hold a value and a chevron (a label, a color dot): the 8 px
+   chevron sits 6 px after the label and as far from the control's right edge as the value is
+   from its left edge. */
 .mpv-split {
-  --mpv-notch-gap: 4px;
   position: relative;
   display: inline-flex;
   flex: 0 0 auto;
@@ -381,13 +376,13 @@ body[data-page-theme='dark'] .mpv-ink {
 
 .mpv-split .mpv-btn:first-child {
   min-width: 0;
-  padding: 0 1px 0 5px;
+  padding: 0 4px;
   border-radius: var(--mpv-r-ctl) 0 0 var(--mpv-r-ctl);
 }
 
 .mpv-split .mpv-btn:last-child {
   min-width: 0;
-  padding: 0 6px 0 1px;
+  padding: 0 3px;
   border-radius: 0 var(--mpv-r-ctl) var(--mpv-r-ctl) 0;
 }
 
@@ -438,50 +433,13 @@ body[data-page-theme='dark'] .mpv-ink {
   font-size: var(--mpv-fs-2);
 }
 
-/* The tool switch: a stronger tint than a picked option, plus the notch below. */
-.mpv-seg-tools .mpv-btn {
-  --mpv-notch-gap: 7px;
-}
-
+/* The tool switch: the tool that is on gets a stronger tint than a picked option. */
 .mpv-seg-tools .mpv-btn.mpv-active {
   background: var(--mpv-tool-bg);
   border-color: var(--mpv-tool-line);
   color: var(--mpv-tool-fg);
   outline: var(--mpv-chip-ring);
   outline-offset: 1px;
-}
-
-/* The notch that ties the tool to its tray: an arrow that is part of the tray's outline.
-   ::before is the outline (the tray's line color); ::after is the fill (the tray's color), 1.5 px
-   lower. The outline's base sits on the tray's top line and the fill covers the line between its
-   feet, so the line runs up one side of the arrow and down the other without a break.
-   --mpv-notch-gap: from the chip's padding box to the bar's bottom edge (a tool chip: its 1 px
-   border, 1 px of well padding, 1 px of well border and 4 px of bar padding). */
-.mpv-toolbar.mpv-bar-open .mpv-seg-tools .mpv-btn.mpv-active::before,
-.mpv-toolbar.mpv-bar-open .mpv-seg-tools .mpv-btn.mpv-active::after,
-.mpv-toolbar.mpv-bar-open .mpv-split.mpv-active::before,
-.mpv-toolbar.mpv-bar-open .mpv-split.mpv-active::after {
-  content: '';
-  position: absolute;
-  z-index: 2;
-  left: 50%;
-  width: 10px;
-  height: 5px;
-  margin-left: -5px;
-  clip-path: polygon(50% 0, 100% 100%, 0 100%);
-  pointer-events: none;
-}
-
-.mpv-toolbar.mpv-bar-open .mpv-seg-tools .mpv-btn.mpv-active::before,
-.mpv-toolbar.mpv-bar-open .mpv-split.mpv-active::before {
-  top: calc(100% + var(--mpv-notch-gap) - 4px);
-  background: var(--mpv-tray-line);
-}
-
-.mpv-toolbar.mpv-bar-open .mpv-seg-tools .mpv-btn.mpv-active::after,
-.mpv-toolbar.mpv-bar-open .mpv-split.mpv-active::after {
-  top: calc(100% + var(--mpv-notch-gap) - 2.5px);
-  background: var(--mpv-tray-bg);
 }
 
 /* ---------- Field, stepper, menu button ---------- */
@@ -720,12 +678,6 @@ button.mpv-step-value:focus-visible {
   user-select: none;
 }
 
-/* While a tray is open the toolbar drops its bottom line and sits above the tray (the notch). */
-.mpv-toolbar.mpv-bar-open {
-  z-index: 3;
-  box-shadow: none;
-}
-
 .mpv-zone {
   display: flex;
   flex: 0 0 auto;
@@ -801,19 +753,15 @@ body[data-size='mini'] .mpv-zone {
   box-sizing: border-box;
   min-height: var(--mpv-bar);
   padding: 4px 8px;
-  background: var(--mpv-tray-bg);
-  box-shadow:
-    inset 0 1px 0 var(--mpv-tray-line),
-    inset 0 -1px 0 var(--mpv-border);
+  background: var(--mpv-surface);
+  box-shadow: inset 0 -1px 0 var(--mpv-border);
   user-select: none;
 }
 
-/* All labels take the same room, so the trays line up with each other. */
+/* The name of the mode, right before its options. */
 .mpv-tray-label {
   flex: 0 0 auto;
-  box-sizing: border-box;
-  min-width: 68px;
-  padding-left: 4px;
+  padding: 0 4px;
   color: var(--mpv-fg-2);
 }
 
@@ -864,12 +812,25 @@ body[data-size='mini'] .mpv-tray .mpv-hint + .mpv-grow {
 
 body[data-size='mini'] .mpv-highlight-tray .mpv-hint,
 body[data-size='mini'] .mpv-highlight-tray .mpv-sep,
-body[data-size='narrow'] .mpv-highlight-tray .mpv-sep {
+body[data-size='narrow'] .mpv-highlight-tray .mpv-sep,
+body[data-size='mini'] .mpv-select-tray .mpv-hint,
+body[data-size='mini'] .mpv-select-tray .mpv-sep,
+body[data-size='narrow'] .mpv-select-tray .mpv-sep {
   display: none;
 }
 
-body[data-size='mini'] .mpv-highlight-tray .mpv-hint + .mpv-grow {
+body[data-size='mini'] .mpv-highlight-tray .mpv-hint + .mpv-grow,
+body[data-size='mini'] .mpv-select-tray .mpv-hint + .mpv-grow {
   display: block;
+}
+
+/* The actions of the select tray say what they are in words where there is room; elsewhere they are icons. */
+body:not([data-size='wide']) .mpv-select-tray .mpv-btn-label {
+  padding: 0;
+}
+
+body:not([data-size='wide']) .mpv-select-tray .mpv-btn-label .mpv-label {
+  display: none;
 }
 
 /* The text tray in a mini panel: format and alignment fill the first row; the size, the color
@@ -1147,6 +1108,11 @@ body.mpv-sidebar-open .mpv-viewer-container {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* The reading marker's row keeps a little clear of the first section under it. */
+.mpv-list ul.mpv-list-marker {
+  margin-bottom: 6px;
 }
 
 /* A section header: a chevron that collapses it, its name, its count, and its action. */
@@ -1506,20 +1472,21 @@ body[data-page-theme='dark'] .mpv-hl {
   mix-blend-mode: normal;
 }
 
-/* The highlight whose popover is open (Delete deletes it). */
+/* A selected highlight (its popover is open, or the select tool took it): stronger, and with
+   the dashed outline of everything that is selected. */
 .mpv-hl.mpv-selected,
 body[data-page-theme='dark'] .mpv-hl.mpv-selected {
   opacity: 0.66;
 }
 
-/* What the eraser would delete (under it now, or touched by this drag). */
-.mpv-hl.mpv-erasing,
-body[data-page-theme='dark'] .mpv-hl.mpv-erasing {
-  opacity: 0.12;
-}
-
-.mpv-note-badge.mpv-erasing {
-  opacity: 0.3;
+.mpv-hl-outline {
+  position: absolute;
+  box-sizing: border-box;
+  margin: -1px;
+  padding: 1px;
+  border: 1px dashed var(--mpv-on-paper-select);
+  border-radius: 2px;
+  pointer-events: none;
 }
 
 .mpv-link-layer {
@@ -1647,11 +1614,6 @@ body.mpv-tool-active .textLayer span {
   pointer-events: none;
 }
 
-/* What the eraser would delete (under it now, or touched by this drag). */
-.mpv-drawing.mpv-erasing {
-  opacity: 0.28;
-}
-
 .mpv-drawing.mpv-flash .mpv-drawing-halo {
   animation: mpv-draw-flash 1.4s ease-out;
 }
@@ -1666,14 +1628,14 @@ body.mpv-tool-active .textLayer span {
   }
 }
 
-/* Drawings are not clickable while drawing, adding text or erasing (the capture surface is on top) or placing the marker. */
+/* Drawings are not clickable while drawing, adding text or selecting (the capture surface is on top) or placing the marker. */
 .mpv-drawing-preview .mpv-drawing-ink,
 body.mpv-draw-mode .mpv-drawing-ink,
 body.mpv-draw-mode .mpv-drawing-hit,
 body.mpv-text-mode .mpv-drawing-ink,
 body.mpv-text-mode .mpv-drawing-hit,
-body.mpv-erase-mode .mpv-drawing-ink,
-body.mpv-erase-mode .mpv-drawing-hit,
+body.mpv-select-mode .mpv-drawing-ink,
+body.mpv-select-mode .mpv-drawing-hit,
 body.mpv-placing-marker .mpv-drawing-ink,
 body.mpv-placing-marker .mpv-drawing-hit {
   pointer-events: none;
@@ -1725,18 +1687,33 @@ body.mpv-rubbing .mpv-viewer-container {
   will-change: transform;
 }
 
-/* The remove tool: the surface takes the pointer; the cursor is the wand of its icon, and the wand's tip points. */
-body.mpv-erase-mode .mpv-draw-capture {
+/* The select tool: the surface takes the pointer (no text selection, no links); the pointer is
+   the plain arrow, and says what a press would do over an annotation (set from the code). */
+body.mpv-select-mode .mpv-draw-capture {
   pointer-events: auto;
   touch-action: none;
-  cursor:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='24' height='24'%3E%3Cpath d='M5.6 2.3 14.4 11.1l-2.1 2.1L3.5 4.4Z' fill='%23ffffff' stroke='%231f2328' stroke-width='1.1' stroke-linejoin='round'/%3E%3Cpath d='M7.2 3.9 5.1 6' fill='none' stroke='%231f2328' stroke-width='1.1' stroke-linecap='round'/%3E%3Cpath d='M1.2 9.6l4.4 4.4M5.6 9.6l-4.4 4.4' fill='none' stroke='%23ffffff' stroke-width='3.2' stroke-linecap='round'/%3E%3Cpath d='M1.2 9.6l4.4 4.4M5.6 9.6l-4.4 4.4' fill='none' stroke='%23e5484d' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E")
-      7 5,
-    pointer;
+  cursor: default;
 }
 
-body.mpv-erase-mode .pdfViewer .page {
+body.mpv-select-mode .pdfViewer .page {
   touch-action: none;
+}
+
+body.mpv-select-mode .mpv-viewer-container {
+  cursor: default;
+}
+
+/* The rectangle a drag of the select tool opens: it selects what it touches. */
+.mpv-marquee {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 900;
+  box-sizing: border-box;
+  border: 1px solid var(--mpv-on-paper-select);
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--mpv-on-paper-select) 12%, transparent);
+  pointer-events: none;
 }
 
 /* ---------- Popovers ---------- */
@@ -2819,8 +2796,8 @@ body.mpv-draw-mode .mpv-text-hit,
 body.mpv-draw-mode .mpv-text-handle,
 body.mpv-text-mode .mpv-text-hit,
 body.mpv-text-mode .mpv-text-handle,
-body.mpv-erase-mode .mpv-text-hit,
-body.mpv-erase-mode .mpv-text-handle,
+body.mpv-select-mode .mpv-text-hit,
+body.mpv-select-mode .mpv-text-handle,
 body.mpv-placing-marker .mpv-text-hit,
 body.mpv-placing-marker .mpv-text-handle {
   pointer-events: none;

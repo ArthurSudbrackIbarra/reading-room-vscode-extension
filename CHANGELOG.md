@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.11.0 — 2026-11-13
+
+- **A select tool**, the pointer in the toolbar, takes the place of the remove tool.
+  - **Click** a highlight, a drawing or a text box to select it, or **drag a rectangle** around several. The rectangle takes the strokes it touches, not everything whose corner it reaches.
+  - **Ctrl+click** adds one to the selection or takes it out. **Shift+click** selects everything from the last one clicked to this one, in reading order. `Ctrl+A` selects everything.
+  - **Drag** one of the selected drawings or text boxes to move them all together, as one undo step. Each stays on its own page.
+  - **Delete** deletes everything selected, highlights included, as one undo step.
+  - Its tray has **Select all**, **Copy**, **Paste** and **Delete**, and says how many things are selected. **Esc** lets go of the selection first, then turns the tool off.
+- **Copy, cut and paste** for drawings and text boxes: `Ctrl+C`, `Ctrl+X` and `Ctrl+V`, the select tray, and a new **Copy** button in the bar of a drawing and of a text box. A paste lands on the page in view, where the original was on its page; on the original's own page it lands a little down and to the right. What is pasted is selected, ready to be dragged. Copying highlights copies their text.
+- **Several things can be selected without the select tool too**: `Ctrl+click` drawings, text boxes and highlights, then move, copy or delete them together. `Delete` now works on everything that is selected.
+- **The tray looks like the toolbar.** No blue tint, no blue line, and no arrow from the tool to the tray. The tray starts with the name of the mode, **HIGHLIGHT MODE**, **DRAW MODE**, **TEXT MODE**, **SELECT MODE** or **MARKER MODE**, and the options follow right after it. **Done** is a plain outlined button.
+- **The arrows of the reading marker and download buttons are centered** in the part that lights up under the pointer, and so are their icons.
+- **A little more room** under the reading position at the top of the annotations list, before the first section.
+- **The title-bar button** that opens a file in Reading Room is the book with the red ribbon, the same as on the tab.
+- **Reading sounds**: the line under **Custom** now only says that you can add your own audio files, that they play in a loop, and which formats are accepted.
+- The command **Toggle Remove Tool** is now **Toggle Select Mode**. If you gave it a shortcut, set it again.
+
 ## 0.10.0 — 2026-11-12
 
 A redesign of the whole viewer: a calm bar while reading, and one way of showing what is on.
