@@ -24,7 +24,7 @@
 // the peaks a large gain pushes up.
 import { CATEGORY_LABELS, SOUND_CATEGORIES, categoryOf, volumeToGain, type SoundCategory, type SoundRequest, type SoundState } from '../src/shared/sounds';
 import type { CustomSoundView } from '../src/shared/messages';
-import { h, icon, placeFloating } from './dom';
+import { h, icon, placeUnder } from './dom';
 import { svg } from './icons';
 import { UndecodableError, dbToGain, measureFile } from './loudness';
 
@@ -55,7 +55,8 @@ export function canPlaySounds(): boolean {
 
 // ---------- Icons (drawn here; codicons has no headphones, rain or flame) ----------
 
-const LINE = { fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
+// Drawn in a 24 px box and shown at 16 px: the stroke is heavier, so it matches the 1.3 px of the other icons.
+const LINE = { fill: 'none', stroke: 'currentColor', 'stroke-width': '1.9', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
 
 export function headphonesIcon(): SVGSVGElement {
   return svg(
@@ -72,21 +73,36 @@ export function headphonesIcon(): SVGSVGElement {
 
 const CATEGORY_ICONS: Record<SoundCategory, () => SVGSVGElement> = {
   rain: () =>
-    svg('0 0 24 24', 24, [
-      ['path', { ...LINE, d: 'M7.2 15.2h10a3.6 3.6 0 0 0 .5-7.15A5.6 5.6 0 0 0 6.9 7.5a3.85 3.85 0 0 0 .3 7.7Z' }],
-      ['path', { ...LINE, d: 'M8.6 18.2l-.9 2.3M12.4 18.2l-.9 2.3M16.2 18.2l-.9 2.3' }],
-    ]),
+    svg(
+      '0 0 24 24',
+      16,
+      [
+        ['path', { ...LINE, d: 'M7.2 15.2h10a3.6 3.6 0 0 0 .5-7.15A5.6 5.6 0 0 0 6.9 7.5a3.85 3.85 0 0 0 .3 7.7Z' }],
+        ['path', { ...LINE, d: 'M8.6 18.2l-.9 2.3M12.4 18.2l-.9 2.3M16.2 18.2l-.9 2.3' }],
+      ],
+      'mpv-svg-icon',
+    ),
   fireplace: () =>
-    svg('0 0 24 24', 24, [
-      ['path', { ...LINE, d: 'M12 2.8c.5 2.4 2 3.7 3.3 5.3 1.2 1.5 1.9 2.9 1.9 4.6a5.2 5.2 0 0 1-10.4 0c0-1.8.8-3.2 1.9-4.4.2 1.2.7 2.1 1.6 2.5-.2-3.2.7-5.6 1.7-8Z' }],
-      ['path', { ...LINE, d: 'M5 21.2l14-2.6M5 18.6l14 2.6' }],
-    ]),
+    svg(
+      '0 0 24 24',
+      16,
+      [
+        ['path', { ...LINE, d: 'M12 2.8c.5 2.4 2 3.7 3.3 5.3 1.2 1.5 1.9 2.9 1.9 4.6a5.2 5.2 0 0 1-10.4 0c0-1.8.8-3.2 1.9-4.4.2 1.2.7 2.1 1.6 2.5-.2-3.2.7-5.6 1.7-8Z' }],
+        ['path', { ...LINE, d: 'M5 21.2l14-2.6M5 18.6l14 2.6' }],
+      ],
+      'mpv-svg-icon',
+    ),
   custom: () =>
-    svg('0 0 24 24', 24, [
-      ['path', { ...LINE, d: 'M9 17.5V5.6l10-2.1v11.9' }],
-      ['circle', { ...LINE, cx: '6.6', cy: '17.6', r: '2.4' }],
-      ['circle', { ...LINE, cx: '16.6', cy: '15.5', r: '2.4' }],
-    ]),
+    svg(
+      '0 0 24 24',
+      16,
+      [
+        ['path', { ...LINE, d: 'M9 17.5V5.6l10-2.1v11.9' }],
+        ['circle', { ...LINE, cx: '6.6', cy: '17.6', r: '2.4' }],
+        ['circle', { ...LINE, cx: '16.6', cy: '15.5', r: '2.4' }],
+      ],
+      'mpv-svg-icon',
+    ),
 };
 
 function equalizer(): HTMLElement {
@@ -767,15 +783,15 @@ class SoundsPanel {
   private readonly list = h('div', { class: 'mpv-sound-list', role: 'radiogroup' });
   private readonly empty = h('p', {
     class: 'mpv-sounds-empty',
-    text: 'Add audio files of your own: they loop like the sounds above, just as loud. MP3, Ogg Vorbis, WAV or FLAC.',
+    text: 'Your own audio files loop like the sounds above, just as loud. MP3, Ogg Vorbis, WAV or FLAC.',
   });
   private readonly addButton = h(
     'button',
-    { class: 'mpv-sounds-add', type: 'button', title: 'Add audio files as reading sounds (copies are kept by Reading Room)' },
+    { class: 'mpv-sound-item mpv-sounds-add', type: 'button', title: 'Add audio files as reading sounds (copies are kept by Reading Room)' },
     icon('add'),
-    h('span', { text: 'Add sound files…' }),
+    h('span', { class: 'mpv-sound-item-name', text: 'Add sound files…' }),
   );
-  private readonly playButton = h('button', { class: 'mpv-sound-play', type: 'button' });
+  private readonly playButton = h('button', { class: 'mpv-btn mpv-sound-play', type: 'button' });
   private readonly volumeIcon = h('span', { class: 'mpv-sounds-volume-icon' });
   private readonly slider = h('input', { class: 'mpv-sounds-slider', type: 'range', min: '0', max: '100', step: '1', 'aria-label': 'Volume' });
   private readonly percent = h('span', { class: 'mpv-sounds-percent' });
@@ -790,13 +806,14 @@ class SoundsPanel {
   private rowIds = '';
 
   constructor(private readonly actions: PanelActions) {
-    const tiles = h('div', { class: 'mpv-sound-tiles', role: 'radiogroup', 'aria-label': 'Kind of sound' });
+    // The kind of sound: one of three, so it sits in a well (as wide as the panel).
+    const tiles = h('div', { class: 'mpv-seg mpv-seg-wide', role: 'radiogroup', 'aria-label': 'Kind of sound' });
     for (const category of SOUND_CATEGORIES) {
       const tile = h(
         'button',
-        { class: 'mpv-sound-tile', type: 'button', role: 'radio', 'aria-checked': 'false', 'data-category': category, tabindex: '-1' },
+        { class: 'mpv-btn', type: 'button', role: 'radio', 'aria-checked': 'false', 'data-category': category, tabindex: '-1' },
         CATEGORY_ICONS[category](),
-        h('span', { class: 'mpv-sound-name', text: CATEGORY_LABELS[category] }),
+        h('span', { class: 'mpv-label', text: CATEGORY_LABELS[category] }),
       );
       tile.addEventListener('click', () => this.chooseCategory(category));
       tile.addEventListener('keydown', (e) => this.onTileKey(e, category));
@@ -811,11 +828,11 @@ class SoundsPanel {
     this.element = h(
       'div',
       { class: 'mpv-popover mpv-sounds', role: 'dialog', 'aria-label': 'Reading sounds', tabindex: '-1', hidden: true },
-      h('div', { class: 'mpv-sounds-header' }, h('span', { class: 'mpv-sounds-title', text: 'Reading sounds' })),
+      h('div', { class: 'mpv-popover-title', text: 'Reading sounds' }),
       tiles,
-      this.list,
       this.empty,
-      this.addButton,
+      h('div', { class: 'mpv-sound-rows' }, this.list, this.addButton),
+      h('div', { class: 'mpv-menu-sep' }),
       h('div', { class: 'mpv-sounds-controls' }, this.playButton, this.volumeIcon, this.slider, this.percent),
     );
     document.body.append(this.element);
@@ -853,8 +870,7 @@ class SoundsPanel {
     this.editing = undefined;
     this.shown = category ?? (this.state ? categoryOf(this.state.sound) : undefined) ?? 'rain';
     this.render();
-    const r = anchor.getBoundingClientRect();
-    placeFloating(this.element, r.left + r.width / 2, r.bottom - 6);
+    placeUnder(this.element, anchor, 'end');
     this.actions.openChanged(true);
     // Focus the chosen recording: arrow keys switch recordings, Tab reaches the rest.
     const id = focusId ?? this.chosenId();
@@ -915,6 +931,7 @@ class SoundsPanel {
     for (const [category, tile] of this.tiles) {
       const shown = category === this.shown;
       tile.setAttribute('aria-checked', String(shown));
+      tile.classList.toggle('mpv-active', shown);
       tile.tabIndex = shown ? 0 : -1;
       const name = CATEGORY_LABELS[category].toLowerCase();
       tile.title = category === playingCategory ? `Playing: ${this.nameOf(state?.sound)}` : category === 'custom' ? 'Your own sounds' : `Play ${name} sounds`;
@@ -940,7 +957,7 @@ class SoundsPanel {
     const sources = this.sources.filter((s) => s.category === this.shown);
     const custom = this.shown === 'custom';
     this.list.setAttribute('aria-label', custom ? 'Your sounds' : `${CATEGORY_LABELS[this.shown]} recordings`);
-    this.empty.hidden = !custom || sources.length > 0;
+    this.empty.hidden = !custom;
     this.addButton.hidden = !custom;
     // Rebuild only when the rows themselves change (a name changes in place), so a focused row
     // keeps its focus and a name being typed is not lost when the list updates.
@@ -961,7 +978,9 @@ class SoundsPanel {
       const checked = id === chosen;
       item.setAttribute('aria-checked', String(checked));
       item.tabIndex = checked ? 0 : -1;
-      item.closest('.mpv-sound-row')?.classList.toggle('mpv-sound-playing', id === playing);
+      const row = item.closest('.mpv-sound-row');
+      row?.classList.toggle('mpv-selected', checked);
+      row?.classList.toggle('mpv-sound-playing', id === playing);
     }
   }
 
@@ -973,15 +992,17 @@ class SoundsPanel {
     const item = h(
       'button',
       { class: 'mpv-sound-item', type: 'button', role: 'radio', 'aria-checked': 'false', tabindex: '-1', 'data-sound': source.id },
-      h('span', { class: 'mpv-sound-mark', 'aria-hidden': 'true' }, equalizer()),
+      h('span', { class: 'mpv-sound-mark', 'aria-hidden': 'true' }),
       h('span', { class: 'mpv-sound-item-name' }),
+      equalizer(),
     );
     item.addEventListener('click', () => this.actions.chooseSound(source.id));
     item.addEventListener('keydown', (e) => this.onItemKey(e, source.id));
     row.append(item);
     if (source.category === 'custom') {
-      const rename = h('button', { class: 'mpv-btn mpv-sound-action', type: 'button', 'data-action': 'rename' }, icon('edit'));
-      const remove = h('button', { class: 'mpv-btn mpv-sound-action', type: 'button', 'data-action': 'remove' }, icon('trash'));
+      // Rename and remove: on the picked row at all times (nothing depends on hover).
+      const rename = h('button', { class: 'mpv-btn mpv-btn-sm mpv-sound-action', type: 'button', 'data-action': 'rename' }, icon('edit'));
+      const remove = h('button', { class: 'mpv-btn mpv-btn-sm mpv-btn-danger mpv-sound-action', type: 'button', 'data-action': 'remove' }, icon('trash'));
       rename.addEventListener('click', () => this.edit(source.id, 'rename'));
       remove.addEventListener('click', () => this.edit(source.id, 'remove'));
       row.append(h('span', { class: 'mpv-sound-actions' }, rename, remove));
@@ -1027,7 +1048,7 @@ class SoundsPanel {
 
   private renameRow(row: HTMLElement, source: SoundSource): HTMLElement {
     row.classList.add('mpv-sound-editing');
-    const input = h('input', { class: 'mpv-sound-rename', type: 'text', value: source.name, maxlength: '80', 'aria-label': `New name for "${source.name}"` });
+    const input = h('input', { class: 'mpv-field mpv-sound-rename', type: 'text', value: source.name, maxlength: '80', 'aria-label': `New name for "${source.name}"` });
     let done = false;
     const finish = (save: boolean) => {
       if (done) return;
@@ -1054,8 +1075,12 @@ class SoundsPanel {
 
   private removeRow(row: HTMLElement, source: SoundSource): HTMLElement {
     row.classList.add('mpv-sound-editing');
-    const remove = h('button', { class: 'mpv-sound-confirm', type: 'button', title: 'Removes it from your sounds. Your own file is not touched.', text: 'Remove' });
-    const cancel = h('button', { class: 'mpv-sound-cancel', type: 'button', text: 'Cancel' });
+    const remove = h(
+      'button',
+      { class: 'mpv-btn mpv-btn-sm mpv-btn-label mpv-sound-confirm', type: 'button', title: 'Removes it from your sounds. Your own file is not touched.' },
+      h('span', { class: 'mpv-label', text: 'Remove' }),
+    );
+    const cancel = h('button', { class: 'mpv-btn mpv-btn-sm mpv-btn-label mpv-sound-cancel', type: 'button' }, h('span', { class: 'mpv-label', text: 'Cancel' }));
     remove.addEventListener('click', () => {
       this.editing = undefined;
       this.actions.removeSound(source.id);

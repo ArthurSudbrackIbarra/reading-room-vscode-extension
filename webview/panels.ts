@@ -1,14 +1,18 @@
-// Sidebar (the annotations list), popovers (highlight, note, drawing, reading marker), tooltips,
-// toast, banner and the status overlay.
+// The annotations list, popovers (highlight, note, drawing, text box, reading marker), the note
+// tooltip, the selection bar, toast, banner and the status overlay.
 import type { OrphanReason, ResolutionKind } from '../src/anchoring/anchor';
 import type { BindingFlag } from '../src/anchoring/binding';
 import { TOOL_NAMES, textStyleOf, type InkDrawing, type InkWidth, type TextDrawing, type TextStyle } from '../src/shared/drawings';
 import { HIGHLIGHT_COLORS, HIGHLIGHT_HEX, MAX_NOTE_LENGTH, type Highlight, type HighlightColor, type ReadingMarker } from '../src/shared/types';
+import { sanitizeSections, type ListSection } from '../src/shared/ui';
 import { ColorButton } from './colorPicker';
-import { h, icon, iconButton, placeFloating } from './dom';
-import { textStyleControls, widthRadios, type TextStyleControls, type WidthRadios } from './drawingBar';
+import { h, icon, iconButton, labelButton, MOD_KEY, placeFloating, swatchButton } from './dom';
+import { COLOR_NAMES, textStyleControls, widthRadios, type TextStyleControls, type WidthRadios } from './drawingBar';
 import { setInk } from './drawings';
-import { textIcon } from './icons';
+import { bookIcon, highlighterIcon, letterIcon } from './icons';
+import { MenuButton } from './menu';
+
+export { MOD_KEY };
 
 export interface ListEntry {
   data: Highlight;
@@ -102,6 +106,8 @@ export interface SidebarActions {
   acceptDrawing(id: string): void;
   removeAllDrawings(): void;
   removeAllTextBoxes(): void;
+  /** The reader collapsed or opened a section (remembered for all files). */
+  sectionsChanged(collapsed: ListSection[]): void;
   close(): void;
 }
 
@@ -116,37 +122,141 @@ function formatDate(iso: string): string {
   return date.toLocaleDateString(undefined, { dateStyle: 'medium' });
 }
 
-const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-export const MOD_KEY = isMac ? '⌘' : 'Ctrl';
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
 
+/** `text` with every occurrence of `query` marked (ignoring case). */
+function marked(text: string, query: string): (Node | string)[] {
+  if (!query) return [text];
+  const parts: (Node | string)[] = [];
+  const lower = text.toLowerCase();
+  let from = 0;
+  for (let at = lower.indexOf(query); at >= 0; at = lower.indexOf(query, from)) {
+    if (at > from) parts.push(text.slice(from, at));
+    parts.push(h('mark', { class: 'mpv-mark', text: text.slice(at, at + query.length) }));
+    from = at + query.length;
+  }
+  if (from < text.length) parts.push(text.slice(from));
+  return parts;
+}
+
+/** A small button of a row: an icon and a label, or an icon alone. */
+function rowAction(name: string, label: string | undefined, title: string, run: () => void, danger = false): HTMLButtonElement {
+  const classes = `mpv-btn mpv-btn-sm${label ? ' mpv-btn-label' : ''}${danger ? ' mpv-btn-danger' : ''}`;
+  const button = label ? labelButton(icon(name), label, title, classes) : iconButton(name, title, { class: classes });
+  button.addEventListener('click', (e) => {
+    e.stopPropagation();
+    run();
+  });
+  return button;
+}
+
+interface RowParts {
+  /** What identifies the row while the list is redrawn. */
+  key: string;
+  className?: string;
+  title: string;
+  /** A thumbnail in place of the 16 px lead column. */
+  thumb?: boolean;
+  lead: Node;
+  body: (Node | undefined)[];
+  /** Decisions that are pending: always visible under the row. */
+  pending?: HTMLElement[];
+  /** What can be done with it: visible under the row while it is selected. */
+  actions: (HTMLElement | undefined)[];
+  /** The row was clicked (it is selected in every case). */
+  activate?: () => void;
+  /** Its text is not in the document: a click on the pages keeps the row selected (to attach it to a selection). */
+  keepSelected?: boolean;
+}
+
+interface ListData {
+  entries: ListEntry[];
+  marker: MarkerEntry | null;
+  drawings: DrawingEntry[];
+  texts: TextEntry[];
+}
+
+/**
+ * The annotations list: where the reader stopped, then the highlights, the orphaned ones, the
+ * drawings and the text boxes, each in a section that can be collapsed. A search and filters
+ * narrow the highlights. A click on a row goes to the annotation and selects the row: its actions
+ * open under it (nothing depends on hover).
+ */
 export class Sidebar {
   readonly element: HTMLElement;
-  private readonly list = h('div', { class: 'mpv-list', role: 'list' });
-  private readonly title = h('span', { class: 'mpv-sidebar-title', text: 'Annotations' });
-
-  /** Delete on a row of the list deletes what the row shows (its last action is its delete button). */
-  private onKey(e: KeyboardEvent): void {
-    if (e.key !== 'Delete' || e.ctrlKey || e.metaKey || e.altKey) return;
-    const row = e.target instanceof HTMLElement && e.target.classList.contains('mpv-item') ? e.target : undefined;
-    const remove = row?.querySelector<HTMLButtonElement>('.mpv-item-actions > button:last-child');
-    if (!row || !remove) return;
-    e.preventDefault();
-    e.stopPropagation();
-    // The keyboard goes to the row that takes this one's place.
-    const rows = [...this.element.querySelectorAll<HTMLElement>('.mpv-item[tabindex]')];
-    const index = rows.indexOf(row);
-    remove.click();
-    requestAnimationFrame(() => {
-      const next = [...this.element.querySelectorAll<HTMLElement>('.mpv-item[tabindex]')];
-      (next[Math.min(index, next.length - 1)] ?? this.element).focus();
-    });
-  }
+  private readonly list = h('div', { class: 'mpv-list' });
+  private readonly count = h('span', { class: 'mpv-count', hidden: true });
+  private readonly search = h('input', { type: 'text', spellcheck: 'false', placeholder: 'Search highlights and notes', 'aria-label': 'Search highlights and notes' });
+  private readonly clearSearch = iconButton('close', 'Clear the search', { class: 'mpv-btn mpv-btn-sm', hidden: true });
+  private readonly colorFilters = new Map<HighlightColor, HTMLButtonElement>();
+  private readonly notesFilter = h(
+    'button',
+    { class: 'mpv-chip', type: 'button', title: 'Show only highlights with a note', 'aria-pressed': 'false' },
+    icon('comment'),
+    h('span', { class: 'mpv-label', text: 'With notes' }),
+  );
+  private readonly tools: HTMLElement;
+  private data: ListData = { entries: [], marker: null, drawings: [], texts: [] };
+  private query = '';
+  private readonly colors = new Set<HighlightColor>();
+  private withNotes = false;
+  private readonly collapsed = new Set<ListSection>();
+  private selected?: string;
+  private keepSelected = false;
 
   constructor(private readonly actions: SidebarActions) {
     const close = iconButton('close', 'Close the list');
     close.addEventListener('click', () => actions.close());
-    this.element = h('aside', { class: 'mpv-sidebar', 'aria-label': 'Annotations', hidden: true }, h('div', { class: 'mpv-sidebar-header' }, this.title, close), this.list);
+    const filter = h('div', { class: 'mpv-filter', role: 'group', 'aria-label': 'Filter by color' });
+    for (const color of HIGHLIGHT_COLORS) {
+      const name = COLOR_NAMES[color];
+      const button = swatchButton({ title: `Show only ${name.toLowerCase()} highlights`, 'aria-label': name, 'aria-pressed': 'false' }, true);
+      button.style.setProperty('--swatch', HIGHLIGHT_HEX[color]);
+      button.addEventListener('click', () => {
+        if (!this.colors.delete(color)) this.colors.add(color);
+        this.draw();
+      });
+      this.colorFilters.set(color, button);
+      filter.append(button);
+    }
+    filter.append(this.notesFilter);
+    this.notesFilter.addEventListener('click', () => {
+      this.withNotes = !this.withNotes;
+      this.draw();
+    });
+    this.search.addEventListener('input', () => {
+      this.query = this.search.value.trim().toLowerCase();
+      this.draw();
+    });
+    this.search.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || !this.search.value) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.setSearch('');
+    });
+    this.clearSearch.addEventListener('click', () => {
+      this.setSearch('');
+      this.search.focus();
+    });
+    this.tools = h('div', { class: 'mpv-list-tools' }, h('label', { class: 'mpv-search' }, icon('search'), this.search, this.clearSearch), filter);
+    this.element = h(
+      'aside',
+      { class: 'mpv-sidebar', 'aria-label': 'Annotations', hidden: true },
+      h('div', { class: 'mpv-sidebar-header' }, h('span', { class: 'mpv-caps', text: 'Annotations' }), this.count, h('span', { class: 'mpv-grow' }), close),
+      this.tools,
+      this.list,
+    );
     this.element.addEventListener('keydown', (e) => this.onKey(e));
+    // A click elsewhere clears the selected row. (Not a click on the pages while the row is an
+    // orphaned highlight: the reader selects the text to attach it to.)
+    document.addEventListener('pointerdown', (e) => {
+      const target = e.target as Element | null;
+      if (!this.selected || this.element.contains(target)) return;
+      if (this.keepSelected && target?.closest?.('.mpv-viewer-container')) return;
+      this.select(undefined);
+    });
   }
 
   set open(value: boolean) {
@@ -158,265 +268,387 @@ export class Sidebar {
     return !this.element.hidden;
   }
 
+  /** The sections the reader left collapsed. */
+  setCollapsed(sections: readonly string[]): void {
+    this.collapsed.clear();
+    for (const section of sanitizeSections(sections)) this.collapsed.add(section);
+    this.draw();
+  }
+
   render(entries: ListEntry[], marker: MarkerEntry | null, drawings: DrawingEntry[], texts: TextEntry[]): void {
+    this.data = { entries, marker, drawings, texts };
+    this.draw();
+  }
+
+  private get filtering(): boolean {
+    return this.query !== '' || this.colors.size > 0 || this.withNotes;
+  }
+
+  private setSearch(value: string): void {
+    this.search.value = value;
+    this.query = value.trim().toLowerCase();
+    this.draw();
+  }
+
+  private clearFilters(): void {
+    this.colors.clear();
+    this.withNotes = false;
+    this.setSearch('');
+  }
+
+  private matches(entry: ListEntry): boolean {
+    if (this.colors.size > 0 && !this.colors.has(entry.data.color)) return false;
+    if (this.withNotes && !entry.data.note) return false;
+    if (!this.query) return true;
+    const text = `${entry.data.target.selector[0].exact}\n${entry.now ?? ''}\n${entry.data.note ?? ''}`;
+    return text.toLowerCase().includes(this.query);
+  }
+
+  private draw(): void {
+    const { entries, marker, drawings, texts } = this.data;
+    const total = entries.length + drawings.length + texts.length;
+    this.count.textContent = String(total);
+    this.count.hidden = total === 0;
+    // Nothing to search while the list is empty.
+    this.tools.hidden = total === 0;
+    this.clearSearch.hidden = this.search.value === '';
+    for (const [color, button] of this.colorFilters) {
+      const on = this.colors.has(color);
+      button.classList.toggle('mpv-selected', on);
+      button.setAttribute('aria-pressed', String(on));
+    }
+    this.notesFilter.classList.toggle('mpv-active', this.withNotes);
+    this.notesFilter.setAttribute('aria-pressed', String(this.withNotes));
+
     const anchored = entries.filter((e) => e.data.status !== 'orphaned');
     const orphaned = entries.filter((e) => e.data.status === 'orphaned');
-    this.title.textContent = `Annotations (${entries.length + drawings.length + texts.length})`;
     const items: HTMLElement[] = [];
-    if (marker) items.push(this.markerItem(marker));
-    if (entries.length === 0 && drawings.length === 0 && texts.length === 0) {
+    const filtering = this.filtering && total > 0;
+    this.keepSelected = false;
+
+    if (filtering) {
+      // Only the highlights that match; the rest of the list steps aside.
+      const found = anchored.filter((e) => this.matches(e));
+      const clear = h('button', { class: 'mpv-link', type: 'button', text: 'Clear filters' });
+      clear.addEventListener('click', () => this.clearFilters());
       items.push(
-        h(
-          'div',
-          { class: 'mpv-empty' },
-          h('p', { text: 'No annotations yet.' }),
-          h('p', {
-            text: 'Turn on the highlight tool, or select text and pick a color. Click a highlight to add a note. Use Draw to draw on the page, and Text to type on it.',
-          }),
+        ...this.section(
+          'highlights',
+          'Highlights',
+          `${found.length} of ${anchored.length}`,
+          found.map((e) => this.item(e, false)),
+          { action: clear },
         ),
       );
+      if (found.length === 0) items.push(h('p', { class: 'mpv-list-note', text: 'No highlight matches.' }));
+      items.push(h('p', { class: 'mpv-list-note', text: 'Drawings and text boxes are hidden while a search or filter is on.' }));
+    } else {
+      if (marker) items.push(h('ul', {}, this.markerItem(marker)));
+      if (total === 0) items.push(this.empty());
+      if (anchored.length > 0) {
+        items.push(
+          ...this.section(
+            'highlights',
+            'Highlights',
+            String(anchored.length),
+            anchored.map((e) => this.item(e, false)),
+          ),
+        );
+      }
+      if (orphaned.length > 0) {
+        const lost = orphaned.length + drawings.filter((d) => d.orphan).length + texts.filter((t) => t.orphan).length;
+        const removeAll = iconButton('trash', `Delete all ${lost} orphaned annotations`, { class: 'mpv-btn mpv-btn-sm mpv-btn-danger' });
+        removeAll.addEventListener('click', () => this.actions.removeOrphans());
+        items.push(
+          ...this.section(
+            'orphaned',
+            'Orphaned',
+            String(orphaned.length),
+            orphaned.map((e) => this.item(e, true)),
+            { warn: true, action: removeAll, note: 'Their text is not in the document now. They are kept, and come back if the text returns.' },
+          ),
+        );
+      }
+      if (drawings.length > 0) {
+        const removeAll = iconButton('trash', 'Delete all drawings…', { class: 'mpv-btn mpv-btn-sm mpv-btn-danger' });
+        removeAll.addEventListener('click', () => this.actions.removeAllDrawings());
+        items.push(
+          ...this.section(
+            'drawings',
+            'Drawings',
+            String(drawings.length),
+            drawings.map((e) => this.drawingItem(e)),
+            { action: removeAll },
+          ),
+        );
+      }
+      if (texts.length > 0) {
+        const removeAll = iconButton('trash', 'Delete all text boxes…', { class: 'mpv-btn mpv-btn-sm mpv-btn-danger' });
+        removeAll.addEventListener('click', () => this.actions.removeAllTextBoxes());
+        items.push(
+          ...this.section(
+            'texts',
+            'Text boxes',
+            String(texts.length),
+            texts.map((e) => this.textItem(e)),
+            { action: removeAll },
+          ),
+        );
+      }
     }
-    for (const entry of anchored) items.push(this.item(entry, false));
-    const lost = orphaned.length + drawings.filter((d) => d.orphan).length + texts.filter((t) => t.orphan).length;
-    if (orphaned.length > 0) {
-      const removeAll = iconButton('trash', `Delete all ${lost} orphaned annotations`, { class: 'mpv-btn mpv-item-action' });
-      removeAll.addEventListener('click', () => this.actions.removeOrphans());
-      items.push(
-        h(
-          'div',
-          {
-            class: 'mpv-list-group mpv-drawings-group',
-            title: 'The text of these highlights is not in the document now. They are kept until you delete them, and come back if the text returns.',
-          },
-          h('span', { class: 'mpv-list-group-label' }, icon('warning'), h('span', { text: `Orphaned (${orphaned.length})` })),
-          removeAll,
-        ),
-      );
-      for (const entry of orphaned) items.push(this.item(entry, true));
-    }
-    if (drawings.length > 0) {
-      const removeAll = iconButton('trash', 'Delete all drawings…', { class: 'mpv-btn mpv-item-action' });
-      removeAll.addEventListener('click', () => this.actions.removeAllDrawings());
-      items.push(h('div', { class: 'mpv-list-group mpv-drawings-group' }, h('span', { text: `Drawings (${drawings.length})` }), removeAll));
-      for (const entry of drawings) items.push(this.drawingItem(entry));
-    }
-    if (texts.length > 0) {
-      const removeAll = iconButton('trash', 'Delete all text boxes…', { class: 'mpv-btn mpv-item-action' });
-      removeAll.addEventListener('click', () => this.actions.removeAllTextBoxes());
-      items.push(h('div', { class: 'mpv-list-group mpv-drawings-group' }, h('span', { text: `Text boxes (${texts.length})` }), removeAll));
-      for (const entry of texts) items.push(this.textItem(entry));
-    }
+    // The row that had the keyboard keeps it (the list is rebuilt whenever something changes).
+    const focused = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('.mpv-row')?.dataset.key;
     this.list.replaceChildren(...items);
+    if (this.selected && !this.rowOf(this.selected)) this.selected = undefined;
+    if (focused) this.rowOf(focused)?.querySelector<HTMLElement>('.mpv-row-main')?.focus({ preventScroll: true });
   }
 
-  private textItem(entry: TextEntry): HTMLElement {
-    const { data } = entry;
-    const remove = iconButton('trash', 'Delete text box', { class: 'mpv-btn mpv-item-action' });
-    remove.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.actions.removeDrawing(data.id);
-    });
-    const thumb = h('span', { class: 'mpv-thumb mpv-text-thumb' }, textIcon());
-    setInk(thumb, data.color);
-    const { meta, title, extra } = this.drawingStatus(entry, 'text box');
-    const row = h(
-      'div',
-      {
-        class: `mpv-item mpv-drawing-item${entry.onPage ? '' : ' mpv-orphan'}`,
-        role: 'listitem',
-        tabindex: 0,
-        title,
-        'data-id': data.id,
-      },
-      thumb,
-      h('div', { class: 'mpv-item-body' }, h('div', { class: 'mpv-item-text', text: excerpt(data.text, 90) }), h('div', { class: 'mpv-item-meta', text: meta })),
-      h('div', { class: `mpv-item-actions${extra.length > 0 ? ' mpv-item-actions-over' : ''}` }, ...extra, remove),
+  /** A section: its header (a button that collapses it, its count, its action), a note, and its rows. */
+  private section(key: ListSection, label: string, count: string, rows: HTMLElement[], options: { warn?: boolean; action?: HTMLElement; note?: string } = {}): HTMLElement[] {
+    const open = !this.collapsed.has(key);
+    const toggle = h(
+      'button',
+      { class: 'mpv-sec-toggle', type: 'button', 'aria-expanded': String(open), title: open ? `Collapse ${label.toLowerCase()}` : `Show ${label.toLowerCase()}` },
+      icon(open ? 'chevron-down' : 'chevron-right'),
+      options.warn ? icon('warning') : undefined,
+      h('span', { class: 'mpv-caps', text: label }),
+      h('span', { class: 'mpv-count', text: count }),
     );
-    if (entry.onPage) {
-      row.addEventListener('click', () => this.actions.revealDrawing(data.id));
-      row.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          this.actions.revealDrawing(data.id);
-        }
-      });
+    toggle.addEventListener('click', () => {
+      if (!this.collapsed.delete(key)) this.collapsed.add(key);
+      this.actions.sectionsChanged([...this.collapsed]);
+      this.draw();
+      this.list.querySelector<HTMLElement>(`.mpv-sec[data-section="${key}"] .mpv-sec-toggle`)?.focus();
+    });
+    const header = h('div', { class: options.warn ? 'mpv-sec mpv-sec-warn' : 'mpv-sec', 'data-section': key }, toggle, options.action);
+    if (!open) return [header];
+    const parts: HTMLElement[] = [header];
+    if (options.note) parts.push(h('p', { class: 'mpv-list-note', text: options.note }));
+    if (rows.length > 0) parts.push(h('ul', {}, ...rows));
+    return parts;
+  }
+
+  private empty(): HTMLElement {
+    const step = (glyph: Node, text: string): HTMLElement => h('li', {}, glyph, h('span', { text }));
+    return h(
+      'div',
+      { class: 'mpv-empty' },
+      bookIcon(40),
+      h('p', { class: 'mpv-empty-title', text: 'Nothing marked yet' }),
+      h('p', { class: 'mpv-empty-text', text: 'Your highlights, notes, drawings and text boxes are listed here, and so is the line where you stopped.' }),
+      h(
+        'ul',
+        { class: 'mpv-empty-steps' },
+        step(highlighterIcon(), 'Select text on a page to highlight it.'),
+        step(icon('comment'), 'Click a highlight to write a note on it.'),
+        step(icon('bookmark'), 'Use the bookmark to mark where you stopped.'),
+      ),
+    );
+  }
+
+  // ---------- Rows ----------
+
+  private rowOf(key: string): HTMLElement | undefined {
+    return [...this.list.querySelectorAll<HTMLElement>('.mpv-row')].find((row) => row.dataset.key === key);
+  }
+
+  /** Selects a row (its actions open under it), or none. */
+  private select(key: string | undefined): void {
+    this.selected = key;
+    for (const row of this.list.querySelectorAll<HTMLElement>('.mpv-row')) {
+      const on = row.dataset.key === key;
+      row.classList.toggle('mpv-selected', on);
+      const main = row.querySelector('.mpv-row-main');
+      if (on) main?.setAttribute('aria-current', 'true');
+      else main?.removeAttribute('aria-current');
+      const actions = row.querySelector<HTMLElement>('.mpv-row-menu');
+      if (actions) actions.hidden = !on;
+      if (on) this.keepSelected = row.dataset.keep === 'true';
     }
+    if (!key) this.keepSelected = false;
+  }
+
+  private row(parts: RowParts): HTMLElement {
+    const on = parts.key === this.selected;
+    const main = h(
+      'button',
+      { class: parts.thumb ? 'mpv-row-main mpv-row-main-thumb' : 'mpv-row-main', type: 'button', title: parts.title, 'aria-current': on ? 'true' : undefined },
+      parts.lead,
+      h('span', { class: 'mpv-row-body' }, ...parts.body),
+    );
+    main.addEventListener('click', () => {
+      this.select(parts.key);
+      parts.activate?.();
+    });
+    const under = parts.thumb ? 'mpv-row-actions mpv-row-actions-thumb' : 'mpv-row-actions';
+    const row = h(
+      'li',
+      { class: `mpv-row${parts.className ? ` ${parts.className}` : ''}${on ? ' mpv-selected' : ''}`, 'data-key': parts.key, 'data-keep': parts.keepSelected ? 'true' : undefined },
+      main,
+      parts.pending && parts.pending.length > 0 ? h('div', { class: under }, ...parts.pending) : undefined,
+      h('div', { class: `${under} mpv-row-menu`, hidden: !on }, ...parts.actions),
+    );
+    if (on && parts.keepSelected) this.keepSelected = true;
     return row;
   }
 
-  private drawingItem(entry: DrawingEntry): HTMLElement {
-    const { data } = entry;
-    const remove = iconButton('trash', 'Delete drawing', { class: 'mpv-btn mpv-item-action' });
-    remove.addEventListener('click', (e) => {
+  /** Delete on a row deletes what it shows (its last action is its delete button); Esc clears the selection. */
+  private onKey(e: KeyboardEvent): void {
+    if (e.key === 'Escape' && this.selected && !(e.target instanceof HTMLInputElement)) {
+      e.preventDefault();
       e.stopPropagation();
-      this.actions.removeDrawing(data.id);
-    });
-    const thumb = h('span', { class: 'mpv-thumb' }, entry.thumbnail);
-    const { meta, title, extra } = this.drawingStatus(entry, 'drawing');
-    const row = h(
-      'div',
-      {
-        class: `mpv-item mpv-drawing-item${entry.onPage ? '' : ' mpv-orphan'}`,
-        role: 'listitem',
-        tabindex: 0,
-        title,
-        'data-id': data.id,
-      },
-      thumb,
-      // A drawing that is fine is one line; one with something to say gets a second line for it.
-      extra.length === 0
-        ? h(
-            'div',
-            { class: 'mpv-item-body' },
-            h('div', { class: 'mpv-item-text' }, h('span', { text: TOOL_NAMES[data.tool] }), h('span', { class: 'mpv-item-meta-inline', text: ` · ${meta}` })),
-          )
-        : h('div', { class: 'mpv-item-body' }, h('div', { class: 'mpv-item-text', text: TOOL_NAMES[data.tool] }), h('div', { class: 'mpv-item-meta', text: meta })),
-      h('div', { class: `mpv-item-actions${extra.length > 0 ? ' mpv-item-actions-over' : ''}` }, ...extra, remove),
-    );
-    if (entry.onPage) {
-      row.addEventListener('click', () => this.actions.revealDrawing(data.id));
-      row.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          this.actions.revealDrawing(data.id);
-        }
-      });
+      this.select(undefined);
+      return;
     }
-    return row;
-  }
-
-  /** The status line, tooltip and extra actions of a drawing or text box: orphaned (with why), flagged, or fine. */
-  private drawingStatus(entry: DrawingEntry | TextEntry, what: string): { meta: string; title: string; extra: HTMLElement[] } {
-    const id = entry.data.id;
-    const page = `page ${entry.data.pageIndex + 1}`;
-    if (!entry.onPage) {
-      const reason = DRAWING_REASON_TEXT[entry.orphan?.reason ?? 'page-missing'];
-      const place = iconButton('location', `Put this ${what} back on the page`, { class: 'mpv-btn mpv-item-action' });
-      place.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.actions.placeDrawing(id);
-      });
-      return {
-        meta: `not shown: ${reason} · was on ${page}`,
-        title: `Not shown: ${reason}. It is kept until you delete it, and comes back if its content returns.`,
-        extra: [place],
-      };
-    }
-    const flags = flagText(entry.flags);
-    if (!flags) return { meta: page, title: `Go to ${what}`, extra: [] };
-    const accept = iconButton('check', `Keep this ${what} where it is now`, { class: 'mpv-btn mpv-item-action' });
-    accept.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.actions.acceptDrawing(id);
+    if (e.key !== 'Delete' || e.ctrlKey || e.metaKey || e.altKey) return;
+    const row = e.target instanceof HTMLElement && e.target.classList.contains('mpv-row-main') ? e.target.closest<HTMLElement>('.mpv-row') : undefined;
+    const remove = row?.querySelector<HTMLButtonElement>('.mpv-row-menu > button:last-child');
+    if (!row || !remove) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // The keyboard goes to the row that takes this one's place.
+    const rows = [...this.list.querySelectorAll<HTMLElement>('.mpv-row')];
+    const index = rows.indexOf(row);
+    remove.click();
+    requestAnimationFrame(() => {
+      const next = [...this.list.querySelectorAll<HTMLElement>('.mpv-row-main')];
+      (next[Math.min(index, next.length - 1)] ?? this.element).focus();
     });
-    return { meta: `${page} · ${flags}`, title: `Go to ${what} (${flags})`, extra: [accept] };
   }
 
   private markerItem(entry: MarkerEntry): HTMLElement {
-    const remove = iconButton('close', 'Remove the reading marker', { class: 'mpv-btn mpv-item-action' });
-    remove.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.actions.removeMarker();
-    });
     const date = formatDate(entry.marker.createdAt);
     const quote = entry.marker.selector?.[0].exact;
-    const row = h(
-      'div',
-      { class: 'mpv-item mpv-marker-item', role: 'listitem', tabindex: 0, title: 'Go to where you stopped reading' },
-      h('span', { class: 'mpv-marker-dot' }, icon('bookmark')),
-      h(
-        'div',
-        { class: 'mpv-item-body' },
-        h('div', { class: 'mpv-item-text', text: 'Where you stopped reading' }),
-        quote ? h('div', { class: 'mpv-item-quote', text: `“${excerpt(quote, 80)}”` }) : undefined,
-        h('div', { class: 'mpv-item-meta', text: [`page ${entry.page + 1}`, date, entry.caveat ? 'about here: its line is not in this version' : ''].filter(Boolean).join(' · ') }),
-      ),
-      h('div', { class: 'mpv-item-actions' }, remove),
-    );
-    row.addEventListener('click', () => this.actions.goToMarker());
-    row.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        this.actions.goToMarker();
-      }
+    return this.row({
+      key: 'marker',
+      title: 'Go to where you stopped reading',
+      lead: h('span', { class: 'mpv-row-lead' }, icon('bookmark')),
+      body: [
+        h('span', { class: 'mpv-row-text', text: quote ? `Where you stopped: “${excerpt(quote, 80)}”` : 'Where you stopped reading' }),
+        h('span', { class: 'mpv-row-meta', text: [`Page ${entry.page + 1}`, date, entry.caveat ? 'about here: its line is not in this version' : ''].filter(Boolean).join(' · ') }),
+      ],
+      actions: [rowAction('close', 'Remove', 'Remove the reading marker', () => this.actions.removeMarker(), true)],
+      activate: () => this.actions.goToMarker(),
     });
-    return row;
   }
 
   private item(entry: ListEntry, orphaned: boolean): HTMLElement {
-    const quote = entry.data.target.selector[0].exact;
-    const dot = h('span', { class: 'mpv-dot' });
-    dot.style.setProperty('--swatch', HIGHLIGHT_HEX[entry.data.color]);
-    const remove = iconButton('trash', 'Delete highlight', { class: 'mpv-btn mpv-item-action' });
-    remove.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.actions.remove(entry.data.id);
-    });
-    // Rows with more to do than "note" and "delete" show their buttons over the text, so the text keeps its width.
-    const actions = h('div', {
-      class: orphaned || (entry.now !== undefined && (entry.kind === 'edited' || entry.kind === 'partial')) ? 'mpv-item-actions mpv-item-actions-over' : 'mpv-item-actions',
-    });
-    const action = (name: string, title: string, run: () => void): void => {
-      const button = iconButton(name, title, { class: 'mpv-btn mpv-item-action' });
-      button.addEventListener('click', (e) => {
-        e.stopPropagation();
-        run();
-      });
-      actions.append(button);
-    };
     const id = entry.data.id;
+    const quote = entry.data.target.selector[0].exact;
+    const note = entry.data.note;
+    const query = this.filtering ? this.query : '';
+    const dot = h('span', { class: orphaned ? 'mpv-dot mpv-dot-sm mpv-dot-orphan' : 'mpv-dot mpv-dot-sm' });
+    dot.style.setProperty('--swatch', HIGHLIGHT_HEX[entry.data.color]);
     const changed = !orphaned && entry.now !== undefined && (entry.kind === 'edited' || entry.kind === 'partial');
-    if (orphaned) {
-      if (entry.candidate) action('replace', `Attach to “${excerpt(entry.candidate, 60)}”, the text that replaced it`, () => this.actions.attachCandidate(id));
-      action('link', 'Attach to the text you have selected', () => this.actions.attachSelection(id));
-      action('copy', 'Copy the highlighted text', () => this.actions.copy(quote));
-    } else if (changed) {
-      action('check', 'Keep it on the text as it is now', () => this.actions.accept(id));
-    }
-    action('comment', entry.data.note ? 'Edit the note' : 'Add a note', () => this.actions.editNote(id));
-    actions.append(remove);
-    const where = entry.page !== undefined ? `page ${entry.page + 1}` : '';
+    const where = entry.page !== undefined ? `Page ${entry.page + 1}` : '';
     const status = orphaned
-      ? [`orphaned: ${REASON_TEXT[entry.reason ?? 'not-found']}`, entry.wasPage !== undefined ? `was on page ${entry.wasPage + 1}` : '']
+      ? [capitalize(REASON_TEXT[entry.reason ?? 'not-found']), entry.wasPage !== undefined ? `was on page ${entry.wasPage + 1}` : '']
       : [where, entry.kind === 'edited' ? 'its text changed' : entry.kind === 'partial' ? 'part of its text was deleted' : entry.kind === 'moved' ? 'moved with its text' : ''];
-    const meta = status.filter(Boolean).join(' · ');
-    const row = h(
-      'div',
-      {
-        class: `mpv-item${orphaned ? ' mpv-orphan' : ''}${changed ? ' mpv-changed' : ''}`,
-        role: 'listitem',
-        tabindex: 0,
-        title: orphaned ? `Orphaned: ${REASON_TEXT[entry.reason ?? 'not-found']}. It is kept, and comes back if the text returns.` : 'Go to highlight',
-        'data-id': id,
-      },
-      dot,
-      h(
-        'div',
-        { class: 'mpv-item-body' },
+    const remove = rowAction('trash', undefined, 'Delete highlight', () => this.actions.remove(id), true);
+    const editNote = (label: string | undefined): HTMLButtonElement => rowAction('comment', label, note ? 'Edit the note' : 'Add a note', () => this.actions.editNote(id));
+    const grow = (): HTMLElement => h('span', { class: 'mpv-grow' });
+    return this.row({
+      key: `h:${id}`,
+      className: orphaned ? 'mpv-orphan' : changed ? 'mpv-changed' : undefined,
+      title: orphaned ? `Orphaned: ${REASON_TEXT[entry.reason ?? 'not-found']}. It is kept, and comes back if the text returns.` : 'Go to highlight',
+      lead: h('span', { class: 'mpv-row-lead' }, dot),
+      body: [
         changed
-          ? h(
-              'div',
-              { class: 'mpv-item-text' },
-              h('div', { class: 'mpv-item-was' }, h('span', { class: 'mpv-item-label', text: 'was ' }), h('span', { text: `“${excerpt(quote, 110)}”` })),
-              h('div', { class: 'mpv-item-now' }, h('span', { class: 'mpv-item-label', text: 'now ' }), h('span', { text: `“${excerpt(entry.now ?? '', 110)}”` })),
-            )
-          : h('div', { class: 'mpv-item-text', text: excerpt(quote) }),
-        entry.data.note ? h('div', { class: 'mpv-item-note' }, icon('comment'), h('span', { text: excerpt(entry.data.note, 220) })) : undefined,
-        h('div', { class: 'mpv-item-meta', text: meta }),
-      ),
-      actions,
-    );
-    if (!orphaned) {
-      row.addEventListener('click', () => this.actions.reveal(entry.data.id));
-      row.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          this.actions.reveal(entry.data.id);
-        }
-      });
-    }
-    return row;
+          ? h('span', { class: 'mpv-row-text' }, h('span', { class: 'mpv-tag', text: 'Changed' }), h('span', { class: 'mpv-row-old', text: excerpt(quote, 110) }))
+          : h('span', { class: 'mpv-row-text' }, ...marked(excerpt(quote), query)),
+        changed ? h('span', { class: 'mpv-row-text' }, ...marked(excerpt(entry.now ?? '', 110), query)) : undefined,
+        note ? h('span', { class: 'mpv-note' }, icon('comment'), h('span', { class: 'mpv-note-text' }, ...marked(excerpt(note, 220), query))) : undefined,
+        h('span', { class: 'mpv-row-meta', text: status.filter(Boolean).join(' · ') }),
+      ],
+      // A changed highlight waits for a decision: its action shows without selecting the row.
+      pending: changed ? [rowAction('check', 'Keep as it is now', 'Keep it on the text as it is now', () => this.actions.accept(id))] : [],
+      actions: orphaned
+        ? [
+            entry.candidate
+              ? rowAction('replace', 'Attach to new text', `Attach to “${excerpt(entry.candidate, 60)}”, the text that replaced it`, () => this.actions.attachCandidate(id))
+              : undefined,
+            rowAction('link', 'Attach to selection', 'Attach to the text you have selected', () => this.actions.attachSelection(id)),
+            rowAction('copy', undefined, 'Copy the highlighted text', () => this.actions.copy(quote)),
+            editNote(undefined),
+            grow(),
+            remove,
+          ]
+        : [editNote(note ? 'Edit note' : 'Add note'), rowAction('copy', 'Copy', 'Copy the highlighted text', () => this.actions.copy(quote)), grow(), remove],
+      activate: orphaned ? undefined : () => this.actions.reveal(id),
+      keepSelected: orphaned,
+    });
   }
+
+  private drawingItem(entry: DrawingEntry): HTMLElement {
+    return this.drawingRow(entry, 'drawing', h('span', { class: 'mpv-thumb' }, entry.thumbnail), TOOL_NAMES[entry.data.tool]);
+  }
+
+  private textItem(entry: TextEntry): HTMLElement {
+    const thumb = h('span', { class: 'mpv-thumb mpv-text-thumb' }, letterIcon());
+    setInk(thumb, entry.data.color);
+    return this.drawingRow(entry, 'text box', thumb, excerpt(entry.data.text, 90));
+  }
+
+  /** A drawing or text box: its thumbnail, what it is, its page; why it is not shown, or what to check. */
+  private drawingRow(entry: DrawingEntry | TextEntry, what: string, thumb: HTMLElement, text: string): HTMLElement {
+    const id = entry.data.id;
+    const page = `page ${entry.data.pageIndex + 1}`;
+    const flags = flagText(entry.flags);
+    let meta = capitalize(page);
+    let title = `Go to ${what}`;
+    const pending: HTMLElement[] = [];
+    if (!entry.onPage) {
+      const reason = DRAWING_REASON_TEXT[entry.orphan?.reason ?? 'page-missing'];
+      meta = `${capitalize(reason)} · was on ${page}`;
+      title = `Not shown: ${reason}. It is kept until you delete it, and comes back if its content returns.`;
+      pending.push(rowAction('location', 'Put back on the page', `Put this ${what} back on the page`, () => this.actions.placeDrawing(id)));
+    } else if (flags) {
+      meta = `${capitalize(page)} · ${flags}`;
+      title = `Go to ${what} (${flags})`;
+      pending.push(rowAction('check', 'Keep it here', `Keep this ${what} where it is now`, () => this.actions.acceptDrawing(id)));
+    }
+    return this.row({
+      key: `d:${id}`,
+      className: entry.onPage ? undefined : 'mpv-orphan',
+      title,
+      thumb: true,
+      lead: thumb,
+      body: [
+        h('span', { class: 'mpv-row-text' }, entry.onPage ? undefined : h('span', { class: 'mpv-tag', text: 'Not shown' }), text),
+        h('span', { class: 'mpv-row-meta', text: meta }),
+      ],
+      pending,
+      actions: [rowAction('trash', 'Delete', `Delete ${what}`, () => this.actions.removeDrawing(id), true)],
+      activate: entry.onPage ? () => this.actions.revealDrawing(id) : undefined,
+    });
+  }
+}
+
+/** The five highlight colors as dots to pick from (in a popover row). */
+function highlightSwatches(title: (name: string) => string, pick: (color: HighlightColor) => void): Map<HighlightColor, HTMLButtonElement> {
+  const swatches = new Map<HighlightColor, HTMLButtonElement>();
+  for (const color of HIGHLIGHT_COLORS) {
+    const name = COLOR_NAMES[color];
+    const swatch = swatchButton({ title: title(name), 'aria-label': title(name), 'aria-pressed': 'false', 'data-color': color });
+    swatch.style.setProperty('--swatch', HIGHLIGHT_HEX[color]);
+    swatch.addEventListener('click', () => pick(color));
+    swatches.set(color, swatch);
+  }
+  return swatches;
+}
+
+function markSwatch(swatches: Map<HighlightColor, HTMLButtonElement>, color: HighlightColor | undefined): void {
+  for (const [c, swatch] of swatches) {
+    swatch.classList.toggle('mpv-selected', c === color);
+    swatch.setAttribute('aria-pressed', String(c === color));
+  }
+}
+
+const sep = (): HTMLElement => h('span', { class: 'mpv-sep' });
+
+/** A filled button with a label: Save, Open, Retry (primary), or Cancel, Show log (secondary). */
+function filledButton(text: string, primary: boolean, type: 'button' | 'submit' = 'button'): HTMLButtonElement {
+  return h('button', { class: primary ? 'mpv-btn mpv-btn-primary' : 'mpv-btn mpv-btn-secondary', type }, h('span', { class: 'mpv-label', text }));
 }
 
 export interface PopoverActions {
@@ -428,61 +660,54 @@ export interface PopoverActions {
   shown(id: string | undefined): void;
 }
 
-/** Shown when clicking a highlight: colors, note, copy, delete. The note can be edited in place. */
+/**
+ * Shown when clicking a highlight: its color, then note and copy, then delete. A note shows under
+ * the row; writing it grows the same popover in place.
+ */
 export class HighlightPopover {
   readonly element: HTMLElement;
   private currentId?: string;
   private note = '';
   private anchor: [number, number] = [0, 0];
-  private readonly swatches = new Map<HighlightColor, HTMLButtonElement>();
+  private readonly swatches: Map<HighlightColor, HTMLButtonElement>;
   private readonly noteButton = iconButton('comment', 'Add a note');
-  private readonly noteView = h('div', { class: 'mpv-note-view', role: 'button', tabindex: 0, title: 'Click to edit the note', hidden: true });
+  private readonly noteText = h('span', { class: 'mpv-note-text' });
+  private readonly noteView = h('button', { class: 'mpv-note mpv-note-view', type: 'button', title: 'Edit the note', hidden: true }, icon('comment'), this.noteText);
   private readonly textarea = h('textarea', {
     class: 'mpv-note-input',
-    rows: 4,
+    id: 'mpv-note-input',
+    rows: 3,
     maxlength: MAX_NOTE_LENGTH,
     placeholder: 'Why is this highlighted? Write a note…',
-    'aria-label': 'Note',
   });
   private readonly editor: HTMLElement;
 
   constructor(private readonly actions: PopoverActions) {
-    const row = h('div', { class: 'mpv-popover-row' });
-    for (const color of HIGHLIGHT_COLORS) {
-      const swatch = h('button', { class: 'mpv-swatch', type: 'button', title: `Change to ${color}`, 'aria-label': color, 'data-color': color });
-      swatch.style.setProperty('--swatch', HIGHLIGHT_HEX[color]);
-      swatch.addEventListener('click', () => {
+    this.swatches = highlightSwatches(
+      (name) => `Change to ${name.toLowerCase()}`,
+      (color) => {
         if (this.currentId) actions.setColor(this.currentId, color);
-        for (const [c, s] of this.swatches) s.classList.toggle('mpv-selected', c === color);
+        markSwatch(this.swatches, color);
         if (!this.editing) this.hide();
-      });
-      this.swatches.set(color, swatch);
-      row.append(swatch);
-    }
+      },
+    );
     this.noteButton.addEventListener('click', () => this.startEditing());
     const copy = iconButton('copy', 'Copy text');
     copy.addEventListener('click', () => {
       if (this.currentId) actions.copy(this.currentId);
       this.hide();
     });
-    const remove = iconButton('trash', 'Delete highlight');
+    const remove = iconButton('trash', 'Delete highlight', { class: 'mpv-btn mpv-btn-danger' });
     remove.addEventListener('click', () => {
       const id = this.currentId;
       this.hide(false);
       if (id) actions.remove(id);
     });
-    row.append(h('span', { class: 'mpv-popover-sep' }), this.noteButton, copy, remove);
-
+    const row = h('div', { class: 'mpv-popover-row' }, ...this.swatches.values(), sep(), this.noteButton, copy, sep(), remove);
     this.noteView.addEventListener('click', () => this.startEditing());
-    this.noteView.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        this.startEditing();
-      }
-    });
 
-    const save = h('button', { class: 'mpv-button mpv-button-small', type: 'button', text: 'Save' });
-    const cancel = h('button', { class: 'mpv-button mpv-button-small mpv-button-secondary', type: 'button', text: 'Cancel' });
+    const save = filledButton('Save', true);
+    const cancel = filledButton('Cancel', false);
     save.addEventListener('click', () => this.hide(true));
     cancel.addEventListener('click', () => this.hide(false));
     this.textarea.addEventListener('keydown', (e) => {
@@ -498,8 +723,9 @@ export class HighlightPopover {
     this.editor = h(
       'div',
       { class: 'mpv-note-editor', hidden: true },
+      h('label', { class: 'mpv-note-label', for: 'mpv-note-input', text: 'Note on this highlight' }),
       this.textarea,
-      h('div', { class: 'mpv-note-editor-footer' }, h('span', { class: 'mpv-hint', text: `${MOD_KEY}+Enter to save` }), cancel, save),
+      h('div', { class: 'mpv-popover-row' }, h('span', { class: 'mpv-note-hint', text: `${MOD_KEY}+Enter to save` }), h('span', { class: 'mpv-grow' }), cancel, save),
     );
     this.element = h('div', { class: 'mpv-popover mpv-hl-popover', role: 'dialog', 'aria-label': 'Edit highlight', hidden: true }, row, this.noteView, this.editor);
     document.body.append(this.element);
@@ -509,10 +735,10 @@ export class HighlightPopover {
     this.currentId = id;
     this.note = data.note ?? '';
     this.anchor = [x, y];
-    for (const [c, swatch] of this.swatches) swatch.classList.toggle('mpv-selected', c === data.color);
+    markSwatch(this.swatches, data.color);
     this.noteButton.title = this.note ? 'Edit the note' : 'Add a note';
     this.noteButton.setAttribute('aria-label', this.noteButton.title);
-    this.noteView.textContent = this.note;
+    this.noteText.textContent = this.note;
     this.noteView.hidden = !this.note;
     this.editor.hidden = true;
     this.element.classList.remove('mpv-editing');
@@ -566,20 +792,20 @@ export class HighlightPopover {
 /** What a drawing or text box follows when the document changes. */
 export type Attachment = 'text' | 'image' | 'page';
 
-/** The menu of a selected drawing or text box that says what it follows, and lets the reader choose. */
-function attachMenu(onPick: (to: Attachment) => void): { select: HTMLSelectElement; set(to: Attachment): void } {
-  const select = h('select', {
-    class: 'mpv-select mpv-attach-select',
-    title: 'What it follows when the document changes',
-    'aria-label': 'What it follows when the document changes',
+/** The button of a selected drawing or text box that says what it follows, and opens the menu to choose. */
+function attachMenu(onPick: (to: Attachment) => void): { element: HTMLElement; set(to: Attachment): void } {
+  const button = new MenuButton<Attachment>({
+    label: 'What it follows when the document changes',
+    className: 'mpv-attach-select',
+    head: 'When the document changes',
+    options: [
+      { value: 'text', label: 'Follows text' },
+      { value: 'image', label: 'Follows image' },
+      { value: 'page', label: 'Stays on page' },
+    ],
+    onPick,
   });
-  select.append(
-    h('option', { value: 'text', text: 'Follows text' }),
-    h('option', { value: 'image', text: 'Follows image' }),
-    h('option', { value: 'page', text: 'Stays on page' }),
-  );
-  select.addEventListener('change', () => onPick(select.value as Attachment));
-  return { select, set: (to) => (select.value = to) };
+  return { element: button.element, set: (to) => button.setValue(to) };
 }
 
 export interface DrawingPopoverActions {
@@ -591,7 +817,7 @@ export interface DrawingPopoverActions {
   remove(id: string): void;
 }
 
-/** Shown when a drawing is selected: its ink, its width, delete. It stays open while changing them. */
+/** Shown when a drawing is selected: its ink, its width, what it follows, delete. It stays open while changing them. */
 export class DrawingPopover {
   readonly element: HTMLElement;
   readonly color: ColorButton;
@@ -614,14 +840,13 @@ export class DrawingPopover {
     this.widths = widthRadios((width) => {
       if (this.currentId) actions.setWidth(this.currentId, width);
     });
-    const remove = iconButton('trash', 'Delete drawing (Delete)');
+    const remove = iconButton('trash', 'Delete drawing (Delete)', { class: 'mpv-btn mpv-btn-danger' });
     remove.addEventListener('click', () => {
       const id = this.currentId;
       this.hide();
       if (id) actions.remove(id);
     });
-    const sep = () => h('span', { class: 'mpv-popover-sep' });
-    const row = h('div', { class: 'mpv-popover-row' }, this.color.element, sep(), this.widths.group, sep(), this.attached.select, sep(), remove);
+    const row = h('div', { class: 'mpv-popover-row mpv-wraps' }, this.color.element, this.widths.group, this.attached.element, sep(), remove);
     // Esc reaches the viewer's handler, which deselects the drawing (and so closes this).
     this.element = h('div', { class: 'mpv-popover mpv-drawing-popover', role: 'dialog', 'aria-label': 'Edit drawing', hidden: true }, row);
     document.body.append(this.element);
@@ -664,7 +889,10 @@ export interface TextPopoverActions {
   remove(id: string): void;
 }
 
-/** Shown when a text box is selected (outside text mode): its color, size, format, alignment, edit and delete. */
+/**
+ * Shown when a text box is selected (outside text mode), in two rows: how it looks (color, size,
+ * format, alignment), then what it follows, Edit and delete.
+ */
 export class TextPopover {
   readonly element: HTMLElement;
   readonly color: ColorButton;
@@ -687,36 +915,24 @@ export class TextPopover {
     this.controls = textStyleControls((patch) => {
       if (this.currentId) actions.setStyle(this.currentId, patch);
     });
-    const edit = iconButton('edit', 'Edit the text (Enter, or double-click the box)');
+    const edit = labelButton(icon('edit'), 'Edit', 'Edit the text (Enter, or double-click the box)');
     edit.addEventListener('click', () => {
       const id = this.currentId;
       this.hide();
       if (id) actions.edit(id);
     });
-    const remove = iconButton('trash', 'Delete text box (Delete)');
+    const remove = iconButton('trash', 'Delete text box (Delete)', { class: 'mpv-btn mpv-btn-danger' });
     remove.addEventListener('click', () => {
       const id = this.currentId;
       this.hide();
       if (id) actions.remove(id);
     });
-    const sep = () => h('span', { class: 'mpv-popover-sep' });
-    const row = h(
+    this.element = h(
       'div',
-      { class: 'mpv-popover-row' },
-      this.color.element,
-      sep(),
-      this.controls.size,
-      sep(),
-      this.controls.format,
-      sep(),
-      this.controls.align,
-      sep(),
-      this.attached.select,
-      sep(),
-      edit,
-      remove,
+      { class: 'mpv-popover mpv-drawing-popover mpv-text-popover', role: 'dialog', 'aria-label': 'Edit text box', hidden: true },
+      h('div', { class: 'mpv-popover-row mpv-wraps' }, this.color.element, this.controls.size, this.controls.format, this.controls.align),
+      h('div', { class: 'mpv-popover-row' }, this.attached.element, h('span', { class: 'mpv-grow' }), edit, sep(), remove),
     );
-    this.element = h('div', { class: 'mpv-popover mpv-drawing-popover mpv-text-popover', role: 'dialog', 'aria-label': 'Edit text box', hidden: true }, row);
     document.body.append(this.element);
   }
 
@@ -762,7 +978,7 @@ export class NoteTooltip {
     clearTimeout(this.timer);
     this.currentId = id;
     this.timer = setTimeout(() => {
-      this.element.replaceChildren(h('div', { class: 'mpv-tooltip-title' }, icon('comment'), h('span', { text: 'Note' })), h('div', { class: 'mpv-tooltip-body', text: note }));
+      this.element.replaceChildren(h('div', { class: 'mpv-tooltip-title', text: 'Note' }), h('div', { class: 'mpv-tooltip-body', text: note }));
       placeFloating(this.element, x, y + 8);
     }, 300);
   }
@@ -774,14 +990,15 @@ export class NoteTooltip {
   }
 }
 
-/** Options for the reading marker (shown when clicking its tab). */
+/** Options for the reading marker (shown when clicking its tab): the marked line, Move and Remove. */
 export class MarkerPopover {
   readonly element: HTMLElement;
-  private readonly title = h('div', { class: 'mpv-marker-popover-title' });
+  private readonly line = h('span', { class: 'mpv-marker-popover-line' });
+  private readonly label = h('span', { class: 'mpv-marker-popover-label', text: 'You stopped at' });
 
   constructor(actions: { move(): void; remove(): void }) {
-    const move = h('button', { class: 'mpv-button mpv-button-small mpv-button-secondary', type: 'button' }, icon('move'), h('span', { text: 'Move' }));
-    const remove = h('button', { class: 'mpv-button mpv-button-small mpv-button-secondary', type: 'button' }, icon('trash'), h('span', { text: 'Remove' }));
+    const move = labelButton(icon('move'), 'Move', 'Move the reading marker: click this, then click a line');
+    const remove = labelButton(icon('trash'), 'Remove', 'Remove the reading marker (Delete)', 'mpv-btn mpv-btn-label mpv-btn-danger');
     move.addEventListener('click', () => {
       this.hide();
       actions.move();
@@ -793,14 +1010,16 @@ export class MarkerPopover {
     this.element = h(
       'div',
       { class: 'mpv-popover mpv-marker-popover', role: 'dialog', 'aria-label': 'Reading marker', hidden: true },
-      this.title,
-      h('div', { class: 'mpv-marker-popover-actions' }, move, remove),
+      h('div', { class: 'mpv-marker-popover-title' }, this.label, this.line),
+      h('div', { class: 'mpv-popover-row' }, move, remove),
     );
     document.body.append(this.element);
   }
 
-  show(text: string, x: number, y: number): void {
-    this.title.textContent = text;
+  /** `line`: the text of the marked line (or where it is, when there is no text); `when`: the day it was marked. */
+  show(line: string, when: string, x: number, y: number): void {
+    this.label.textContent = when ? `You stopped at · ${when}` : 'You stopped at';
+    this.line.textContent = line;
     placeFloating(this.element, x, y);
   }
 
@@ -813,27 +1032,30 @@ export class MarkerPopover {
   }
 }
 
-/** Color dots shown next to a fresh selection (when the highlight tool is off). */
+/** Shown next to a fresh selection (when no tool is on): the colors to highlight it in, a note, the reading marker. */
 export class SelectionBar {
   readonly element: HTMLElement;
+  private readonly swatches: Map<HighlightColor, HTMLButtonElement>;
 
   constructor(actions: { pick(color: HighlightColor): void; note(): void; marker(): void }) {
-    const row = h('div', { class: 'mpv-popover-row' }, h('span', { class: 'mpv-popover-label', text: 'Highlight' }));
-    for (const color of HIGHLIGHT_COLORS) {
-      const swatch = h('button', { class: 'mpv-swatch', type: 'button', title: `Highlight in ${color}`, 'aria-label': `Highlight in ${color}` });
-      swatch.style.setProperty('--swatch', HIGHLIGHT_HEX[color]);
-      swatch.addEventListener('pointerdown', (e) => e.preventDefault());
-      swatch.addEventListener('click', () => actions.pick(color));
-      row.append(swatch);
-    }
+    this.swatches = highlightSwatches(
+      (name) => `Highlight in ${name.toLowerCase()}`,
+      (color) => actions.pick(color),
+    );
     const note = iconButton('comment', 'Highlight and add a note');
     const marker = iconButton('bookmark', 'Mark this as where I stopped reading');
-    for (const button of [note, marker]) button.addEventListener('pointerdown', (e) => e.preventDefault());
+    // The selection stays while a button is pressed.
+    for (const button of [...this.swatches.values(), note, marker]) button.addEventListener('pointerdown', (e) => e.preventDefault());
     note.addEventListener('click', () => actions.note());
     marker.addEventListener('click', () => actions.marker());
-    row.append(h('span', { class: 'mpv-popover-sep' }), note, marker);
+    const row = h('div', { class: 'mpv-popover-row' }, h('span', { class: 'mpv-popover-label mpv-label', text: 'Highlight' }), ...this.swatches.values(), sep(), note, marker);
     this.element = h('div', { class: 'mpv-popover mpv-selection-bar', hidden: true }, row);
     document.body.append(this.element);
+  }
+
+  /** The color a new highlight gets is ringed. */
+  setColor(color: HighlightColor): void {
+    markSwatch(this.swatches, color);
   }
 
   show(x: number, y: number): void {
@@ -859,26 +1081,30 @@ export interface BannerAction {
   run(): void;
 }
 
-/** A short message at the bottom of the viewer, optionally with an action (e.g. "Undo"). */
+function linkButton(action: BannerAction, before?: () => void): HTMLButtonElement {
+  const button = h('button', { class: 'mpv-link', type: 'button' }, h('span', { class: 'mpv-label', text: action.label }));
+  button.addEventListener('click', () => {
+    before?.();
+    action.run();
+  });
+  return button;
+}
+
+/** A short message in a pill at the bottom of the pages, optionally with an action (e.g. "Undo"). */
 export class Toast {
   readonly element = h('div', { class: 'mpv-toast', role: 'status', 'aria-live': 'polite', hidden: true });
   private timer?: ReturnType<typeof setTimeout>;
 
-  show(message: string, options: { action?: BannerAction; sticky?: boolean; durationMs?: number } = {}): void {
+  /** `marker`: the message is about the reading marker (its bookmark comes first). */
+  show(message: string, options: { action?: BannerAction; sticky?: boolean; durationMs?: number; marker?: boolean } = {}): void {
     clearTimeout(this.timer);
-    const children: (Node | string)[] = [h('span', { class: 'mpv-toast-text', text: message })];
-    if (options.action) {
-      const { action } = options;
-      const button = h('button', { class: 'mpv-link-button', type: 'button', text: action.label });
-      button.addEventListener('click', () => {
-        this.hide();
-        action.run();
-      });
-      children.push(button);
-    }
-    this.element.replaceChildren(...children);
+    this.element.replaceChildren(
+      ...(options.marker ? [h('span', { class: 'codicon codicon-bookmark mpv-toast-icon', 'aria-hidden': 'true' })] : []),
+      h('span', { class: 'mpv-toast-text', text: message }),
+      ...(options.action ? [linkButton(options.action, () => this.hide())] : []),
+    );
+    this.element.classList.toggle('mpv-toast-action', options.action !== undefined);
     this.element.hidden = false;
-    this.element.classList.remove('mpv-toast-out');
     if (!options.sticky) this.timer = setTimeout(() => this.hide(), options.durationMs ?? 4000);
   }
 
@@ -888,6 +1114,7 @@ export class Toast {
   }
 }
 
+/** A full-width strip under the bars: a warning, an error or a note, with actions as links and a way to dismiss it. */
 export class Banner {
   readonly element: HTMLElement;
   private readonly text = h('div', { class: 'mpv-banner-text' });
@@ -895,7 +1122,7 @@ export class Banner {
   private readonly iconBox = h('span', { class: 'mpv-banner-icon' });
 
   constructor() {
-    const close = iconButton('close', 'Dismiss');
+    const close = iconButton('close', 'Dismiss', { class: 'mpv-btn mpv-btn-sm' });
     close.addEventListener('click', () => this.hide());
     this.element = h('div', { class: 'mpv-banner', role: 'status', hidden: true }, this.iconBox, this.text, this.actionsBox, close);
   }
@@ -905,13 +1132,7 @@ export class Banner {
     this.iconBox.replaceChildren(icon(kind === 'info' ? 'info' : kind));
     this.text.textContent = message;
     this.text.title = message;
-    this.actionsBox.replaceChildren(
-      ...actions.map((a) => {
-        const b = h('button', { class: 'mpv-link-button', type: 'button', text: a.label });
-        b.addEventListener('click', () => a.run());
-        return b;
-      }),
-    );
+    this.actionsBox.replaceChildren(...actions.map((a) => linkButton(a)));
     this.element.hidden = false;
   }
 
@@ -929,8 +1150,13 @@ export class StatusOverlay {
     this.element = h('div', { class: 'mpv-status', hidden: true }, this.box);
   }
 
+  /** First load: the wordmark, a spinner, and what is being opened. */
   loading(message: string): void {
-    this.box.replaceChildren(h('span', { class: 'codicon codicon-loading codicon-modifier-spin mpv-status-icon' }), h('p', { text: message }));
+    this.box.replaceChildren(
+      h('div', { class: 'mpv-wordmark' }, bookIcon(20), h('span', { class: 'mpv-label', text: 'Reading Room' })),
+      h('div', { class: 'mpv-spinner', 'aria-hidden': 'true' }),
+      h('p', { class: 'mpv-status-detail', text: message }),
+    );
     this.element.hidden = false;
   }
 
@@ -938,8 +1164,8 @@ export class StatusOverlay {
     const buttons = h(
       'div',
       { class: 'mpv-status-actions' },
-      ...actions.map((a) => {
-        const b = h('button', { class: 'mpv-button', type: 'button', text: a.label });
+      ...actions.map((a, i) => {
+        const b = filledButton(a.label, i === 0);
         b.addEventListener('click', () => a.run());
         return b;
       }),
@@ -956,9 +1182,9 @@ export class StatusOverlay {
   /** Asks for the password of an encrypted PDF. Resolves with undefined when cancelled. */
   password(fileName: string, incorrect: boolean): Promise<string | undefined> {
     return new Promise((resolve) => {
-      const input = h('input', { class: 'mpv-password-input', type: 'password', 'aria-label': 'Password', autocomplete: 'off' });
-      const open = h('button', { class: 'mpv-button', type: 'submit', text: 'Open' });
-      const cancel = h('button', { class: 'mpv-button mpv-button-secondary', type: 'button', text: 'Cancel' });
+      const input = h('input', { class: 'mpv-field mpv-password-input', type: 'password', 'aria-label': 'Password', autocomplete: 'off' });
+      const open = filledButton('Open', true, 'submit');
+      const cancel = filledButton('Cancel', false);
       const form = h(
         'form',
         { class: 'mpv-password-form' },

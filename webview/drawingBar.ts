@@ -1,17 +1,23 @@
-// The mode bars: a second toolbar row, docked under the main one, shown only while drawing or
-// adding text. Same height, button size, group spacing and dividers as the main toolbar. Each
-// starts with the name of its mode in words (not an icon, which would look like one more tool);
-// both names take the same room, so the two bars line up with each other. Done is at the right.
-//  DRAW MODE │ [pen] [line] [arrow] [rect] [ellipse] [eraser] │ [● ▾] │ [─] [━] [▬]      [✓ Done]
-//  TEXT MODE │ [12 ▾] │ [B] [I] [U] │ [≡] [≡] [≡] [≡] │ [● ▾]                            [✓ Done]
-// With the eraser picked, the three widths are its three sizes.
+// The tool trays: a second row, docked under the toolbar, shown only while a tool is on or the
+// reading marker is being placed. Same height, padding and grid as the toolbar. Every tray says
+// what its tool is (a caps label; all labels take the same room, so the trays line up), holds the
+// tool's options, and ends with Done at the right: Done, a second click on the tool and Esc all
+// end the tool.
+//   HIGHLIGHT  ● ● ● ● ● │ Select text to highlight it.                         [Esc] [✓ Done]
+//   DRAW       [pen line arrow rect ellipse eraser] [● ▾] [─ ━ ▬]               [Esc] [✓ Done]
+//   TEXT       [12 ▾] [B] [I] [U] [≡ ≡ ≡ ≡] [● ▾]                               [Esc] [✓ Done]
+//   REMOVE     Click a highlight, drawing or text box to delete it, …           [Esc] [✓ Done]
+//   MARKER     Click the line where you stopped reading.                        [Esc] [Cancel]
+// A group where exactly one is picked sits in a well; toggles (bold, italic, underline) stand
+// alone. With the eraser picked, the three widths are its three sizes and the ink button rests.
 // The controls of the color, widths and text style are shared with the popovers.
 import type { Ink } from '../src/shared/colors';
 import { ALIGN_NAMES, DRAWING_TOOLS, INK_WIDTHS, TEXT_ALIGNS, TEXT_SIZES, WIDTH_NAMES, type DrawTool, type InkWidth, type TextAlign, type TextStyle } from '../src/shared/drawings';
+import { HIGHLIGHT_COLORS, HIGHLIGHT_HEX, type HighlightColor } from '../src/shared/types';
 import { ColorButton } from './colorPicker';
-import { h } from './dom';
+import { h, swatchButton } from './dom';
 import { alignIcon, boldIcon, checkIcon, italicIcon, rubberIcon, sizeIcon, toolIcon, underlineIcon, widthIcon } from './icons';
-import { hideDividersAtRowEnds } from './toolbar';
+import { MenuButton } from './menu';
 
 export const TOOL_TITLES: Record<DrawTool, string> = {
   pen: 'Pen (P)',
@@ -24,6 +30,14 @@ export const TOOL_TITLES: Record<DrawTool, string> = {
 
 /** Keys that pick a tool while drawing. */
 export const TOOL_KEYS: Record<string, DrawTool> = { p: 'pen', l: 'line', a: 'arrow', r: 'rect', o: 'ellipse', e: 'eraser' };
+
+export const COLOR_NAMES: Record<HighlightColor, string> = {
+  yellow: 'Yellow',
+  pink: 'Pink',
+  green: 'Green',
+  blue: 'Blue',
+  orange: 'Orange',
+};
 
 /** Radio buttons: click or arrow keys pick (roving tabindex: only the checked one is in the Tab order). */
 export function bindRadios<T>(entries: [T, HTMLButtonElement][], pick: (value: T) => void): void {
@@ -43,16 +57,16 @@ export function bindRadios<T>(entries: [T, HTMLButtonElement][], pick: (value: T
 }
 
 /** Marks the checked radio. */
-export function checkRadio<T>(buttons: Map<T, HTMLButtonElement>, value: T): void {
+export function checkRadio<T>(buttons: Map<T, HTMLButtonElement>, value: T, className = 'mpv-active'): void {
   for (const [v, button] of buttons) {
     const on = v === value;
     button.setAttribute('aria-checked', String(on));
     button.tabIndex = on ? 0 : -1;
-    button.classList.toggle('mpv-active', on);
+    button.classList.toggle(className, on);
   }
 }
 
-/** Buttons of the text bar must not take the keyboard from the text box being edited. */
+/** Buttons of the text tray must not take the keyboard from the text box being edited. */
 export function keepEditorFocus(el: HTMLElement): void {
   el.addEventListener('pointerdown', (e) => {
     if ((e.target as Element | null)?.closest('button')) e.preventDefault();
@@ -76,9 +90,9 @@ export interface WidthRadios {
   setKind(kind: 'stroke' | 'eraser'): void;
 }
 
-/** Stroke width radios (lines of 1, 2 and 4 px); for the eraser, its three sizes. */
+/** Stroke width radios in a well (lines of 1, 2 and 4 px); for the eraser, its three sizes. */
 export function widthRadios(onPick: (width: InkWidth) => void): WidthRadios {
-  const group = h('div', { class: 'mpv-group', role: 'radiogroup', 'aria-label': 'Stroke width' });
+  const group = h('div', { class: 'mpv-seg', role: 'radiogroup', 'aria-label': 'Stroke width' });
   const buttons = new Map<InkWidth, HTMLButtonElement>();
   for (const width of INK_WIDTHS) {
     const button = radio(`${WIDTH_NAMES[width]} stroke`, width, widthIcon(width));
@@ -105,21 +119,28 @@ export function widthRadios(onPick: (width: InkWidth) => void): WidthRadios {
 }
 
 export interface TextStyleControls {
-  size: HTMLSelectElement;
-  /** Bold, italic, underline. */
+  /** The font size: a button that opens the list of sizes. */
+  size: HTMLElement;
+  /** Bold, italic, underline: toggles, so they stand alone. */
   format: HTMLElement;
+  /** The alignment: one of four, so it sits in a well. */
   align: HTMLElement;
   set(style: TextStyle): void;
 }
 
-/** Size menu, bold/italic/underline toggles and the alignment radios of a text box. */
-export function textStyleControls(onChange: (patch: Partial<TextStyle>) => void): TextStyleControls {
-  const size = h('select', { class: 'mpv-select mpv-size-select', title: 'Font size (points)', 'aria-label': 'Font size in points' });
-  const custom = h('option', { value: '', hidden: true });
-  size.append(custom, ...TEXT_SIZES.map((n) => h('option', { value: String(n), text: String(n) })));
-  size.addEventListener('change', () => {
-    const value = Number(size.value);
-    if (Number.isFinite(value) && value > 0) onChange({ size: value });
+/**
+ * Size menu, bold/italic/underline toggles and the alignment radios of a text box.
+ * `keepFocus`: picking a size leaves the keyboard in the text box being typed in.
+ */
+export function textStyleControls(onChange: (patch: Partial<TextStyle>) => void, keepFocus = false): TextStyleControls {
+  const size = new MenuButton<number>({
+    label: 'Font size',
+    className: 'mpv-size-select',
+    options: TEXT_SIZES.map((n) => ({ value: n, label: String(n) })),
+    onPick: (value) => onChange({ size: value }),
+    describe: (label) => `${label} points`,
+    keepFocus,
+    narrow: true,
   });
 
   const toggles: { key: 'bold' | 'italic' | 'underline'; label: string; icon: SVGSVGElement }[] = [
@@ -138,7 +159,7 @@ export function textStyleControls(onChange: (patch: Partial<TextStyle>) => void)
     format.append(button);
   }
 
-  const align = h('div', { class: 'mpv-group', role: 'radiogroup', 'aria-label': 'Alignment' });
+  const align = h('div', { class: 'mpv-seg', role: 'radiogroup', 'aria-label': 'Alignment' });
   const alignButtons = new Map<TextAlign, HTMLButtonElement>();
   for (const a of TEXT_ALIGNS) {
     const button = radio(ALIGN_NAMES[a], a, alignIcon(a));
@@ -148,16 +169,12 @@ export function textStyleControls(onChange: (patch: Partial<TextStyle>) => void)
   bindRadios([...alignButtons], (a) => onChange({ align: a }));
 
   return {
-    size,
+    size: size.element,
     format,
     align,
     set(style) {
       current = style;
-      const listed = (TEXT_SIZES as readonly number[]).includes(style.size);
-      custom.hidden = listed;
-      custom.value = listed ? '' : String(style.size);
-      custom.textContent = listed ? '' : String(style.size);
-      size.value = String(style.size);
+      size.setValue(style.size, String(style.size));
       for (const [key, button] of toggleButtons) {
         button.setAttribute('aria-pressed', String(style[key]));
         button.classList.toggle('mpv-active', style[key]);
@@ -167,24 +184,105 @@ export function textStyleControls(onChange: (patch: Partial<TextStyle>) => void)
   };
 }
 
-/** What a bar is for, at its start: the name of the mode, in words (the bar's own label says it to screen readers). */
-function modeLabel(text: string): HTMLElement {
-  return h('div', { class: 'mpv-group mpv-divided' }, h('span', { class: 'mpv-modebar-label', 'aria-hidden': 'true', text }));
-}
-
-/** A mode bar: its label, its groups with a divider after each but the last, and Done at the right. */
-function modeBar(className: string, label: string, name: HTMLElement, groups: HTMLElement[], done: HTMLButtonElement): HTMLElement {
-  groups.forEach((group, i) => group.classList.toggle('mpv-divided', i < groups.length - 1));
-  const bar = h('div', { class: `mpv-modebar ${className}`, role: 'toolbar', 'aria-label': label, hidden: true }, name, ...groups, h('div', { class: 'mpv-spacer' }), done);
-  // Like the toolbar: when the bar wraps, no divider ends a row.
-  new ResizeObserver(() => hideDividersAtRowEnds(bar)).observe(bar);
-  return bar;
-}
-
-function doneButton(title: string, onClick: () => void): HTMLButtonElement {
-  const button = h('button', { class: 'mpv-done', type: 'button', title, 'aria-label': title }, checkIcon(), h('span', { text: 'Done' }));
+/** Done (or Cancel) of a tray: outlined in the tray's own line. */
+function doneButton(title: string, onClick: () => void, text = 'Done'): HTMLButtonElement {
+  const cancel = text !== 'Done';
+  const button = h(
+    'button',
+    { class: cancel ? 'mpv-btn mpv-done mpv-cancel' : 'mpv-btn mpv-done', type: 'button', title, 'aria-label': title },
+    cancel ? undefined : checkIcon(),
+    h('span', { class: 'mpv-label', text }),
+  );
   button.addEventListener('click', onClick);
   return button;
+}
+
+/** A line that says what the tool does. In a narrow viewer it is cut with "…": the tooltip has all of it. */
+function hint(text: string): HTMLElement {
+  return h('span', { class: 'mpv-hint', title: text, text });
+}
+
+/** A tray: its name in caps, its controls, flexible space, the Esc key and Done. */
+function tray(className: string, label: string, name: string, parts: HTMLElement[], done: HTMLButtonElement): HTMLElement {
+  return h(
+    'div',
+    { class: `mpv-tray ${className}`, role: 'toolbar', 'aria-label': label, hidden: true },
+    h('span', { class: 'mpv-caps mpv-tray-label', 'aria-hidden': 'true', text: name }),
+    ...parts,
+    h('span', { class: 'mpv-grow' }),
+    h('span', { class: 'mpv-kbd', 'aria-hidden': 'true', text: 'Esc' }),
+    done,
+  );
+}
+
+class Tray {
+  constructor(readonly element: HTMLElement) {}
+
+  set visible(visible: boolean) {
+    this.element.hidden = !visible;
+  }
+
+  get visible(): boolean {
+    return !this.element.hidden;
+  }
+}
+
+export interface HighlightTrayActions {
+  setColor(color: HighlightColor): void;
+  done(): void;
+}
+
+/** The tray of the highlight tool: the five colors (the tool stays on when one is picked). */
+export class HighlightTray extends Tray {
+  private readonly swatches = new Map<HighlightColor, HTMLButtonElement>();
+
+  constructor(actions: HighlightTrayActions) {
+    const colors = h('div', { class: 'mpv-group', role: 'radiogroup', 'aria-label': 'Highlight color' });
+    const swatches = new Map<HighlightColor, HTMLButtonElement>();
+    for (const color of HIGHLIGHT_COLORS) {
+      const swatch = swatchButton({
+        role: 'radio',
+        title: `${COLOR_NAMES[color]} highlight`,
+        'aria-label': COLOR_NAMES[color],
+        'aria-checked': 'false',
+        tabindex: -1,
+        'data-color': color,
+      });
+      swatch.style.setProperty('--swatch', HIGHLIGHT_HEX[color]);
+      swatches.set(color, swatch);
+      colors.append(swatch);
+    }
+    bindRadios([...swatches], (color) => actions.setColor(color));
+    super(
+      tray(
+        'mpv-highlight-tray',
+        'Highlight',
+        'Highlight',
+        [colors, h('span', { class: 'mpv-sep' }), hint('Select text to highlight it.')],
+        doneButton('Stop highlighting (Esc)', () => actions.done()),
+      ),
+    );
+    this.swatches = swatches;
+  }
+
+  setColor(color: HighlightColor): void {
+    checkRadio(this.swatches, color, 'mpv-selected');
+  }
+}
+
+/** A tray that only says what to do: the remove tool, and placing the reading marker (which ends with Cancel). */
+export class HintTray extends Tray {
+  constructor(className: string, name: string, text: string, done: { title: string; text?: string; run(): void }) {
+    super(
+      tray(
+        className,
+        name,
+        name,
+        [hint(text)],
+        doneButton(done.title, () => done.run(), done.text),
+      ),
+    );
+  }
 }
 
 export interface DrawingBarActions {
@@ -195,43 +293,41 @@ export interface DrawingBarActions {
   done(): void;
 }
 
-export class DrawingBar {
-  readonly element: HTMLElement;
+export class DrawingBar extends Tray {
   readonly color: ColorButton;
   private readonly tools = new Map<DrawTool, HTMLButtonElement>();
   private readonly widths: WidthRadios;
 
   constructor(actions: DrawingBarActions) {
-    const toolGroup = h('div', { class: 'mpv-group', role: 'radiogroup', 'aria-label': 'Drawing tool' });
+    const toolGroup = h('div', { class: 'mpv-seg', role: 'radiogroup', 'aria-label': 'Drawing tool' });
+    const tools = new Map<DrawTool, HTMLButtonElement>();
     for (const tool of [...DRAWING_TOOLS, 'eraser'] as DrawTool[]) {
       const button = radio(TOOL_TITLES[tool], tool, tool === 'eraser' ? rubberIcon() : toolIcon(tool), { 'data-tool': tool });
-      this.tools.set(tool, button);
+      tools.set(tool, button);
       toolGroup.append(button);
     }
-    bindRadios([...this.tools], (tool) => actions.setTool(tool));
-    this.color = new ColorButton('Ink color', (anchor) => actions.pickColor(anchor));
-    this.widths = widthRadios((width) => actions.setWidth(width));
-    this.element = modeBar(
-      'mpv-drawbar',
-      'Drawing tools',
-      modeLabel('Draw mode'),
-      [toolGroup, h('div', { class: 'mpv-group' }, this.color.element), this.widths.group],
-      doneButton('Stop drawing (Esc)', () => actions.done()),
+    bindRadios([...tools], (tool) => actions.setTool(tool));
+    const color = new ColorButton('Ink color', (anchor) => actions.pickColor(anchor));
+    const widths = widthRadios((width) => actions.setWidth(width));
+    super(
+      tray(
+        'mpv-drawbar',
+        'Drawing tools',
+        'Draw',
+        [toolGroup, color.element, widths.group],
+        doneButton('Stop drawing (Esc)', () => actions.done()),
+      ),
     );
+    this.tools = tools;
+    this.color = color;
+    this.widths = widths;
   }
 
-  set visible(visible: boolean) {
-    this.element.hidden = !visible;
-  }
-
-  get visible(): boolean {
-    return !this.element.hidden;
-  }
-
-  /** Marks the tool. While it is the eraser, the widths are its sizes. */
+  /** Marks the tool. While it is the eraser, the widths are its sizes and the ink button rests: the eraser has no color. */
   setTool(tool: DrawTool): void {
     checkRadio(this.tools, tool);
     this.widths.setKind(tool === 'eraser' ? 'eraser' : 'stroke');
+    this.color.element.disabled = tool === 'eraser';
   }
 
   setColor(color: Ink): void {
@@ -255,30 +351,25 @@ export interface TextBarActions {
   done(): void;
 }
 
-export class TextBar {
-  readonly element: HTMLElement;
+export class TextBar extends Tray {
   readonly color: ColorButton;
   private readonly controls: TextStyleControls;
 
   constructor(actions: TextBarActions) {
-    this.controls = textStyleControls((patch) => actions.setStyle(patch));
-    this.color = new ColorButton('Text color', (anchor) => actions.pickColor(anchor));
-    this.element = modeBar(
-      'mpv-textbar',
-      'Text tools',
-      modeLabel('Text mode'),
-      [h('div', { class: 'mpv-group' }, this.controls.size), this.controls.format, this.controls.align, h('div', { class: 'mpv-group' }, this.color.element)],
-      doneButton('Stop adding text (Esc)', () => actions.done()),
+    const controls = textStyleControls((patch) => actions.setStyle(patch), true);
+    const color = new ColorButton('Text color', (anchor) => actions.pickColor(anchor));
+    super(
+      tray(
+        'mpv-textbar',
+        'Text tools',
+        'Text',
+        [controls.size, controls.format, controls.align, color.element],
+        doneButton('Stop adding text (Esc)', () => actions.done()),
+      ),
     );
+    this.controls = controls;
+    this.color = color;
     keepEditorFocus(this.element);
-  }
-
-  set visible(visible: boolean) {
-    this.element.hidden = !visible;
-  }
-
-  get visible(): boolean {
-    return !this.element.hidden;
   }
 
   /** Shows a style: the text box being edited or selected, or the one new text boxes get. */

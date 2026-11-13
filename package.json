@@ -2,7 +2,7 @@
   "name": "reading-room",
   "displayName": "Reading Room",
   "description": "A quiet place to read and study inside VS Code. Open PDF, Markdown and text files as pages, highlight them, write notes, draw and type on them, keep your place, play rain or a fireplace while you read, and download it all as a PDF.",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "publisher": "local",
   "license": "MIT",
   "repository": {

@@ -13,7 +13,8 @@ import { Banner, DrawingPopover, HighlightPopover, MOD_KEY, MarkerPopover, NoteT
 import { UndoStack, type EditOp, type HighlightChanges } from './undo';
 import { ReadingSounds, canPlaySounds, type SoundSource } from './sounds';
 import { DrawingController, type DrawingMode } from './drawings';
-import { DrawingBar, TOOL_KEYS, TextBar } from './drawingBar';
+import { DrawingBar, HighlightTray, HintTray, TOOL_KEYS, TextBar } from './drawingBar';
+import { menu } from './menu';
 import { ColorPicker } from './colorPicker';
 import { h } from './dom';
 import { getState, log, post, setState } from './vscodeApi';
@@ -47,9 +48,10 @@ interface Config {
   sounds?: SoundSource[];
 }
 
+/** What the first load says before the name of the file is known. */
 const LOADING_MESSAGE: Record<DocumentKind, string> = {
-  markdown: 'Converting Markdown to PDF…',
-  text: 'Converting the text file to PDF…',
+  markdown: 'Opening the Markdown file…',
+  text: 'Opening the text file…',
   pdf: 'Opening the PDF…',
 };
 
@@ -102,8 +104,11 @@ class App {
   private readonly noteTooltip = new NoteTooltip();
   private readonly selectionBar: SelectionBar;
   private readonly drawings: DrawingController;
+  private readonly highlightTray: HighlightTray;
   private readonly drawingBar: DrawingBar;
   private readonly textBar: TextBar;
+  private readonly removeTray: HintTray;
+  private readonly markerTray: HintTray;
   private readonly drawingPopover: DrawingPopover;
   private readonly textPopover: TextPopover;
   private readonly colorPicker = new ColorPicker();
@@ -111,9 +116,8 @@ class App {
   private readonly sounds?: ReadingSounds;
   /** Show how drawing works the first time draw mode turns on (once per VS Code session). */
   private drawHint = false;
-  /** The same for text mode, and for the eraser. */
+  /** The same for text mode. (The remove tool and the marker say what to do in their trays.) */
   private textHint = false;
-  private eraseHint = false;
   /** The style new text boxes get (the last one picked). */
   private textStyle: TextStyle = { ...DEFAULT_TEXT_STYLE };
 
@@ -153,7 +157,6 @@ class App {
       zoomOut: () => this.viewer.zoomOut(),
       setZoom: (z) => this.viewer.applyZoom(z),
       toggleTool: () => this.setTool(!this.toolActive, true),
-      setColor: (c) => this.pickColor(c),
       toggleDrawing: () => this.setMode(this.drawings.active ? 'off' : 'draw'),
       toggleText: () => this.setMode(this.drawings.textActive ? 'off' : 'text'),
       toggleRemove: () => this.setMode(this.drawings.erasing ? 'off' : 'erase'),
@@ -217,7 +220,22 @@ class App {
       },
       removeAllDrawings: () => this.command('deleteAllDrawings'),
       removeAllTextBoxes: () => this.command('deleteAllTextBoxes'),
+      sectionsChanged: (collapsed) => post({ type: 'listSectionsChanged', collapsed }),
       close: () => this.setListOpen(false, true),
+    });
+    // Every tool has a tray, and every tray ends with Done (Cancel while placing the marker).
+    this.highlightTray = new HighlightTray({
+      setColor: (color) => this.pickColor(color),
+      done: () => this.setTool(false, true),
+    });
+    this.removeTray = new HintTray('mpv-remove-tray', 'Remove', 'Click a highlight, drawing or text box to delete it, or drag over several. Undo brings it back.', {
+      title: 'Stop removing (Esc)',
+      run: () => this.setMode('off'),
+    });
+    this.markerTray = new HintTray('mpv-marker-tray', 'Marker', 'Click the line where you stopped reading.', {
+      title: 'Cancel (Esc)',
+      text: 'Cancel',
+      run: () => this.marker.stopPlacing(),
     });
     this.drawingBar = new DrawingBar({
       setTool: (tool) => this.setDrawStyle({ tool }),
@@ -250,7 +268,20 @@ class App {
     const viewerElement = h('div', { id: 'viewer', class: 'pdfViewer' });
     this.container = h('div', { id: 'viewerContainer', class: 'mpv-viewer-container', tabindex: 0 }, viewerElement);
     const main = h('main', { class: 'mpv-main' }, this.sidebar.element, this.container, this.status.element, this.toast.element);
-    root.append(this.toolbar.element, this.drawingBar.element, this.textBar.element, this.progress, this.banner.element, main);
+    root.append(
+      this.toolbar.element,
+      this.highlightTray.element,
+      this.drawingBar.element,
+      this.textBar.element,
+      this.removeTray.element,
+      this.markerTray.element,
+      this.progress,
+      this.banner.element,
+      main,
+    );
+    // The viewer's own width decides what is on the toolbar and what is in its More menu.
+    new ResizeObserver(() => this.toolbar.layout(root.clientWidth)).observe(root);
+    this.toolbar.layout(root.clientWidth);
 
     this.viewer = new Viewer(this.container, viewerElement, config, main, { recordImages: this.kind === 'pdf' });
     this.viewer.onPassword = (incorrect) => this.askPassword(incorrect);
@@ -330,7 +361,7 @@ class App {
       shown: (id) => this.highlights.setSelected(id),
     });
     this.markerPopover = new MarkerPopover({
-      move: () => this.marker.startPlacing(),
+      move: () => this.toggleMarkerPlacement(),
       remove: () => this.removeMarker(),
     });
     new FileLinkLayer(this.viewer, (href) => post({ type: 'openLink', href }));
@@ -384,7 +415,7 @@ class App {
       log('error', `Worker start failed: ${String(err)}`);
       return;
     }
-    this.status.loading(LOADING_MESSAGE[this.kind]);
+    this.status.loading(this.loadingText);
     post({ type: 'ready' });
   }
 
@@ -413,13 +444,12 @@ class App {
         this.anchoring.keepSnapshots = init.keepSnapshots !== false;
         this.anchoring.setStoredPages(init.pages);
         this.setReadOnly(init.readOnly === true);
-        this.toolbar.setColor(init.color);
+        this.showColor(init.color);
         this.toolbar.setFullView(init.fullView);
         this.setTool(init.toolActive, false);
         if (init.drawStyle) this.setDrawStyle(init.drawStyle, false);
         this.drawHint = init.drawHint === true;
         this.textHint = init.textHint === true;
-        this.eraseHint = init.eraseHint === true;
         this.textStyle = { ...DEFAULT_TEXT_STYLE, ...(init.textStyle ?? {}) };
         this.drawings.setTextStyle(this.textStyle);
         this.toolbar.setTextColor(this.textStyle.color);
@@ -428,6 +458,7 @@ class App {
         if (init.customSounds) this.sounds?.setCustomSounds(init.customSounds);
         if (init.sound) this.sounds?.apply(init.sound);
         // In a narrow panel the list would cover the pages; open it only on request there.
+        this.sidebar.setCollapsed(init.collapsedSections ?? []);
         this.setListOpen(init.listOpen && !narrowPanel(), false);
         document.title = init.fileName;
         this.saveState();
@@ -436,7 +467,7 @@ class App {
       }
       case 'rendering':
         if (this.hasDocument) this.progress.hidden = false;
-        else this.status.loading(LOADING_MESSAGE[this.kind]);
+        else this.status.loading(this.loadingText);
         break;
       case 'pdf':
         this.loading = this.loadPdf(msg).catch((err: unknown) => {
@@ -543,6 +574,10 @@ class App {
     }
   }
 
+  private get loadingText(): string {
+    return this.fileName ? `Opening ${this.fileName}…` : LOADING_MESSAGE[this.kind];
+  }
+
   private get errorTitle(): string {
     return this.kind === 'pdf' ? 'The PDF could not be opened' : 'The PDF could not be created';
   }
@@ -620,7 +655,17 @@ class App {
     this.anchoring.commit(prepared);
     // Opening a document (not restoring a panel): continue where the reader stopped.
     if (firstLoad && !this.restoredLocation && this.marker.value && this.marker.goTo()) {
-      this.toast.show(`Continuing where you stopped reading (page ${(this.marker.pageIndex ?? 0) + 1}).`);
+      this.toast.show(`Continuing where you stopped reading (page ${(this.marker.pageIndex ?? 0) + 1}).`, { marker: true });
+    } else if (firstLoad && this.marker.value) {
+      // A restored panel is where it was left: the marker is offered when it is somewhere else.
+      setTimeout(() => {
+        if (!this.marker.value || this.marker.isVisible()) return;
+        this.toast.show(`You stopped on page ${(this.marker.pageIndex ?? this.marker.value.pageIndex) + 1}.`, {
+          marker: true,
+          action: { label: 'Continue', run: () => this.goToMarker() },
+          durationMs: 8000,
+        });
+      }, 600);
     }
   }
 
@@ -681,7 +726,7 @@ class App {
     this.progress.hidden = true;
     const password = await this.status.password(this.fileName || 'This PDF', incorrect);
     if (password === undefined) this.passwordCancelled = true;
-    else this.status.loading(LOADING_MESSAGE[this.kind]);
+    else this.status.loading(this.loadingText);
     return password;
   }
 
@@ -1153,8 +1198,7 @@ class App {
 
   private onPlacingChanged(placing: boolean): void {
     this.toolbar.setMarkerState(this.marker.value !== null, placing);
-    if (placing) this.toast.show('Click the line where you stopped reading. Esc cancels.', { sticky: true });
-    else this.toast.hide();
+    this.syncTrays();
   }
 
   private goToMarker(): void {
@@ -1181,7 +1225,9 @@ class App {
     const marker = this.marker.value;
     if (!marker) return;
     this.noteTooltip.hide();
-    this.markerPopover.show(ReadingMarkerController.describe(marker), x, y);
+    const quote = marker.selector?.[0].exact.replace(/\s+/g, ' ').trim();
+    const line = quote ? (quote.length > 120 ? `${quote.slice(0, 119)}…` : quote) : `Page ${(this.marker.pageIndex ?? marker.pageIndex) + 1}`;
+    this.markerPopover.show(line, ReadingMarkerController.day(marker), x, y);
   }
 
   // ---------- Notes ----------
@@ -1221,6 +1267,7 @@ class App {
     this.toolActive = active;
     document.body.classList.toggle('mpv-tool-active', active);
     this.toolbar.setTool(active);
+    this.syncTrays();
     if (notify) post({ type: 'toolChanged', active });
     if (active && this.highlights.selectionRange()) this.highlights.createFromSelection(this.color);
   }
@@ -1235,15 +1282,11 @@ class App {
       window.getSelection()?.removeAllRanges();
     }
     this.colorPicker.close();
-    const bars = [this.drawingBar.element, this.textBar.element];
+    menu().close();
+    const bars = this.trays.map((tray) => tray.element);
     const barFocused = bars.some((bar) => bar.contains(document.activeElement));
     this.drawings.setMode(mode);
-    // A bar that opens or closes moves the pages down or up: scroll by as much, so they stay where they were on screen.
-    const top = this.container.getBoundingClientRect().top;
-    this.drawingBar.visible = mode === 'draw';
-    this.textBar.visible = mode === 'text';
-    const moved = this.container.getBoundingClientRect().top - top;
-    if (moved !== 0) this.container.scrollTop += moved;
+    this.syncTrays();
     this.toolbar.setDrawing(mode === 'draw');
     this.toolbar.setText(mode === 'text');
     this.toolbar.setRemoving(mode === 'erase');
@@ -1259,11 +1302,30 @@ class App {
       post({ type: 'textHintShown' });
       this.toast.show('Click on the page to type, or drag to set the width first. Esc stops adding text.', { durationMs: 7000 });
     }
-    if (mode === 'erase' && this.eraseHint) {
-      this.eraseHint = false;
-      post({ type: 'eraseHintShown' });
-      this.toast.show('Click a highlight, drawing or text box to delete it, or drag over several. Esc stops removing.', { durationMs: 7000 });
-    }
+  }
+
+  private get trays(): (HighlightTray | DrawingBar | TextBar | HintTray)[] {
+    return [this.highlightTray, this.drawingBar, this.textBar, this.removeTray, this.markerTray];
+  }
+
+  /**
+   * Shows the tray of the tool that is on (or of placing the marker), and no other. A tray that
+   * opens or closes moves the pages down or up by its height (more than one row when it wraps in
+   * a narrow viewer): the pages are scrolled by as much, so they stay where they were on screen.
+   */
+  private syncTrays(): void {
+    // Called while the controllers are still being built.
+    if (!this.drawings || !this.marker) return;
+    const top = this.container.getBoundingClientRect().top;
+    const mode = this.drawings.mode;
+    this.highlightTray.visible = this.toolActive;
+    this.drawingBar.visible = mode === 'draw';
+    this.textBar.visible = mode === 'text';
+    this.removeTray.visible = mode === 'erase';
+    this.markerTray.visible = this.marker.placing;
+    this.toolbar.setTrayOpen(this.trays.some((tray) => tray.visible));
+    const moved = this.container.getBoundingClientRect().top - top;
+    if (moved !== 0) this.container.scrollTop += moved;
   }
 
   /** Changes the drawing tool, ink, width or eraser size (remembered for all files unless `notify` is false). */
@@ -1320,9 +1382,16 @@ class App {
 
   private pickColor(color: HighlightColor, createFromSelection = true): void {
     this.color = color;
-    this.toolbar.setColor(color);
+    this.showColor(color);
     post({ type: 'colorChanged', color });
     if (createFromSelection && this.highlights.selectionRange()) this.highlights.createFromSelection(color);
+  }
+
+  /** The color new highlights get: the band of the highlighter, and the dot that is ringed in the tray and the selection bar. */
+  private showColor(color: HighlightColor): void {
+    this.toolbar.setColor(color);
+    this.highlightTray.setColor(color);
+    this.selectionBar.setColor(color);
   }
 
   private setListOpen(open: boolean, notify: boolean): void {
@@ -1377,6 +1446,9 @@ class App {
     // A picker opened from a bar stays (the bar does not move); one opened from a popover goes with it.
     const from = this.colorPicker.openedFrom;
     if (from && (!passive || !(this.drawingBar.element.contains(from) || this.textBar.element.contains(from)))) this.colorPicker.close();
+    // The same for a menu: one opened from a popover goes with it.
+    const opener = menu().openedFrom;
+    if (opener && (!passive || this.drawingPopover.element.contains(opener) || this.textPopover.element.contains(opener))) menu().close();
     if (!passive && this.drawings.selectedId && !this.drawings.editing) this.drawings.select(undefined);
   }
 
@@ -1470,6 +1542,8 @@ class App {
     });
     document.addEventListener('pointerdown', (e) => {
       const target = e.target as Node;
+      // A menu belongs to what it was opened from (a popover, the text tray): a press in it is a press there.
+      if (menu().contains(target)) return;
       if (!this.popover.element.contains(target)) this.popover.hide();
       if (!this.selectionBar.element.contains(target)) this.selectionBar.hide();
       if (!this.markerPopover.element.contains(target)) this.markerPopover.hide();
@@ -1522,13 +1596,26 @@ class App {
       // Esc cancels a shape being drawn (or a move); else it leaves draw or text mode; else it
       // closes things. (Esc in a text box ends typing there; in the color picker it closes it.)
       if (this.drawings.cancelGesture()) return;
+      // Esc backs out of one thing at a time: a popover first (a menu and the color picker take
+      // the key themselves), then the tool that is on.
+      if (this.popover.visible || this.selectionBar.visible || this.markerPopover.visible || this.drawingPopover.visible || this.textPopover.visible) {
+        this.hideFloating();
+        return;
+      }
       if (this.drawings.mode !== 'off') {
         this.setMode('off');
         return;
       }
-      if (this.marker.placing) this.marker.stopPlacing();
+      if (this.marker.placing) {
+        this.marker.stopPlacing();
+        return;
+      }
+      if (this.toolActive) {
+        this.setTool(false, true);
+        return;
+      }
       this.hideFloating();
-      if (this.toolbar.element.contains(document.activeElement)) this.container.focus();
+      if (this.toolbar.hasFocus()) this.container.focus();
     });
     // Tool keys while drawing. Delete and Backspace delete what is selected, whatever it is: the
     // selected drawing or text box, the highlight whose popover is open, the reading marker whose

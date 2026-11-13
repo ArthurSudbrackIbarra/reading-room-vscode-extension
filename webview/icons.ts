@@ -53,9 +53,14 @@ export function drawIcon(): SVGSVGElement {
   );
 }
 
-/** The Text toggle: a "T" above the band (in the current text color). */
+/** The Text toggle: a small A and a big A, above the band (in the current text color). */
 export function textIcon(): SVGSVGElement {
-  return icon16([['path', { ...STROKE, 'stroke-width': '1.5', d: 'M3.3 2.2h9.4M8 2.2v9.1' }], BAND], 'mpv-band-icon');
+  return icon16([['path', { ...STROKE, d: 'M7.2 11.3 10.9 1.6l3.7 9.7M8.4 8.1h5M1.2 11.3 3.4 6l2.2 5.3M2 9.5h2.8' }], BAND], 'mpv-band-icon');
+}
+
+/** A text box in the list: one "A", in the color of its text. */
+export function letterIcon(): SVGSVGElement {
+  return icon16([['path', { ...STROKE, 'stroke-width': '1.5', d: 'M3.6 13 8 2.6 12.4 13M5.3 9.2h5.4' }]]);
 }
 
 const TOOL_ICONS: Record<DrawingTool, SvgPart[]> = {
@@ -70,11 +75,14 @@ export function toolIcon(tool: DrawingTool): SVGSVGElement {
   return icon16(TOOL_ICONS[tool]);
 }
 
-/** The remove tool of the toolbar (a click deletes a whole highlight, drawing or text box): a pointer with an ×. */
+/**
+ * The remove tool of the toolbar (a click deletes a whole highlight, drawing or text box): a wand
+ * facing left with an × below it. The × is a little heavier, so it reads at this size.
+ */
 export function removeIcon(): SVGSVGElement {
   return icon16([
-    ['path', { ...STROKE, d: 'M2.3 1.6v9.6l2.6-2.4 1.9 4.1 1.7-.8-1.9-4h3.5Z' }],
-    ['path', { ...STROKE, 'stroke-width': '1.5', d: 'M10.9 10.9l3.4 3.4M14.3 10.9l-3.4 3.4' }],
+    ['path', { ...STROKE, d: 'M5.6 2.3 14.4 11.1l-2.1 2.1L3.5 4.4ZM7.2 3.9 5.1 6' }],
+    ['path', { ...STROKE, 'stroke-width': '1.6', d: 'M1.2 9.6l4.4 4.4M5.6 9.6l-4.4 4.4' }],
   ]);
 }
 
@@ -124,9 +132,27 @@ export function alignIcon(align: TextAlign): SVGSVGElement {
   return icon16([['path', { ...STROKE, d: ALIGN_LINES[align] }]]);
 }
 
-/** A small chevron for buttons that open a menu or a picker. */
+/** The chevron of everything that opens a menu or a picker: 8 px wide, in a box as tall as an icon. */
 export function chevronIcon(): SVGSVGElement {
-  return svg('0 0 10 10', 10, [['path', { ...STROKE, 'stroke-width': '1.2', d: 'M2.6 3.8 5 6.2l2.4-2.4' }]], 'mpv-chevron');
+  const el = svg('0 0 8 16', 16, [['path', { ...STROKE, d: 'M1 6.5l3 3 3-3' }]], 'mpv-chevron');
+  el.setAttribute('width', '8');
+  return el;
+}
+
+/** The mark of Reading Room: an open book in outline, with the red ribbon. */
+export function bookIcon(size = 16): SVGSVGElement {
+  return svg(
+    '0 0 16 16',
+    size,
+    [
+      [
+        'path',
+        { ...STROKE, 'stroke-width': size > 24 ? '1' : '1.3', d: 'M8 4.3C6.3 3.2 4.2 3 2 3.5v8.8c2.2-.5 4.3-.3 6 .8 1.7-1.1 3.8-1.3 6-.8V3.5c-2.2-.5-4.3-.3-6 .8Zm0 0v8.8' },
+      ],
+      ['path', { class: 'mpv-book-ribbon', d: 'M10 2.2h2.6v6.2l-1.3-1.2L10 8.4Z' }],
+    ],
+    'mpv-book',
+  );
 }
 
 export function checkIcon(): SVGSVGElement {
