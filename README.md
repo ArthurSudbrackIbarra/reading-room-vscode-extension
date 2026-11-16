@@ -17,7 +17,7 @@
 - **Highlight** text in five colors and write a **note** on any highlight.
 - **Draw** anywhere on a page: pen strokes, lines, arrows, rectangles and ellipses, in any color and three widths.
 - **Type** anywhere on a page: text boxes in any color and size, with bold, italic and underline on any part of the text.
-- **Select** several annotations at once, with a click or a rectangle, to move, copy, paste or delete them together.
+- **Select** several drawings and text boxes at once, with a click or a rectangle, to move, copy, paste or delete them together. Your highlights are left out, so they are never deleted by accident.
 - **Take things back**: an undo button and `Ctrl+Z` that still work after you closed VS Code, and an eraser that rubs out part of a drawing.
 - **Your annotations stay on their content** when the file changes. They follow the words (or the picture) they are on through your edits. If that content is deleted they are kept and listed, and they return when it does.
 - A side list shows every highlight, note, drawing and text box. Search it, filter it by color, click an entry to jump to it.
@@ -90,7 +90,7 @@ One row, in three groups: finding your place on the left, the tools in the middl
 | ☰ | Show or hide the list of annotations: the reading position, highlights with their notes, drawings and text boxes |
 | ↑ n / N ↓ | Previous and next page; type a number and press **Enter** to go to a page |
 | − zoom ▾ + | Zoom out, choose a zoom (Fit width, Fit page, Actual size, 50 %–400 %), zoom in |
-| Pointer | **Select tool**: click an annotation, or drag a rectangle around several, then move, copy, paste or delete them together (see [Selecting, copying and pasting](#selecting-copying-and-pasting)) |
+| Pointer | **Select tool**: click a drawing or a text box, or drag a rectangle around several, then move, copy, paste or delete them together (see [Selecting, copying and pasting](#selecting-copying-and-pasting)) |
 | Highlighter | **Highlight tool**: while it is on, every text selection becomes a highlight. The band under the icon shows the current color |
 | Pencil | **Draw tool**: pen, lines, arrows, rectangles, ellipses and an eraser (see [Drawing](#drawing)). The band shows the current ink |
 | AA | **Text tool**: type anywhere on a page (see [Text boxes](#text-boxes)). The band shows the color new text gets |
@@ -162,14 +162,15 @@ Click the pointer in the toolbar to turn the **select tool** on. Its tray has th
 
 <img src="docs/select-bar.png" alt="The toolbar with the select tool on: the pointer is tinted and outlined. Under it, its tray: the words SELECT MODE, the buttons Select all, Copy, Paste and Delete, the text 4 selected, the Esc key and a Done button on the right" width="870">
 
-- **Click** a highlight, a drawing or a text box to select it. **Drag** from anywhere else to open a rectangle: everything it touches is selected.
-- **Ctrl+click** adds one more to the selection, or takes it out. **Shift+click** selects everything between the last one you clicked and this one, in any direction: to the left or the right, upwards or downwards. (Across pages, it follows the reading order.) Hold `Ctrl` or `Shift` while you drag a rectangle to add what it touches. `Ctrl+A`, or **Select all**, takes everything.
-- **Drag** one of the selected drawings or text boxes and they all move together. You do not have to aim at a line or a letter: anywhere inside the dashed box of a selected drawing will do. Each stays on its own page. Highlights stay on their text.
+- **Click** a drawing or a text box to select it. **Drag** from anywhere else to open a rectangle: every drawing and text box it touches is selected.
+- **Highlights are left out.** The select tool does not take them, by a click, a rectangle or **Select all**, so deleting what you selected never deletes a highlight with it. To select a highlight, click it with no tool on.
+- **Ctrl+click** adds one more to the selection, or takes it out. **Shift+click** selects everything between the last one you clicked and this one, in any direction: to the left or the right, upwards or downwards. (Across pages, it follows the reading order.) Hold `Ctrl` or `Shift` while you drag a rectangle to add what it touches. `Ctrl+A`, or **Select all**, takes every drawing and text box.
+- **Drag** one of the selected drawings or text boxes and they all move together. You do not have to aim at a line or a letter: anywhere inside the dashed box of a selected drawing will do. Each stays on its own page.
 - **Delete** (the key or the button) deletes everything that is selected. One undo brings it all back.
 - **Copy** (`Ctrl+C`), **cut** (`Ctrl+X`) and **paste** (`Ctrl+V`) work on drawings and text boxes. They are pasted on the page in view, at the place they had on their own page. On the page of the original, the copy lands a little down and to the right, so it does not cover it. What is pasted is selected, ready to be dragged where it belongs. Highlights belong to their text, so they cannot be pasted: copying them copies their text.
 - **Esc** lets go of the selection. **Esc** again, **Done** or the pointer turns the tool off.
 
-**With no tool on**, the same works on what you click. Click a drawing, a text box or a highlight to select it, `Ctrl+click` others to add them, drag them by their dashed box, then use `Delete`, `Ctrl+C`, `Ctrl+X` and `Ctrl+V`. The bar of a drawing and of a text box has a **Copy** button too.
+**With no tool on**, the same works on what you click, and this is where highlights can be selected. Click a drawing, a text box or a highlight to select it, `Ctrl+click` others to add them (a highlight joins only when you click it yourself; `Shift+click` takes the drawings and text boxes in between, not the highlights), drag them by their dashed box, then use `Delete`, `Ctrl+C`, `Ctrl+X` and `Ctrl+V`. The bar of a drawing and of a text box has a **Copy** button too.
 
 ## Deleting and undoing
 
@@ -250,7 +251,7 @@ The **◐** button in the toolbar switches all pages to a dark theme, and back. 
 | `Ctrl+C`, `Ctrl+X` | Copy or cut what is selected (highlights: their text) | Something is selected |
 | `Ctrl+V` | Paste copied drawings and text boxes on the page in view | Reading Room is focused |
 | `Ctrl+click`, `Shift+click` | Add to the selection or take out of it; select a range | Over an annotation |
-| `Ctrl+A` | Select every highlight, drawing and text box | The select tool is on |
+| `Ctrl+A` | Select every drawing and text box | The select tool is on |
 | `Enter` | Edit what is selected: type in the text box, write the highlight's note | A text box or a highlight is selected |
 | `Ctrl+Enter` | Save the note; stop typing in a text box | Writing a note or typing in a text box |
 | `Esc` | Back out of one thing at a time: what is in progress, an open menu or popup, the selected entry of the list, what the select tool selected, the tool that is on | Reading Room is focused |
