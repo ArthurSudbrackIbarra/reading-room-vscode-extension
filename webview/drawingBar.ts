@@ -6,6 +6,7 @@
 //   DRAW MODE  [pen line arrow rect ellipse eraser] [● ▾] [─ ━ ▬]               [Esc] [✓ Done]
 //   TEXT MODE  [12 ▾] [B] [I] [U] [≡ ≡ ≡ ≡] [● ▾]                               [Esc] [✓ Done]
 //   SELECT MODE  [Select all] [Copy] [Paste] [Delete] │ Drag to select several… [Esc] [✓ Done]
+//   TRANSLATE MODE  [Detect language v] > [English v] | Select text to translate it.  [Esc] [Done]
 //   MARKER MODE  Click the line where you stopped reading.                      [Esc] [Cancel]
 // Every tool and option stands in its own square, in groups: the drawing tools, the widths, the
 // toggles (bold, italic, underline), the alignment. With the eraser picked, the three widths are
@@ -18,6 +19,7 @@ import { ColorButton } from './colorPicker';
 import { MOD_KEY, h, icon, labelButton, swatchButton } from './dom';
 import { alignIcon, boldIcon, checkIcon, italicIcon, rubberIcon, sizeIcon, toolIcon, underlineIcon, widthIcon } from './icons';
 import { MenuButton } from './menu';
+import { LanguagePicker, type LanguageActions } from './translate';
 
 export const TOOL_TITLES: Record<DrawTool, string> = {
   pen: 'Pen (P)',
@@ -287,6 +289,25 @@ export class HintTray extends Tray {
         doneButton(done.title, () => done.run(), done.text),
       ),
     );
+  }
+}
+
+/** The tray of the translate tool: the language of the text (told from the text unless one is picked) and the language it is translated into. */
+export class TranslateTray extends Tray {
+  readonly picker: LanguagePicker;
+
+  constructor(actions: LanguageActions & { done(): void }) {
+    const picker = new LanguagePicker(actions);
+    super(
+      tray(
+        'mpv-translate-tray',
+        'Translate mode',
+        'Translate mode',
+        [picker.element, h('span', { class: 'mpv-sep' }), hint('Select text to translate it.')],
+        doneButton('Stop translating (Esc)', () => actions.done()),
+      ),
+    );
+    this.picker = picker;
   }
 }
 

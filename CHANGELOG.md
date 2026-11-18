@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **A translate tool**, 文A in the toolbar, next to the text tool. Select text and read it in another language, between about sixty languages.
+  - **Nothing you read leaves your computer.** The translating is done by a translator that runs inside VS Code, with the language models Mozilla trains for Firefox. It works without a connection once a language is on your computer.
+  - With the tool on, every selection is translated as soon as you let go. With no tool on, **文A** is at the end of the bar next to a selection, and in the popover of a highlight.
+  - The translation opens next to the text, with the language that was found (_Japanese (detected)_) and the language it is translated into. Pick another in either menu and it is translated again. **Copy** copies it; **Save as note** highlights the text and keeps the translation as its note.
+  - **Language packs** are downloaded when you first need them, after asking: 11 to 38 MB each, from Mozilla's storage into VS Code's storage for the extension. Between two languages that are not English, Reading Room translates by way of English, with two packs.
+  - **Reading Room: Manage Translation Languages…** lists the packs on your computer, removes one, and downloads the packs of a language ahead of time. The setting `readingRoom.translationDownload` set to `never` forbids downloads.
+  - **Reading Room: Toggle Translate Mode** turns the tool on and off (give it a shortcut in **Preferences: Open Keyboard Shortcuts**).
+  - The translator takes several hundred megabytes of memory while it is used, and gives them back a minute after the last translation.
+
 ## 0.13.0 — 2026-11-13
 
 - **Your annotations survive an uninstall.** VS Code deletes an extension's storage when the extension is uninstalled, and with it everything you highlighted, wrote and drew. Reading Room now keeps a second copy of your annotations in a folder of its own, outside VS Code (`%APPDATA%\Reading Room\backup` on Windows, `~/Library/Application Support/Reading Room/backup` on macOS, `~/.local/share/reading-room/backup` on Linux).

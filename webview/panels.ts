@@ -9,7 +9,7 @@ import { ColorButton } from './colorPicker';
 import { h, icon, iconButton, labelButton, MOD_KEY, placeFloating, swatchButton } from './dom';
 import { COLOR_NAMES, textStyleControls, widthRadios, type TextStyleControls, type WidthRadios } from './drawingBar';
 import { setInk } from './drawings';
-import { bookIcon, highlighterIcon, letterIcon } from './icons';
+import { bookIcon, highlighterIcon, letterIcon, translateIcon } from './icons';
 import { MenuButton } from './menu';
 
 export { MOD_KEY };
@@ -656,6 +656,8 @@ export interface PopoverActions {
   remove(id: string): void;
   copy(id: string): void;
   saveNote(id: string, note: string): void;
+  /** Translate the highlighted text (the translation opens where this popover was). */
+  translate(id: string, x: number, y: number): void;
   /** The popover of this highlight closed. */
   hidden(id: string): void;
 }
@@ -671,6 +673,7 @@ export class HighlightPopover {
   private anchor: [number, number] = [0, 0];
   private readonly swatches: Map<HighlightColor, HTMLButtonElement>;
   private readonly noteButton = iconButton('comment', 'Add a note');
+  private readonly translateButton = h('button', { class: 'mpv-btn', type: 'button', title: 'Translate this text', 'aria-label': 'Translate this text' }, translateIcon());
   private readonly noteText = h('span', { class: 'mpv-note-text' });
   private readonly noteView = h('button', { class: 'mpv-note mpv-note-view', type: 'button', title: 'Edit the note', hidden: true }, icon('comment'), this.noteText);
   private readonly textarea = h('textarea', {
@@ -697,13 +700,19 @@ export class HighlightPopover {
       if (this.currentId) actions.copy(this.currentId);
       this.hide();
     });
+    this.translateButton.addEventListener('click', () => {
+      const id = this.currentId;
+      const [x, y] = this.anchor;
+      this.hide();
+      if (id) actions.translate(id, x, y);
+    });
     const remove = iconButton('trash', 'Delete highlight', { class: 'mpv-btn mpv-btn-danger' });
     remove.addEventListener('click', () => {
       const id = this.currentId;
       this.hide(false);
       if (id) actions.remove(id);
     });
-    const row = h('div', { class: 'mpv-popover-row' }, ...this.swatches.values(), sep(), this.noteButton, copy, sep(), remove);
+    const row = h('div', { class: 'mpv-popover-row' }, ...this.swatches.values(), sep(), this.noteButton, copy, this.translateButton, sep(), remove);
     this.noteView.addEventListener('click', () => this.startEditing());
 
     const save = filledButton('Save', true);
@@ -761,6 +770,11 @@ export class HighlightPopover {
 
   get highlightId(): string | undefined {
     return this.currentId;
+  }
+
+  /** Translating is offered when this build can translate. */
+  setTranslateAvailable(available: boolean): void {
+    this.translateButton.hidden = !available;
   }
 
   private startEditing(): void {
@@ -1088,7 +1102,10 @@ export class SelectionBar {
   readonly element: HTMLElement;
   private readonly swatches: Map<HighlightColor, HTMLButtonElement>;
 
-  constructor(actions: { pick(color: HighlightColor): void; note(): void; marker(): void }) {
+  private readonly translateButton = h('button', { class: 'mpv-btn', type: 'button', title: 'Translate', 'aria-label': 'Translate' }, translateIcon());
+  private readonly translateSep = sep();
+
+  constructor(actions: { pick(color: HighlightColor): void; note(): void; marker(): void; translate(): void }) {
     this.swatches = highlightSwatches(
       (name) => `Highlight in ${name.toLowerCase()}`,
       (color) => actions.pick(color),
@@ -1096,10 +1113,21 @@ export class SelectionBar {
     const note = iconButton('comment', 'Highlight and add a note');
     const marker = iconButton('bookmark', 'Mark this as where I stopped reading');
     // The selection stays while a button is pressed.
-    for (const button of [...this.swatches.values(), note, marker]) button.addEventListener('pointerdown', (e) => e.preventDefault());
+    for (const button of [...this.swatches.values(), note, marker, this.translateButton]) button.addEventListener('pointerdown', (e) => e.preventDefault());
     note.addEventListener('click', () => actions.note());
     marker.addEventListener('click', () => actions.marker());
-    const row = h('div', { class: 'mpv-popover-row' }, h('span', { class: 'mpv-popover-label mpv-label', text: 'Highlight' }), ...this.swatches.values(), sep(), note, marker);
+    this.translateButton.addEventListener('click', () => actions.translate());
+    const row = h(
+      'div',
+      { class: 'mpv-popover-row' },
+      h('span', { class: 'mpv-popover-label mpv-label', text: 'Highlight' }),
+      ...this.swatches.values(),
+      sep(),
+      note,
+      marker,
+      this.translateSep,
+      this.translateButton,
+    );
     this.element = h('div', { class: 'mpv-popover mpv-selection-bar', hidden: true }, row);
     document.body.append(this.element);
   }
@@ -1107,6 +1135,12 @@ export class SelectionBar {
   /** The color a new highlight gets is ringed. */
   setColor(color: HighlightColor): void {
     markSwatch(this.swatches, color);
+  }
+
+  /** Translating is offered when this build can translate. */
+  setTranslateAvailable(available: boolean): void {
+    this.translateButton.hidden = !available;
+    this.translateSep.hidden = !available;
   }
 
   show(x: number, y: number): void {

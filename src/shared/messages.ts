@@ -5,6 +5,7 @@ import type { HexColor, Ink } from './colors';
 import type { DrawTool, Drawing, InkWidth, TextLayout, TextStyle } from './drawings';
 import type { HistoryChange, StoredHistory } from './history';
 import type { CustomSound, SoundRequest, SoundState } from './sounds';
+import type { TranslateLanguage, TranslateRequest, TranslationUpdate } from './translate';
 import type { DocumentKind, Highlight, HighlightColor, PageRects, PageTheme, ReadingMarker, ZoomValue } from './types';
 import type { ListSection } from './ui';
 
@@ -49,6 +50,8 @@ export interface ViewerInit {
   pages?: string[];
   /** What was done and undone here before (it is stored with the annotations), so undo goes on where it stopped. */
   history?: StoredHistory;
+  /** The translate tool: the languages there are packs for, and the one translations are into (the last one picked, shared by all files). */
+  translate?: { languages: TranslateLanguage[]; to: string };
 }
 
 export interface DrawStyle {
@@ -95,6 +98,9 @@ export type HostToViewer =
   | { type: 'toggleDrawing' }
   | { type: 'toggleText' }
   | { type: 'toggleSelect' }
+  | { type: 'toggleTranslate' }
+  /** How the translation a viewer asked for is going, and its result. */
+  | { type: 'translation'; requestId: number; update: TranslationUpdate }
   | { type: 'fullView'; full: boolean }
   | { type: 'theme'; theme: PageTheme }
   | { type: 'document'; fileName: string; uri: string }
@@ -193,6 +199,12 @@ export type ViewerToHost =
       error?: string;
     }
   | { type: 'copyText'; text: string }
+  /** Translate a text (the answer comes as `translation` messages with the same id). */
+  | ({ type: 'translate' } & TranslateRequest)
+  /** The viewer does not wait for its translation any more. */
+  | { type: 'cancelTranslation' }
+  /** The language translations are into was picked (remembered for all files). */
+  | { type: 'translateTargetChanged'; to: string }
   | ({ type: 'sound' } & SoundRequest)
   | { type: 'log'; level: 'info' | 'warn' | 'error'; message: string };
 

@@ -882,12 +882,16 @@ body[data-size='mini'] .mpv-highlight-tray .mpv-sep,
 body[data-size='narrow'] .mpv-highlight-tray .mpv-sep,
 body[data-size='mini'] .mpv-select-tray .mpv-hint,
 body[data-size='mini'] .mpv-select-tray .mpv-sep,
-body[data-size='narrow'] .mpv-select-tray .mpv-sep {
+body[data-size='narrow'] .mpv-select-tray .mpv-sep,
+body[data-size='mini'] .mpv-translate-tray .mpv-hint,
+body[data-size='mini'] .mpv-translate-tray .mpv-sep,
+body[data-size='narrow'] .mpv-translate-tray .mpv-sep {
   display: none;
 }
 
 body[data-size='mini'] .mpv-highlight-tray .mpv-hint + .mpv-grow,
-body[data-size='mini'] .mpv-select-tray .mpv-hint + .mpv-grow {
+body[data-size='mini'] .mpv-select-tray .mpv-hint + .mpv-grow,
+body[data-size='mini'] .mpv-translate-tray .mpv-hint + .mpv-grow {
   display: block;
 }
 
@@ -2944,6 +2948,110 @@ body.mpv-text-mode .pdfViewer .page {
 /* While dragging out a new text box. */
 .mpv-text-new {
   stroke-dasharray: 4 3;
+}
+
+/* ---------- Translate ---------- */
+
+/* The language of the text, an arrow, the language it is translated into. */
+.mpv-language-picker {
+  flex: 0 1 auto;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* A long name ("Chinese (Traditional)", "Japanese (detected)") is cut with "…" before the row breaks. */
+.mpv-language-select {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 184px;
+}
+
+/* (Cut at the right edge only: the label's line is trimmed to its letters, which reach beyond it below.) */
+.mpv-language-select .mpv-label {
+  overflow: clip;
+  overflow-clip-margin: 6px;
+  text-overflow: ellipsis;
+}
+
+.mpv-language-arrow {
+  flex: 0 0 auto;
+  color: var(--mpv-fg-2);
+}
+
+/* The result: wider than the other popovers (it holds sentences), and never taller than half the
+   viewer: a long translation scrolls inside it. */
+.mpv-translation {
+  width: min(420px, calc(100vw - 8px));
+  max-width: none;
+}
+
+.mpv-translation-head {
+  gap: 4px;
+}
+
+.mpv-translation-status,
+.mpv-translation-problem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px 4px;
+  color: var(--mpv-fg-2);
+  font-size: var(--mpv-fs-2);
+}
+
+.mpv-spinner.mpv-spinner-sm {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+.mpv-translation-problem {
+  align-items: flex-start;
+  color: var(--mpv-fg);
+  font-size: var(--mpv-fs);
+}
+
+.mpv-translation-problem .codicon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--mpv-fg-2);
+}
+
+.mpv-translation-problem-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* (The link is as tall as a line of the message next to it.) */
+.mpv-translation-problem .mpv-link {
+  height: auto;
+  white-space: nowrap;
+}
+
+.mpv-translation-text {
+  max-height: min(50vh, 320px);
+  padding: 2px 6px 4px;
+  overflow-y: auto;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: text;
+  user-select: text;
+}
+
+/* What is translated so far, while the rest is still being translated. */
+.mpv-translation-text.mpv-translation-partial {
+  color: var(--mpv-fg-2);
+}
+
+.mpv-translation-footer {
+  padding-left: 6px;
+}
+
+.mpv-translation-footnote {
+  font-size: var(--mpv-fs-3);
 }
 
 /* ---------- Motion ---------- */

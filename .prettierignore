@@ -5,6 +5,8 @@ coverage/
 .vscode-test/
 *.vsix
 package-lock.json
+# Made by `npm run translation-models`
+src/translate/models.json
 
 # Not code: sounds, pictures, and documents whose exact text matters (test fixtures, prompts)
 media/
