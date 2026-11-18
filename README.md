@@ -92,10 +92,10 @@ One row, in three groups: finding your place on the left, the tools in the middl
 | ☰ | Show or hide the list of annotations: the reading position, highlights with their notes, drawings and text boxes |
 | ↑ n / N ↓ | Previous and next page; type a number and press **Enter** to go to a page |
 | − zoom ▾ + | Zoom out, choose a zoom (Fit width, Fit page, Actual size, 50 %–400 %), zoom in |
-| Pointer | **Select tool**: click a drawing or a text box, or drag a rectangle around several, then move, copy, paste or delete them together (see [Selecting, copying and pasting](#selecting-copying-and-pasting)) |
+| Frame and pointer | **Select tool**: click a drawing or a text box, or drag a rectangle around several, then move, copy, paste or delete them together (see [Selecting, copying and pasting](#selecting-copying-and-pasting)) |
 | Highlighter | **Highlight tool**: while it is on, every text selection becomes a highlight. The band under the icon shows the current color |
 | Pencil | **Draw tool**: pen, lines, arrows, rectangles, ellipses and an eraser (see [Drawing](#drawing)). The band shows the current ink |
-| AA | **Text tool**: type anywhere on a page (see [Text boxes](#text-boxes)). The band shows the color new text gets |
+| Aa | **Text tool**: type anywhere on a page (see [Text boxes](#text-boxes)). The band shows the color new text gets |
 | 文A | **Translate tool**: while it is on, every text selection is translated (see [Translating](#translating)) |
 | 🔖 ▾ | **Reading marker**: click, then click the line where you stopped. The menu also has _Go to_ and _Remove_ |
 | ↶ | **Undo** the last change. Its tooltip says what it will take back |
@@ -148,7 +148,7 @@ Circle a figure, underline a line, point at something with an arrow, scribble in
 
 Click the pencil in the toolbar. Its tray opens, and every drag on a page draws:
 
-<img src="docs/drawing-bar.png" alt="The toolbar with the draw tool on: the pencil is tinted and outlined. Under it, its tray: the words DRAW MODE, the tools (pen, line, arrow, rectangle, ellipse, eraser) in one frame with the pen picked, the ink color, three widths in one frame, the Esc key and a Done button on the right" width="870">
+<img src="docs/drawing-bar.png" alt="The toolbar with the draw tool on: the pencil is tinted and outlined. Under it, its tray: the words DRAW MODE, the tools (pen, line, arrow, rectangle, ellipse, eraser) as six squares with the pen picked, the ink color, three widths with the middle one picked, the Esc key and a Done button on the right" width="870">
 
 | Tool | Key | Draws | With Shift |
 | --- | --- | --- | --- |
@@ -164,7 +164,7 @@ Click the pencil in the toolbar. Its tray opens, and every drag on a page draws:
 - **Eraser**: a ring follows the pointer and shows exactly what will be rubbed out, also while you drag. With the eraser picked, the three widths become its three **sizes** (small, medium, large), the ring grows with them, and the ink button rests: the eraser has no color. Drag across a line to cut it in two, along it to shorten it.
 - **Stop drawing** with **Esc**, **Done** or the pencil. Esc while dragging cancels only that shape.
 
-<img src="docs/color-picker.png" alt="The color picker: twelve colors in two rows of six, red picked; below, a saturation and brightness square, a rainbow hue slider and the hex code #D1242F" width="214">
+<img src="docs/color-picker.png" alt="The color picker: twelve colors in two rows of six, red picked; below, a saturation and brightness square, a rainbow hue slider, the hex code #D1242F and an eyedropper button" width="214">
 
 **Change a drawing** (with the draw tool off): click its line. It gets a dashed outline and a small bar to pick another ink or width, to choose what it follows, or to delete it. Drag a selected drawing to move it.
 
@@ -172,7 +172,7 @@ Click the pencil in the toolbar. Its tray opens, and every drag on a page draws:
 
 Write a word in the margin, label an arrow, add a correction. Click **AA** in the toolbar. Its tray opens:
 
-<img src="docs/text-bar.png" alt="The toolbar with the text tool on: the AA button is tinted and outlined. Under it, its tray: the words TEXT MODE, the font size, bold, italic and underline, the four alignments in one frame with left picked, the text color, the Esc key and a Done button on the right" width="870">
+<img src="docs/text-bar.png" alt="The toolbar with the text tool on: the Aa button is tinted and outlined. Under it, its tray: the words TEXT MODE, the font size, bold, italic and underline, the four alignments with left picked, the text color, the Esc key and a Done button on the right" width="870">
 
 - **Click** on a page and type. The box grows as you type; **Enter** starts a new line.
 - **Drag** across a page instead to choose the box's width first: the text wraps inside it.
@@ -184,9 +184,9 @@ Write a word in the margin, label an arrow, add a correction. Click **AA** in th
 
 ## Selecting, copying and pasting
 
-Click the pointer in the toolbar to turn the **select tool** on. Its tray has the actions and says how many things are selected:
+Click the select tool in the toolbar (a dashed frame with a pointer) to turn it on. Its tray has the actions and says how many things are selected:
 
-<img src="docs/select-bar.png" alt="The toolbar with the select tool on: the pointer is tinted and outlined. Under it, its tray: the words SELECT MODE, the buttons Select all, Copy, Paste and Delete, the text 4 selected, the Esc key and a Done button on the right" width="870">
+<img src="docs/select-bar.png" alt="The toolbar with the select tool on: its button, a dashed frame with a pointer, is tinted and outlined. Under it, its tray: the words SELECT MODE, the buttons Select all, Copy, Paste and Delete, the text 4 selected, the Esc key and a Done button on the right" width="870">
 
 - **Click** a drawing or a text box to select it. **Drag** from anywhere else to open a rectangle: every drawing and text box it touches is selected.
 - **Highlights are left out.** The select tool does not take them, by a click, a rectangle or **Select all**, so deleting what you selected never deletes a highlight with it. To select a highlight, click it with no tool on.

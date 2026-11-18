@@ -45,10 +45,13 @@ export function highlighterIcon(): SVGSVGElement {
   );
 }
 
-/** The Draw toggle: a pencil at 45°, above the band (in the current ink). */
+/**
+ * The Draw toggle: a pencil at 45°, above the band (in the current ink). Its tip ends as far above
+ * the band as the highlighter's does: the three icons with a band keep the same clear space over it.
+ */
 export function drawIcon(): SVGSVGElement {
   return icon16(
-    [['path', { ...STROKE, d: 'M11.1.9 13.7 3.5 6.4 10.8 2.6 11.9 3.7 8.1Z' }], ['path', { ...STROKE, d: 'M9.5 2.5 12.1 5.1M3.7 8.1 6.4 10.8' }], BAND],
+    [['path', { ...STROKE, d: 'M10.35.9 12.95 3.5 7.15 9.3 3.35 10.4 4.45 6.6Z' }], ['path', { ...STROKE, d: 'M8.75 2.5 11.35 5.1M4.45 6.6 7.15 9.3' }], BAND],
     'mpv-band-icon',
   );
 }
@@ -56,7 +59,7 @@ export function drawIcon(): SVGSVGElement {
 /** The Text toggle: "Aa", a capital A and a small a, above the band (in the current text color). */
 export function textIcon(): SVGSVGElement {
   return icon16(
-    [['path', { ...STROKE, d: 'M1.1 11.3 4.5 1.9l3.4 9.4M2.3 8.1h4.4' }], ['path', { ...STROKE, d: 'M14.6 5.9v5.4M14.6 8.7a2.4 2.4 0 1 1-4.8 0 2.4 2.4 0 0 1 4.8 0Z' }], BAND],
+    [['path', { ...STROKE, d: 'M1.1 10.55 4.5 1.15l3.4 9.4M2.3 7.35h4.4' }], ['path', { ...STROKE, d: 'M14.6 5.15v5.4M14.6 7.95a2.4 2.4 0 1 1-4.8 0 2.4 2.4 0 0 1 4.8 0Z' }], BAND],
     'mpv-band-icon',
   );
 }

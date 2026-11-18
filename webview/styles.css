@@ -1083,12 +1083,14 @@ body.mpv-sidebar-open .mpv-viewer-container {
   white-space: nowrap;
 }
 
+/* The search field, then the color dots and the notes filter: each row stands clear of the next,
+   and of the first section under them. */
 .mpv-list-tools {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
-  gap: 4px;
-  padding: 0 12px 8px;
+  gap: 8px;
+  padding: 0 12px 12px;
 }
 
 .mpv-search {
@@ -1194,7 +1196,7 @@ body.mpv-sidebar-open .mpv-viewer-container {
   align-items: center;
   gap: 4px;
   box-sizing: border-box;
-  height: 28px;
+  height: 32px;
   padding: 0 4px 0 6px;
   box-shadow: inset 0 1px 0 var(--mpv-border);
 }
@@ -1252,7 +1254,7 @@ body.mpv-sidebar-open .mpv-viewer-container {
   box-sizing: border-box;
   width: 100%;
   margin: 0;
-  padding: 6px 12px;
+  padding: 8px 12px;
   border: 0;
   background: none;
   color: inherit;
@@ -1301,7 +1303,7 @@ body.mpv-sidebar-open .mpv-viewer-container {
 }
 
 .mpv-row-meta {
-  margin-top: 2px;
+  margin-top: 4px;
   color: var(--mpv-fg-2);
   font-size: var(--mpv-fs-3);
 }
@@ -1335,7 +1337,7 @@ body.mpv-sidebar-open .mpv-viewer-container {
 
 .mpv-row .mpv-note {
   display: flex;
-  margin-top: 4px;
+  margin-top: 6px;
   padding: 4px 6px;
 }
 
@@ -1354,7 +1356,7 @@ body.mpv-sidebar-open .mpv-viewer-container {
   flex-wrap: wrap;
   align-items: center;
   gap: 2px;
-  padding: 0 8px 6px 29px;
+  padding: 0 8px 8px 29px;
 }
 
 .mpv-row-actions-thumb {

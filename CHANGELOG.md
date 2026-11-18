@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **More room in the annotations list.** The search field, the color dots and the first section stand further apart (8 and 12 px; they were 4 and 8), section headers are a little taller, and rows, their notes and their page numbers have more air between them.
+- **The pencil and the Aa of the toolbar clear their color band** like the highlighter does. The pencil's tip nearly touched the band and the letters stood right on it.
 - **A translate tool**, 文A in the toolbar, next to the text tool. Select text and read it in another language, between about sixty languages.
   - **Nothing you read leaves your computer.** The translating is done by a translator that runs inside VS Code, with the language models Mozilla trains for Firefox. It works without a connection once a language is on your computer.
   - With the tool on, every selection is translated as soon as you let go. With no tool on, **文A** is at the end of the bar next to a selection, and in the popover of a highlight.
