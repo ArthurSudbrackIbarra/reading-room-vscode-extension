@@ -72,6 +72,8 @@ export interface UiState {
   recentColors: HexColor[];
   /** The language the translate tool translates into (none picked yet: the language of VS Code). */
   translateTo?: string;
+  /** Selecting text does not open the selection bar. */
+  quietSelection: boolean;
 }
 
 export interface PanelHost {
@@ -104,6 +106,8 @@ export interface PanelHost {
    */
   deleteAllDrawings(panel: PreviewPanel, kind: 'ink' | 'text'): Promise<void>;
   toggleTheme(): void;
+  /** Whether selecting text opens the selection bar, in every viewer. */
+  setQuietSelection(quiet: boolean): void;
   refFor(uri: vscode.Uri): DocumentRef;
   focusChanged(panel: PreviewPanel, focused: boolean): void;
   viewStateChanged(panel: PreviewPanel): void;
@@ -444,6 +448,9 @@ export class PreviewPanel implements vscode.Disposable {
       case 'listSectionsChanged':
         this.host.updateUiState({ collapsedSections: sanitizeSections(msg.collapsed) });
         break;
+      case 'quietSelectionChanged':
+        this.host.setQuietSelection(msg.quiet === true);
+        break;
       case 'openLink':
         await this.openLink(msg.href);
         break;
@@ -584,6 +591,7 @@ export class PreviewPanel implements vscode.Disposable {
         textHint: this.host.textHint(),
         eraseHint: this.host.eraseHint(),
         recentColors: ui.recentColors,
+        quietSelection: ui.quietSelection,
         fullView: this.kind !== 'pdf' && this.isFullView(),
         marginsPt: margins,
         sound: this.host.sounds.stateFor(this),
@@ -862,6 +870,10 @@ export class PreviewPanel implements vscode.Disposable {
   }
 
   // ---------- Commands ----------
+
+  setQuietSelection(quiet: boolean): void {
+    this.post({ type: 'quietSelection', quiet });
+  }
 
   async setTheme(theme: PageTheme): Promise<void> {
     if (theme === this.theme) return;

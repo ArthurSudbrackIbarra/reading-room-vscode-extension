@@ -36,6 +36,8 @@ export interface ViewerInit {
   eraseHint: boolean;
   /** Custom colors picked lately, newest first (shared by all files). */
   recentColors: HexColor[];
+  /** Selecting text does not open the selection bar (the reader's choice, shared by all files). */
+  quietSelection: boolean;
   fullView: boolean;
   /** Top and bottom page margins in PDF points; text inside them is header/footer and is not highlightable. */
   marginsPt: { top: number; bottom: number };
@@ -103,6 +105,8 @@ export type HostToViewer =
   | { type: 'translation'; requestId: number; update: TranslationUpdate }
   | { type: 'fullView'; full: boolean }
   | { type: 'theme'; theme: PageTheme }
+  /** Whether selecting text opens the selection bar changed (here or in another viewer). */
+  | { type: 'quietSelection'; quiet: boolean }
   | { type: 'document'; fileName: string; uri: string }
   | { type: 'requestExport'; requestId: number }
   | { type: 'undo' }
@@ -174,6 +178,8 @@ export type ViewerToHost =
   | { type: 'toolChanged'; active: boolean }
   | { type: 'listChanged'; open: boolean }
   | { type: 'listSectionsChanged'; collapsed: ListSection[] }
+  /** The reader turned the selection bar off (`quiet`) or on again, for all files. */
+  | { type: 'quietSelectionChanged'; quiet: boolean }
   | { type: 'openLink'; href: string }
   | { type: 'command'; command: ViewerCommand }
   | {

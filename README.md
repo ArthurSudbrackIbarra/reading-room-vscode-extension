@@ -73,6 +73,10 @@
 | | `Ctrl+Shift+Alt+R`, or **Open in Reading Room** | In the current group |
 | Any of them | Right-click the file in the Explorer → **Open in Reading Room to the Side** | To the side |
 
+The **book button** is the first one at the top right of the editor, on the row of the tabs, whenever a Markdown or text file is open:
+
+<img src="docs/open-button.png" alt="A Markdown file open in VS Code's editor. On the row of its tab, at the top right, the book button is circled in red, and its tooltip reads: Open in Reading Room to the Side (Ctrl+K Shift+R), [Alt] Open in Reading Room (Ctrl+Shift+Alt+R)" width="820">
+
 **Markdown and text files need a browser.** Their pages are made with Google Chrome, Microsoft Edge, Chromium or Brave, whichever is installed. If none is, Reading Room asks before downloading a small Chromium (about 126 MB) into its own storage. PDF files need nothing.
 
 **Another PDF extension installed?** VS Code asks once which one should open PDF files. Choose **Keep Reading Room**. To change it later, right-click a PDF tab → **Reopen Editor With…** → **Configure default editor for '\*.pdf'…**.
@@ -102,7 +106,7 @@ One row, in three groups: finding your place on the left, the tools in the middl
 | 🎧 | **Reading sounds**: play rain, a fireplace or your own sounds |
 | ◐ | **Dark pages**: switch the pages between light and dark |
 | ⤓ ▾ | Download a PDF, with your annotations (the default) or without |
-| ⋯ | **More**: **Full view** (Markdown, text: the pages take the source's editor group instead of standing next to it) and **Convert the document again** (PDF files: **Reload from disk**) |
+| ⋯ | **More**: **Full view** (Markdown, text: the pages take the source's editor group instead of standing next to it), **No bar when selecting text** (see [Highlights and notes](#highlights-and-notes)) and **Convert the document again** (PDF files: **Reload from disk**) |
 
 **One tool at a time.** The five tools stand side by side, and turning one on turns the others off. The tool that is on is tinted and outlined, and a second row opens under the toolbar: its **tray**. The tray looks like the toolbar. It starts with the name of the mode (**DRAW MODE**, **TEXT MODE**, …), holds that tool's options right after it, and ends with **Done**. Done, a second click on the tool and **Esc** all turn the tool off. Placing the reading marker works the same way, with **Cancel**.
 
@@ -112,6 +116,7 @@ One row, in three groups: finding your place on the left, the tools in the middl
 
 - **Highlight tool on**: select text, and it is highlighted in the current color. Its tray has the five colors: yellow, pink, green, blue, orange.
 - **Highlight tool off**: select text and a small bar appears next to the selection. Pick a color, use 💬 to highlight and write a note right away, or 🔖 to mark that line as your reading position.
+  - **Do you follow the lines with the mouse as you read?** Turn on **No bar when selecting text** in the ⋯ menu, and selecting text opens nothing. It is off at first, and it is remembered for all files. While it is on, turn the highlight tool or the translate tool on to highlight or translate what you select; a click on a highlight still opens its bar.
 - **Click a highlight** to change its color, add or edit its note, copy its text or delete it. While its bar is open, **Delete** deletes it and **Enter** opens its note. A note shows under the buttons; click it to edit it.
 - **Notes**: type, then press **Ctrl+Enter** or click **Save**. Clicking elsewhere also saves; **Esc** cancels. Highlights with a note have a darker underline and a 💬 badge in the right margin; hover to read the note.
 - The **☰ list** shows your reading position at the top, then all highlights in document order with their notes, then your drawings and text boxes.
@@ -140,7 +145,7 @@ The translation opens next to the text.
 - **Reading Room: Manage Translation Languages…** lists the packs on your computer, removes one, and downloads the packs of a language ahead of time, for reading without a connection later.
 - `readingRoom.translationDownload: never` forbids downloads: only the languages that are on the computer already can be translated.
 
-**What to expect.** The translations are good for understanding a passage, and plainer than those of the large online services: a rare word, a name or a very long sentence can come out wrong. While a translation is being made, the translator takes several hundred megabytes of memory; it gives them back a minute after you last used it.
+**What to expect.** The translations are good for understanding a passage, and plainer than those of the large online services: a rare word, a name or a very long sentence can come out wrong. While a translation is being made, the translator takes about half a gigabyte of memory, and about one gigabyte between two languages other than English (two packs); it gives them back a minute after you last used it.
 
 ## Drawing
 

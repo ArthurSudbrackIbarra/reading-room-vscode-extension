@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **No bar when selecting text**, a new entry of the ⋯ menu, for readers who follow the lines with the mouse as they read. While it is on, selecting text opens nothing: the bar with the colors, the note, the reading marker and the translation stays away. The highlight tool and the translate tool still work on what you select. It is off at first and remembered for all files.
+- **The bar next to a selection is not cut off any more.** Since the translate button joined it, the bar was wider than its box could be, and its last button touched the right edge. It is as wide as what it holds now, with as much room after the last button as before the word "Highlight".
+- **The − and + of the zoom are in the middle of their squares.** Both stood a little over half a pixel to the left, which showed on the + when the pointer was on it.
+- **A picture of the book button** in the README's Getting started: where to click to open a Markdown or text file.
 - **More room in the annotations list.** The search field, the color dots and the first section stand further apart (8 and 12 px; they were 4 and 8), section headers are a little taller, and rows, their notes and their page numbers have more air between them.
 - **The pencil and the Aa of the toolbar clear their color band** like the highlighter does. The pencil's tip nearly touched the band and the letters stood right on it.
 - **A translate tool**, 文A in the toolbar, next to the text tool. Select text and read it in another language, between about sixty languages.

@@ -83,6 +83,7 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
         .filter((c): c is HexColor => c !== undefined)
         .slice(0, MAX_RECENT_COLORS),
       translateTo: typeof saved.translateTo === 'string' ? saved.translateTo : undefined,
+      quietSelection: saved.quietSelection === true,
     };
     void vscode.commands.executeCommand('setContext', FOCUS_CONTEXT, false);
     // A file: URI on purpose: globalStorageUri can have VS Code's own scheme (vscode-userdata:),
@@ -200,6 +201,12 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
     const theme: PageTheme = this.ui.theme === 'dark' ? 'light' : 'dark';
     this.updateUiState({ theme });
     for (const panel of this.panels.values()) void panel.setTheme(theme);
+  }
+
+  setQuietSelection(quiet: boolean): void {
+    if (quiet === this.ui.quietSelection) return;
+    this.updateUiState({ quietSelection: quiet });
+    for (const panel of this.panels.values()) panel.setQuietSelection(quiet);
   }
 
   // ---------- Panel bookkeeping ----------

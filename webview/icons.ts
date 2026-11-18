@@ -64,6 +64,18 @@ export function textIcon(): SVGSVGElement {
   );
 }
 
+/**
+ * The − and + of the zoom. (The codicons' glyphs are not in the middle of their 16 px box: their ink
+ * starts 0.75 px from its left edge and ends 2 px from its right one.)
+ */
+export function minusIcon(): SVGSVGElement {
+  return icon16([['path', { ...STROKE, d: 'M2 8h12' }]]);
+}
+
+export function plusIcon(): SVGSVGElement {
+  return icon16([['path', { ...STROKE, d: 'M2 8h12M8 2v12' }]]);
+}
+
 /** A text box in the list: one "A", in the color of its text. */
 export function letterIcon(): SVGSVGElement {
   return icon16([['path', { ...STROKE, 'stroke-width': '1.5', d: 'M3.6 13 8 2.6 12.4 13M5.3 9.2h5.4' }]]);

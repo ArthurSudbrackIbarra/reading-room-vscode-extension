@@ -163,6 +163,8 @@ class App {
   private textStyle: TextStyle = { ...DEFAULT_TEXT_STYLE };
   /** The translate tool: selecting text translates it. */
   private translateActive = false;
+  /** The reader's choice in More: selecting text opens nothing (the selection bar stays away). */
+  private quietSelection = false;
   private languages: TranslateLanguage[] = [];
   /** The language of the text (`AUTO`: told from the text) and the one it is translated into. */
   private translateFrom: string = AUTO;
@@ -219,6 +221,7 @@ class App {
       toggleTheme: () => this.command('toggleTheme'),
       refresh: () => this.command('refresh'),
       toggleFullView: () => this.command('toggleFullView'),
+      toggleQuietSelection: () => this.toggleQuietSelection(),
       download: (withHighlights) => this.command(withHighlights ? 'download' : 'downloadWithoutHighlights'),
     });
     this.toolbar.setKind(this.kind);
@@ -537,6 +540,7 @@ class App {
         this.undoStack.load(init.readOnly ? undefined : init.history);
         this.showColor(init.color);
         this.toolbar.setFullView(init.fullView);
+        this.setQuietSelection(init.quietSelection === true);
         this.setTool(init.toolActive, false);
         if (init.drawStyle) this.setDrawStyle(init.drawStyle, false);
         this.drawHint = init.drawHint === true;
@@ -648,6 +652,9 @@ class App {
         break;
       case 'theme':
         this.applyTheme(msg.theme);
+        break;
+      case 'quietSelection':
+        this.setQuietSelection(msg.quiet === true);
         break;
       case 'document':
         this.uri = msg.uri;
@@ -1649,6 +1656,27 @@ class App {
     if (active && this.highlights.selectionRange()) this.highlights.createFromSelection(this.color);
   }
 
+  // ---------- The selection bar, or none ----------
+
+  private setQuietSelection(quiet: boolean): void {
+    this.quietSelection = quiet;
+    this.toolbar.setQuietSelection(quiet);
+    if (quiet) this.selectionBar.hide();
+  }
+
+  /** From More: turns the selection bar off or on again, for all files, and says what that means. */
+  private toggleQuietSelection(): void {
+    const quiet = !this.quietSelection;
+    this.setQuietSelection(quiet);
+    post({ type: 'quietSelectionChanged', quiet });
+    this.toast.show(
+      quiet
+        ? 'Selecting text opens nothing now. To highlight or translate, turn that tool on first.'
+        : 'Selecting text opens the bar again: highlight, note, reading marker, translate.',
+      { durationMs: 6000 },
+    );
+  }
+
   // ---------- Translating ----------
 
   /** The translate tool: while it is on, text that is selected is translated. It excludes the other tools. */
@@ -2031,7 +2059,7 @@ class App {
           this.highlights.createFromSelection(this.color);
         } else if (this.translateActive) {
           this.translateSelection(e.clientX, e.clientY);
-        } else {
+        } else if (!this.quietSelection) {
           this.selectionBar.show(e.clientX, e.clientY);
         }
       }, 0);

@@ -14,7 +14,7 @@ import { HIGHLIGHT_HEX, MAX_ZOOM, MIN_ZOOM, type DocumentKind, type HighlightCol
 import { narrower, sizeClassOf, type SizeClass } from '../src/shared/ui';
 import { h, iconButton, MOD_KEY, placeUnder } from './dom';
 import { setInk } from './drawings';
-import { chevronIcon, drawIcon, highlighterIcon, pageIcon, selectIcon, textIcon, translateIcon } from './icons';
+import { chevronIcon, drawIcon, highlighterIcon, minusIcon, pageIcon, plusIcon, selectIcon, textIcon, translateIcon } from './icons';
 import { byKeyboard, menu, type MenuPart } from './menu';
 import { headphonesIcon } from './sounds';
 
@@ -41,6 +41,8 @@ export interface ToolbarActions {
   toggleTheme(): void;
   refresh(): void;
   toggleFullView(): void;
+  /** Selecting text opens the bar next to it (highlight, note, marker, translate), or leaves the text alone. */
+  toggleQuietSelection(): void;
   /** `withAnnotations`: with highlights, notes, drawings and text boxes (the default), or without any. */
   download(withAnnotations: boolean): void;
 }
@@ -58,6 +60,8 @@ const SELECT_ON_TITLE = 'Selecting is on (Esc to stop)';
 const TRANSLATE_TITLE = 'Translate: select text to read it in another language (translated on this computer)';
 const TRANSLATE_ON_TITLE = 'Translating is on: selecting text translates it (Esc to stop)';
 const DOWNLOAD_TITLE = 'Download PDF with annotations';
+/** The entry of More that keeps the selection bar away. */
+export const QUIET_LABEL = 'No bar when selecting text';
 
 const ZOOM_FITS: { value: ZoomValue; label: string; icon: string }[] = [
   { value: 'page-width', label: 'Fit width', icon: 'arrow-both' },
@@ -123,14 +127,17 @@ export class Toolbar {
   private zoom: ZoomValue = 'page-width';
   private theme: PageTheme = 'light';
   private fullView = false;
+  private quietSelection = false;
   private markerExists = false;
   private soundsAvailable = false;
   private translateAvailable = true;
   private translating = false;
 
   constructor(private readonly actions: ToolbarActions) {
-    const zoomOut = iconButton('remove', `Zoom out (${MOD_KEY}+-)`);
-    const zoomIn = iconButton('add', `Zoom in (${MOD_KEY}+=)`);
+    const zoomOutTitle = `Zoom out (${MOD_KEY}+-)`;
+    const zoomInTitle = `Zoom in (${MOD_KEY}+=)`;
+    const zoomOut = h('button', { class: 'mpv-btn', type: 'button', title: zoomOutTitle, 'aria-label': zoomOutTitle }, minusIcon());
+    const zoomIn = h('button', { class: 'mpv-btn', type: 'button', title: zoomInTitle, 'aria-label': zoomInTitle }, plusIcon());
 
     // "n / N": the field and the count are one line of text.
     this.pageStep = h(
@@ -291,8 +298,8 @@ export class Toolbar {
       ]);
     } else if (size !== 'wide') {
       groups.push([
-        { icon: 'add', label: 'Zoom in', end: `${MOD_KEY}+=`, run: () => actions.zoomIn() },
-        { icon: 'remove', label: 'Zoom out', end: `${MOD_KEY}+-`, run: () => actions.zoomOut() },
+        { icon: plusIcon(), label: 'Zoom in', end: `${MOD_KEY}+=`, run: () => actions.zoomIn() },
+        { icon: minusIcon(), label: 'Zoom out', end: `${MOD_KEY}+-`, run: () => actions.zoomOut() },
         ...ZOOM_FITS.slice(0, 2).map((z) => ({ icon: z.icon, label: z.label, role: 'radio' as const, checked: current === z.value, run: () => actions.setZoom(z.value) })),
         { icon: 'zoom-in', label: 'Other zoom levels', more: true, run: () => this.openZoom(this.moreButton, true) },
       ]);
@@ -311,6 +318,8 @@ export class Toolbar {
     if (this.kind !== 'pdf') {
       room.push({ icon: this.fullView ? 'screen-normal' : 'screen-full', label: 'Full view', role: 'checkbox', checked: this.fullView, run: () => actions.toggleFullView() });
     }
+    // For readers who follow the lines with the selection: nothing opens over the text they select.
+    room.push({ icon: 'eye-closed', label: QUIET_LABEL, role: 'checkbox', checked: this.quietSelection, run: () => actions.toggleQuietSelection() });
     room.push({
       icon: 'refresh',
       label: this.kind === 'pdf' ? 'Reload from disk' : size === 'wide' ? 'Convert the document again' : 'Convert again',
@@ -516,6 +525,11 @@ export class Toolbar {
 
   setFullView(full: boolean): void {
     this.fullView = full;
+  }
+
+  /** Whether selecting text leaves the selection bar away (the check of its entry in More). */
+  setQuietSelection(quiet: boolean): void {
+    this.quietSelection = quiet;
   }
 
   setListOpen(open: boolean): void {
