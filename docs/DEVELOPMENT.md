@@ -44,7 +44,7 @@ To try a build without installing it, open the folder in VS Code and press `F5`,
 | `npm run lint` / `npm run lint:fix` | ESLint (correctness rules), with or without automatic fixes |
 | `npm run format` / `npm run format:check` | Prettier: format every source file, or check that they are formatted |
 | `npm run check` | Type check, lint, format check and unit tests, in that order: what to run before a commit |
-| `npm test` | Unit tests: stores (with round trips through the 0.4.0 and 0.7.0 store code), drawings and text boxes (geometry, checks on load, annotations read back with pdf.js), colors, notes and marker, PDF cache, undo stack, reading sounds, text conversion, the anchoring engine (scenarios, a seeded property test, performance, real PDFs), the write guard |
+| `npm test` | Unit tests: stores (with round trips through the 0.4.0 and 0.7.0 store code), drawings and text boxes (geometry, checks on load, annotations read back with pdf.js), colors, notes and marker, PDF cache, undo stack and its stored history, the backup and coming back from it, reading sounds, text conversion, the anchoring engine (scenarios, a seeded property test, performance, real PDFs), the write guard |
 | `npm run test:converter` | Renders the feature test and a text file with the installed browser and checks the PDFs with pdf.js; renders `test/fixtures/anchoring/base.md`, edits it and checks that annotations follow (`reanchor.test.ts`) |
 | `npm run sounds` | Rebuilds the built-in reading sounds in `media/sounds/` from their Freesound recordings: cuts the loops, all at −16 LUFS. Only needed to change them. Needs ffmpeg with libvorbis; `-- --force` rebuilds, and sound ids limit it to those |
 | `npm run package` | Builds the `.vsix`. The README pictures in it point to the GitHub repository, because VS Code's extension page only loads `https:` images |
@@ -68,7 +68,7 @@ To try a build without installing it, open the folder in VS Code and press `F5`,
 | `src/extension.ts` | Activation: the store, the cache, the lazily loaded converter, the commands; brings over the data of the [earlier name](#the-earlier-name) |
 | `src/converter/` | Markdown/text → HTML → PDF; no `vscode` dependency |
 | `src/preview/` | Viewers (preview panels and the PDF custom editor), commands, rendering, downloads |
-| `src/store/` | Highlight, note, drawing, text box and marker storage; the reader's own sounds; `atomicWrite.ts`, the only code that writes into the storage folder |
+| `src/store/` | Highlight, note, drawing, text box and marker storage; the undo history (`HistoryStore.ts`); the copy outside VS Code's storage (`Backup.ts`); the reader's own sounds; `atomicWrite.ts`, the only code that writes into the storage folder and the backup |
 | `src/cache/` | The disk cache of converted PDFs |
 | `src/anchoring/` | Keeping annotations on their content. Pure TypeScript, no `vscode` and no DOM: the text model, the diff between two versions (`diff.ts`), finding an anchor again (`resolve.ts`), what drawings are bound to (`layout.ts`, `binding.ts`), matching PDF pages (`pageAlign.ts`), resolving everything for one render (`runs.ts`) |
 | `src/shared/` | Types, messages, colors, the drawing and text box model and geometry, small rules of the interface (`ui.ts`: size classes, list sections), and what selecting several annotations needs without the DOM (`selection.ts`: Shift+click ranges, moving a group, the clipboard format), shared by the extension and the viewer |
@@ -84,7 +84,7 @@ To try a build without installing it, open the folder in VS Code and press `F5`,
 
 ## Hard rules
 
-- **The extension never writes to the reader's documents and never creates files in the workspace.** Files are written only by `src/store/atomicWrite.ts` (the extension's storage folder) and `src/export/downloads.ts` (the path picked in the save dialog). `test/unit/writeGuard.test.ts` fails when any other source file calls a write API.
+- **The extension never writes to the reader's documents and never creates files in the workspace.** Files are written only by `src/store/atomicWrite.ts` (the extension's storage folder and [its backup](#the-backup)) and `src/export/downloads.ts` (the path picked in the save dialog). `test/unit/writeGuard.test.ts` fails when any other source file calls a write API.
 - **`src/anchoring/` stays pure**: no `vscode`, no DOM, so it is unit-tested as it runs.
 - **The webview's CSP is strict**: no inline style attributes in markup, no `eval`, no markup strings. Styles go through CSSOM and icons are built with DOM calls.
 - **Settings have `"scope": "application"`** (or `machine`), so a workspace cannot change how the extension behaves.
@@ -162,6 +162,7 @@ The selectors are W3C Web Annotation selectors. Next to it:
 - **`<hash>.drawings.json`**: drawings and text boxes, in PDF units of their page (zooming never changes them). A drawing has its tool, color (a name such as `red`, or a hex code), width, page and points. What the eraser leaves of a drawing is a pen stroke marked `"polyline": true`. A text box has its text, top left corner, size, alignment, color, the bold, italic and underlined parts (`spans`) and, if set, its width.
 - **`<hash>.anchors.json`** (since 0.8): what each highlight, the marker and each drawing is attached to, and where that was last found. Earlier versions never read it, and the two files above keep their format, so going back to an earlier version loses nothing.
 - **`<hash>.text-<id>.gz`** (since 0.8): a compressed copy of the document's text for the versions annotations were last found in (at most twelve, 4 MB). `readingRoom.textSnapshots` turns them off.
+- **`<hash>.history.json`** (since 0.13): the undo history, `done` (oldest first) and `undone` (the next redo last). A step is a label and an operation that holds whole annotations (`create`, `delete`, `update`, `replace`, `marker`, `createDrawing`, `deleteDrawing`, `updateDrawing`, or a `batch` of them), so it can be reverted without anything else. At most 500 steps each way and 2 MB; the oldest go first. It stays when a document has no annotations left, because deleting them can be undone.
 
 Rules of the store:
 
@@ -170,6 +171,30 @@ Rules of the store:
 - Data written by a newer version is shown but not changed, and never treated as damaged.
 - A rename or move inside VS Code moves the files; **Reattach Annotations from Another File…** copies them for renames done elsewhere. Data of deleted files is kept.
 - Keeping drawings in their own file means that version 0.4, which rewrites the first file with only the fields it knows, cannot erase them.
+
+How undo lasts (`src/shared/history.ts`, `src/store/HistoryStore.ts`, `webview/undo.ts`):
+
+- The viewer keeps the stack while it is open and reports every change of it to the host (`push`, `undo`, `redo`, `clear`); the host applies the same change to its copy and writes it, coalesced. The viewer starts from that copy when the document is opened again.
+- Every step the viewer sends, and every step read from disk, is checked like stored annotations. A step that fails the check clears the stored copy (it would no longer match the viewer's); a broken step in a file makes what is older than it unreachable.
+- A step from an earlier session may be about something that is gone or back by other means (another window, files put back by hand). The viewer skips such a part and applies the rest.
+- The history follows a renamed document (`onMigrate` of the store). **Reattach** leaves it alone: what it adds does not undo what was done here.
+
+### The backup
+
+VS Code deletes `globalStorage/<id>` when an extension is uninstalled (at its next start). So `highlights/` has a second copy outside VS Code (`src/store/Backup.ts`):
+
+| OS | Folder |
+| --- | --- |
+| Windows | `%APPDATA%\Reading Room\backup\highlights\` |
+| macOS | `~/Library/Application Support/Reading Room/backup/highlights/` |
+| Linux | `$XDG_DATA_HOME/reading-room/backup/highlights/` (`~/.local/share/…` by default) |
+
+- The two stores report every file they write, move or remove (`onFilesChanged`, by the document's key). A second later the backup makes its files of that document the same as the storage folder's: changed ones are copied (atomically), missing ones removed. A document that cannot be copied does not hold up the others and is tried again with the next change.
+- At start, files the backup does not have, or has an older version of, are copied. Nothing is removed then: several profiles and editors share the folder, and each of them only removes what it removed itself.
+- When the extension starts and `highlights/` is missing or empty, it is copied from the backup (`adoptEarlierData` in `src/extension.ts`, before anything reads the store), and the reader is told. Otherwise the backup is never read.
+- `sounds/` and `cache/` are not in it: sound files can be 150 MB each, and the cache is made again.
+- A backup that cannot be written never gets in the way: it is logged once per run of failures.
+- Tests that start a real VS Code must point `APPDATA` (or `XDG_DATA_HOME`) at a scratch folder, or they write into the reader's own backup.
 
 ### `cache/`
 
@@ -189,7 +214,7 @@ VS Code names an extension's storage folder after its id, so every id the extens
 | `local.reading-room` | 0.9.0 to 0.11.0 | Reading Room (`readingRoom.*`), installed from a `.vsix`, before it had a publisher |
 | `ArthurSudbrackIbarra.reading-room` | from 0.12.0 | Reading Room on the Marketplace |
 
-- The first time Reading Room starts under its id, it copies `highlights/` and `sounds/` from the newest earlier folder that has them (`adoptEarlierData` in `src/extension.ts`, `copyFolderFromFirst` in `src/store/atomicWrite.ts`). The earlier folder is left as it is. A folder that already exists in the new place is never replaced.
+- When Reading Room starts without them, it copies `highlights/` from [the backup](#the-backup) or else from the newest earlier folder that has it, and `sounds/` from the newest earlier folder that has it (`adoptEarlierData` in `src/extension.ts`, `copyFolderFromFirst` in `src/store/atomicWrite.ts`). The earlier folder is left as it is. A folder that already exists in the new place is never replaced.
 - Small preferences (last colors, the chosen sound, the volume) start fresh, because VS Code keeps them per extension id.
 - Settings under `markdownPdfViewer.*` and a `"*.pdf": "markdownPdfViewer.pdf"` entry in `workbench.editorAssociations` are not migrated: set them again under the new names. Settings under `readingRoom.*` carry over as they are.
 - A copy with the id `local.reading-room` that is still installed keeps working, and Reading Room stays inactive next to it and offers to **switch** (`offerSwitch` in `src/extension.ts`): it copies the data as it is at that moment, uninstalls the earlier copy and reloads the window, in that order. The order matters: VS Code deletes the storage folder of an extension some time after it is uninstalled, so never uninstall the earlier copy before its data was copied.

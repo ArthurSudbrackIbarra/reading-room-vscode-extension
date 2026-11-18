@@ -15,6 +15,8 @@ export interface Settings {
   cacheDays: number;
   /** Keep the text of the versions annotations were last found in, to follow them through edits. */
   textSnapshots: boolean;
+  /** Keep a second copy of the annotations outside VS Code's storage, so an uninstall does not delete them. */
+  backup: boolean;
 }
 
 /**
@@ -34,6 +36,7 @@ export function readSettings(): Settings {
     chromiumDownload: c.get<string>('chromiumDownload') === 'never' ? 'never' : 'ask',
     cacheDays: Number.isFinite(cacheDays) ? Math.min(365, Math.max(0, Math.floor(cacheDays))) : 7,
     textSnapshots: c.get<boolean>('textSnapshots') !== false,
+    backup: c.get<boolean>('backup.enabled') !== false,
   };
 }
 

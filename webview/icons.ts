@@ -77,8 +77,9 @@ export function toolIcon(tool: DrawingTool): SVGSVGElement {
 
 /** The select tool of the toolbar (click or drag around annotations to select them): the arrow of a pointer. */
 export function selectIcon(): SVGSVGElement {
-  // (The arrow is heavier on its left side: it is drawn so that what is seen of it is centered.)
-  return icon16([['path', { ...STROKE, d: 'M3.6 1.9v10.8l2.8-2.6 1.9 4 1.7-.8-1.9-4h3.8Z' }]]);
+  // The arrow is narrow and heavy on its left side, so it is centered by its weight, not by its
+  // outline: with the outline in the middle it looks pushed to the left, far from the icon after it.
+  return icon16([['path', { ...STROKE, d: 'M5.1 1.9v10.8l2.8-2.6 1.9 4 1.7-.8-1.9-4h3.8Z' }]]);
 }
 
 /** The eraser of the drawing bar (it rubs out part of a drawing): a block at 45°, on a pen stroke with a gap. */

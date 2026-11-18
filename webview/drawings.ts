@@ -211,8 +211,6 @@ interface MarqueeGesture {
   before: Selection;
   /** With Ctrl or Shift held, what the rectangle takes joins what was selected. */
   adding: boolean;
-  /** The press was on a highlight: a click without a drag selects it. */
-  click?: Ref;
   moving: boolean;
   client: [number, number];
 }
@@ -716,6 +714,7 @@ export class DrawingController {
     this.cancelGesture();
     this.modeValue = mode;
     // A mode starts, and ends, with nothing selected (typing leaves its box selected while in text mode).
+    // So the select tool never starts with a highlight: it takes drawings and text boxes only.
     this.setSelection([], []);
     // (Text mode and the select tool set the pointer's shape on the surface under it.)
     for (const surface of document.querySelectorAll<HTMLElement>(`.${CAPTURE}`)) surface.style.cursor = '';
@@ -843,12 +842,13 @@ export class DrawingController {
     if (this.selectionCount > 0) this.setSelection([], []);
   }
 
-  /** Every drawing, text box and highlight that is shown. */
+  /**
+   * Every drawing and text box that is shown. Not the highlights: they are what the reader keeps,
+   * and must not be swept up (and deleted) with what was drawn over them. A highlight is selected
+   * one at a time, by a click on it with no tool on.
+   */
   selectAll(): void {
-    this.setSelection(
-      this.drawings.keys(),
-      this.highlights.places().map((place) => place.id),
-    );
+    this.setSelection(this.drawings.keys(), []);
   }
 
   /** A highlight was removed (or is not shown any more): it leaves the selection. */
@@ -885,15 +885,19 @@ export class DrawingController {
 
   /**
    * A click on an annotation. Alone ('set') it becomes the selection. With Ctrl ('toggle') it
-   * joins or leaves the selection. With Shift ('range') everything from the last one clicked to
-   * it is selected, in reading order.
+   * joins or leaves the selection. With Shift ('range') every drawing and text box from the last
+   * one clicked to it is selected, in reading order. A range never takes highlights along: only
+   * the two it goes between can be highlights (clicked themselves, with no tool on).
    */
   private clickOn(ref: Ref, how: 'set' | 'toggle' | 'range', at?: [number, number]): void {
     const ids = (refs: Ref[], kind: Ref['kind']) => refs.filter((r) => r.kind === kind).map((r) => r.id);
     if (how === 'range') {
       const from = this.anchor;
       // On one page: what lies between the two, whichever way that goes. Over several pages: in reading order.
-      const range = (from ? this.between(from, ref) : undefined) ?? rangeBetween(this.order(), refKey, from ? refKey(from) : undefined, refKey(ref));
+      const ends = new Set([refKey(ref), ...(from ? [refKey(from)] : [])]);
+      const range = ((from ? this.between(from, ref) : undefined) ?? rangeBetween(this.order(), refKey, from ? refKey(from) : undefined, refKey(ref))).filter(
+        (item) => item.kind === 'drawing' || ends.has(refKey(item)),
+      );
       this.setSelection(ids(range, 'drawing'), ids(range, 'highlight'));
       this.anchor = from && this.isPicked(from) ? from : ref;
       return;
@@ -912,9 +916,10 @@ export class DrawingController {
   }
 
   /**
-   * Shift+click on the page of the last one clicked: everything the rectangle around the two
-   * touches, so it works to the left and to the right, upwards and downwards. Undefined when the
-   * two are on different pages (or one of them is not laid out): then the reading order decides.
+   * Shift+click on the page of the last one clicked: the two, and every drawing and text box the
+   * rectangle around them touches, so it works to the left and to the right, upwards and
+   * downwards. Undefined when the two are on different pages (or one of them is not laid out):
+   * then the reading order decides.
    */
   private between(a: Ref, b: Ref): Ref[] | undefined {
     const place = (ref: Ref): { page: number; rect: { left: number; top: number; right: number; bottom: number } } | undefined => {
@@ -937,13 +942,6 @@ export class DrawingController {
     for (const drawing of this.drawings.values()) {
       if (drawing.pageIndex === from.page && this.inRect(drawing, rect)) add({ kind: 'drawing', id: drawing.id });
     }
-    const frac: [number, number, number, number] = [
-      (rect[0] - box.left) / box.width,
-      (rect[1] - box.top) / box.height,
-      (rect[2] - box.left) / box.width,
-      (rect[3] - box.top) / box.height,
-    ];
-    for (const id of this.highlights.touching((pageIndex) => (pageIndex === from.page ? frac : undefined))) add({ kind: 'highlight', id });
     add(a);
     add(b);
     return [...found.values()];
@@ -966,18 +964,18 @@ export class DrawingController {
     return this.order().filter((ref) => this.isPicked(ref));
   }
 
-  /** The annotation under a point (client coordinates): a drawing or text box (the smallest, where they overlap), else the highlight there. */
+  /**
+   * What the select tool finds under a point (client coordinates): a drawing or text box (the
+   * smallest, where they overlap). Never a highlight: to the select tool they are part of the page.
+   */
   private itemAt(clientX: number, clientY: number): Ref | undefined {
     const pageIndex = this.viewer.pageIndexAt(clientX, clientY);
-    const box = pageIndex === undefined ? undefined : this.pageBox(pageIndex);
-    if (pageIndex === undefined || !box) return undefined;
+    if (pageIndex === undefined) return undefined;
     const p = this.toPdf(pageIndex, clientX, clientY, false);
     // A stroke or a text box right under the point; else the dashed box of a selected drawing
-    // (the whole box can be dragged); else a highlight.
+    // (the whole box can be dragged).
     const id = p ? (this.hitsAt(pageIndex, p, HIT_PX)[0] ?? this.boxAt(pageIndex, p)) : undefined;
-    if (id) return { kind: 'drawing', id };
-    const highlight = this.highlights.hitTestOnPage(pageIndex, (clientX - box.left) / box.width, (clientY - box.top) / box.height);
-    return highlight ? { kind: 'highlight', id: highlight } : undefined;
+    return id ? { kind: 'drawing', id } : undefined;
   }
 
   /** The selected drawing whose dashed box holds a point (PDF units of the page); the smallest, where boxes overlap. */
@@ -1543,7 +1541,6 @@ export class DrawingController {
       start: [e.clientX + c.scrollLeft, e.clientY + c.scrollTop],
       before: this.selection,
       adding,
-      click: hit,
       moving: false,
       client,
     };
@@ -1941,7 +1938,7 @@ export class DrawingController {
     this.marqueeFrame = 0;
   }
 
-  /** Selects what the rectangle touches: the stroke of a drawing, the box of a text box, a line of a highlight. */
+  /** Selects what the rectangle touches: the stroke of a drawing, the box of a text box. Highlights are left alone. */
   private marqueeSelect(g: MarqueeGesture): void {
     const rect = this.marqueeRect(g);
     const boxes = new Map<number, DOMRect | undefined>();
@@ -1955,19 +1952,9 @@ export class DrawingController {
     for (const drawing of this.drawings.values()) {
       if (reached(drawing.pageIndex) && this.inRect(drawing, rect)) drawings.add(drawing.id);
     }
-    const highlights = new Set(g.adding ? g.before.highlights : []);
-    const touched = this.highlights.touching((pageIndex) => {
-      const box = reached(pageIndex);
-      return box ? [(rect[0] - box.left) / box.width, (rect[1] - box.top) / box.height, (rect[2] - box.left) / box.width, (rect[3] - box.top) / box.height] : undefined;
-    });
-    for (const id of touched) highlights.add(id);
     // (Only when it changed: every change draws pages again.)
-    const same =
-      drawings.size === this.picked.size &&
-      highlights.size === this.pickedHighlights.size &&
-      [...drawings].every((id) => this.picked.has(id)) &&
-      [...highlights].every((id) => this.pickedHighlights.has(id));
-    if (!same) this.setSelection(drawings, highlights);
+    const same = this.pickedHighlights.size === 0 && drawings.size === this.picked.size && [...drawings].every((id) => this.picked.has(id));
+    if (!same) this.setSelection(drawings, []);
   }
 
   /** Whether a rectangle on screen (client coordinates) touches a drawing (its stroke) or a text box (its box). */
@@ -1994,9 +1981,8 @@ export class DrawingController {
       this.anchor = this.selectionInOrder()[0];
       return;
     }
-    // A click: on a highlight, it is selected; on nothing, nothing is.
-    if (g.click) this.clickOn(g.click, 'set', g.client);
-    else if (!g.adding) this.clearSelection();
+    // A click on nothing the tool takes (the page, its text, a highlight): nothing is selected.
+    if (!g.adding) this.clearSelection();
   }
 
   /** The select tool: the pointer says what a press would do (resize, move what is selected, select). */

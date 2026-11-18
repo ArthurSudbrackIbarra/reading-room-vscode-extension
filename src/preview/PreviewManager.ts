@@ -9,6 +9,7 @@ import { DEFAULT_DRAW_TOOL, DEFAULT_INK_WIDTH, isDrawTool, isInkWidth, isTextDra
 import { CUSTOM_SOUND_EXTENSIONS, type SoundRequest } from '../shared/sounds';
 import { DEFAULT_COLOR, isHighlightColor, type DocumentKind, type PageTheme } from '../shared/types';
 import type { DocumentRef, HighlightStore } from '../store/HighlightStore';
+import type { HistoryStore } from '../store/HistoryStore';
 import { SoundLibrary, type SoundFile } from '../store/SoundLibrary';
 import { RENDER_SETTINGS, SECTION, readSettings } from '../util/settings';
 import { duplicateOf, hintFor } from './copyHints';
@@ -59,6 +60,7 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
     private readonly context: vscode.ExtensionContext,
     readonly log: vscode.LogOutputChannel,
     readonly store: HighlightStore,
+    readonly history: HistoryStore,
     readonly renderer: RenderService,
     readonly pdfCache: PdfCache,
   ) {
@@ -219,7 +221,10 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
     for (const [key, value] of this.panels) if (value === panel) this.panels.delete(key);
     if (this.activePanel === panel) this.activePanel = undefined;
     if (this.focusedPanel === panel) this.focusChanged(panel, false);
-    if (!this.panels.has(panel.uri.toString())) this.store.evict(this.refFor(panel.uri));
+    if (!this.panels.has(panel.uri.toString())) {
+      this.store.evict(this.refFor(panel.uri));
+      this.history.evict(this.refFor(panel.uri));
+    }
     // A sound playing in this viewer keeps going in another open viewer.
     this.sounds.viewerClosed(panel, this.current());
   }

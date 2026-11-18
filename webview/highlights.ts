@@ -614,28 +614,6 @@ export class HighlightController {
     return out;
   }
 
-  /**
-   * The highlights a rectangle touches. `rectOn` gives the rectangle on a page as fractions of
-   * that page (x1, y1, x2, y2), or undefined for a page it does not reach.
-   */
-  touching(rectOn: (pageIndex: number) => Frac | undefined): string[] {
-    const ids: string[] = [];
-    for (const rt of this.runtimes.values()) {
-      if (rt.data.status !== 'anchored') continue;
-      let hit = false;
-      for (const [page, rects] of rt.pages) {
-        const r = rectOn(page);
-        if (!r) continue;
-        if (rects.some(([x1, y1, x2, y2]) => x1 <= r[2] && x2 >= r[0] && y1 <= r[3] && y2 >= r[1])) {
-          hit = true;
-          break;
-        }
-      }
-      if (hit) ids.push(rt.data.id);
-    }
-    return ids;
-  }
-
   flash(id: string): void {
     clearTimeout(this.flashTimer);
     document.querySelectorAll('.mpv-hl.mpv-flash').forEach((el) => el.classList.remove('mpv-flash'));

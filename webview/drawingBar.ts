@@ -293,7 +293,7 @@ export interface SelectTrayActions {
 }
 
 /** (Ctrl+click and Shift+click are not said here: they work with any tool, not just this one.) */
-const SELECT_HINT = 'Drag on the page to select several annotations at once.';
+const SELECT_HINT = 'Drag on the page to select drawings and text boxes.';
 
 /** The tray of the select tool: what can be done with what is selected, and how many that is. */
 export class SelectTray extends Tray {

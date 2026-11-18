@@ -3,6 +3,7 @@ import type { CopyHint } from '../anchoring/diff';
 import type { ResolvedPayload } from '../store/resolutions';
 import type { HexColor, Ink } from './colors';
 import type { DrawTool, Drawing, InkWidth, TextLayout, TextStyle } from './drawings';
+import type { HistoryChange, StoredHistory } from './history';
 import type { CustomSound, SoundRequest, SoundState } from './sounds';
 import type { DocumentKind, Highlight, HighlightColor, PageRects, PageTheme, ReadingMarker, ZoomValue } from './types';
 import type { ListSection } from './ui';
@@ -46,6 +47,8 @@ export interface ViewerInit {
   keepSnapshots: boolean;
   /** PDF files: signatures of the pages of the last version that was stored. */
   pages?: string[];
+  /** What was done and undone here before (it is stored with the annotations), so undo goes on where it stopped. */
+  history?: StoredHistory;
 }
 
 export interface DrawStyle {
@@ -86,7 +89,7 @@ export type HostToViewer =
   | { type: 'snapshots'; requestId: number; texts: Record<string, string> }
   | { type: 'renderError'; message: string; firstRender: boolean }
   | { type: 'zoom'; action: 'in' | 'out' }
-  | { type: 'highlights'; highlights: Highlight[]; marker: ReadingMarker | null; drawings: Drawing[]; readOnly?: boolean; pages?: string[] }
+  | { type: 'highlights'; highlights: Highlight[]; marker: ReadingMarker | null; drawings: Drawing[]; readOnly?: boolean; pages?: string[]; history?: StoredHistory }
   | { type: 'toggleList' }
   | { type: 'toggleTool' }
   | { type: 'toggleDrawing' }
@@ -146,6 +149,8 @@ export type ViewerToHost =
   /** New drawings and text boxes, or new versions of existing ones (moved, edited, restyled, brought back by undo). */
   | { type: 'saveDrawings'; drawings: Drawing[] }
   | { type: 'deleteDrawings'; ids: string[] }
+  /** The undo history changed: the stored copy follows. */
+  | { type: 'history'; change: HistoryChange }
   | { type: 'drawStyleChanged'; style: Partial<DrawStyle> }
   | { type: 'drawHintShown' }
   | { type: 'textStyleChanged'; style: Partial<TextStyle> }

@@ -2,7 +2,7 @@
 // over the target. A crash at any point leaves either the old or the new file, never a mix.
 // This module and export/ are the only places that write files (see test/unit/writeGuard.test.ts).
 import { randomBytes } from 'node:crypto';
-import { cpSync, existsSync, promises as fs, renameSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, promises as fs, readdirSync, renameSync, rmSync, rmdirSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 
 const RETRYABLE = new Set(['EPERM', 'EBUSY', 'EACCES', 'EAGAIN']);
@@ -88,14 +88,27 @@ export async function touchFile(path: string, time: Date = new Date()): Promise<
   await fs.utimes(path, time, time);
 }
 
+function isEmptyFolder(dir: string): boolean {
+  try {
+    return readdirSync(dir).length === 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Copies a folder to a place where there is none yet (the data an earlier name of this extension
- * left in its own storage folder). The copy is made under a temporary name and renamed when it is
- * complete, so a crash leaves nothing half-made. The source is never changed. Synchronous on
- * purpose: it runs once, before anything reads the storage. True if a copy was made.
+ * Copies a folder to a place where there is none yet, or only an empty one (the data an earlier
+ * name of this extension left in its own storage folder, or the backup after a new install). The
+ * copy is made under a temporary name and renamed when it is complete, so a crash leaves nothing
+ * half-made. The source is never changed, and a folder with nothing in it is not a source.
+ * Synchronous on purpose: it runs once, before anything reads the storage. True if a copy was made.
  */
 export function copyFolderOnce(source: string, target: string): boolean {
-  if (existsSync(target) || !existsSync(source)) return false;
+  if (!existsSync(source) || isEmptyFolder(source)) return false;
+  if (existsSync(target)) {
+    if (!isEmptyFolder(target)) return false;
+    rmdirSync(target);
+  }
   const temp = `${target}.copy-${process.pid}-${randomBytes(4).toString('hex')}`;
   try {
     cpSync(source, temp, { recursive: true });
@@ -109,8 +122,9 @@ export function copyFolderOnce(source: string, target: string): boolean {
 
 /**
  * Brings `folder` into the storage folder `target` from the first of `sources` (storage folders
- * of the extension's earlier ids, newest first) that has it. Nothing happens when the target has
- * the folder already. Returns the source it was copied from.
+ * of the extension's earlier ids, newest first, then the backup) that has it with something in
+ * it. Nothing happens when the target has the folder already, unless it is empty. Returns the
+ * source it was copied from.
  */
 export function copyFolderFromFirst(sources: string[], target: string, folder: string): string | undefined {
   for (const source of sources) {

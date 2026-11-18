@@ -17,8 +17,8 @@
 - **Highlight** text in five colors and write a **note** on any highlight.
 - **Draw** anywhere on a page: pen strokes, lines, arrows, rectangles and ellipses, in any color and three widths.
 - **Type** anywhere on a page: text boxes in any color and size, with bold, italic and underline on any part of the text.
-- **Select** several annotations at once, with a click or a rectangle, to move, copy, paste or delete them together.
-- **Take things back**: an undo button and `Ctrl+Z`, and an eraser that rubs out part of a drawing.
+- **Select** several drawings and text boxes at once, with a click or a rectangle, to move, copy, paste or delete them together. Your highlights are left out, so they are never deleted by accident.
+- **Take things back**: an undo button and `Ctrl+Z` that still work after you closed VS Code, and an eraser that rubs out part of a drawing.
 - **Your annotations stay on their content** when the file changes. They follow the words (or the picture) they are on through your edits. If that content is deleted they are kept and listed, and they return when it does.
 - A side list shows every highlight, note, drawing and text box. Search it, filter it by color, click an entry to jump to it.
 
@@ -36,7 +36,7 @@
 
 **Your files are left alone**
 
-- Reading Room never changes your documents and never creates files in your folders. Everything you add is stored in VS Code's own storage for the extension. The only file it writes elsewhere is a PDF you download, where you choose.
+- Reading Room never changes your documents and never creates files in your folders. Everything you add is stored in VS Code's own storage for the extension, with a [backup](#your-data) in your user folder so that uninstalling does not delete it. The only other file it writes is a PDF you download, where you choose.
 
 ## Contents
 
@@ -90,7 +90,7 @@ One row, in three groups: finding your place on the left, the tools in the middl
 | ☰ | Show or hide the list of annotations: the reading position, highlights with their notes, drawings and text boxes |
 | ↑ n / N ↓ | Previous and next page; type a number and press **Enter** to go to a page |
 | − zoom ▾ + | Zoom out, choose a zoom (Fit width, Fit page, Actual size, 50 %–400 %), zoom in |
-| Pointer | **Select tool**: click an annotation, or drag a rectangle around several, then move, copy, paste or delete them together (see [Selecting, copying and pasting](#selecting-copying-and-pasting)) |
+| Pointer | **Select tool**: click a drawing or a text box, or drag a rectangle around several, then move, copy, paste or delete them together (see [Selecting, copying and pasting](#selecting-copying-and-pasting)) |
 | Highlighter | **Highlight tool**: while it is on, every text selection becomes a highlight. The band under the icon shows the current color |
 | Pencil | **Draw tool**: pen, lines, arrows, rectangles, ellipses and an eraser (see [Drawing](#drawing)). The band shows the current ink |
 | AA | **Text tool**: type anywhere on a page (see [Text boxes](#text-boxes)). The band shows the color new text gets |
@@ -162,18 +162,20 @@ Click the pointer in the toolbar to turn the **select tool** on. Its tray has th
 
 <img src="docs/select-bar.png" alt="The toolbar with the select tool on: the pointer is tinted and outlined. Under it, its tray: the words SELECT MODE, the buttons Select all, Copy, Paste and Delete, the text 4 selected, the Esc key and a Done button on the right" width="870">
 
-- **Click** a highlight, a drawing or a text box to select it. **Drag** from anywhere else to open a rectangle: everything it touches is selected.
-- **Ctrl+click** adds one more to the selection, or takes it out. **Shift+click** selects everything between the last one you clicked and this one, in any direction: to the left or the right, upwards or downwards. (Across pages, it follows the reading order.) Hold `Ctrl` or `Shift` while you drag a rectangle to add what it touches. `Ctrl+A`, or **Select all**, takes everything.
-- **Drag** one of the selected drawings or text boxes and they all move together. You do not have to aim at a line or a letter: anywhere inside the dashed box of a selected drawing will do. Each stays on its own page. Highlights stay on their text.
+- **Click** a drawing or a text box to select it. **Drag** from anywhere else to open a rectangle: every drawing and text box it touches is selected.
+- **Highlights are left out.** The select tool does not take them, by a click, a rectangle or **Select all**, so deleting what you selected never deletes a highlight with it. To select a highlight, click it with no tool on.
+- **Ctrl+click** adds one more to the selection, or takes it out. **Shift+click** selects everything between the last one you clicked and this one, in any direction: to the left or the right, upwards or downwards. (Across pages, it follows the reading order.) Hold `Ctrl` or `Shift` while you drag a rectangle to add what it touches. `Ctrl+A`, or **Select all**, takes every drawing and text box.
+- **Drag** one of the selected drawings or text boxes and they all move together. You do not have to aim at a line or a letter: anywhere inside the dashed box of a selected drawing will do. Each stays on its own page.
 - **Delete** (the key or the button) deletes everything that is selected. One undo brings it all back.
 - **Copy** (`Ctrl+C`), **cut** (`Ctrl+X`) and **paste** (`Ctrl+V`) work on drawings and text boxes. They are pasted on the page in view, at the place they had on their own page. On the page of the original, the copy lands a little down and to the right, so it does not cover it. What is pasted is selected, ready to be dragged where it belongs. Highlights belong to their text, so they cannot be pasted: copying them copies their text.
 - **Esc** lets go of the selection. **Esc** again, **Done** or the pointer turns the tool off.
 
-**With no tool on**, the same works on what you click. Click a drawing, a text box or a highlight to select it, `Ctrl+click` others to add them, drag them by their dashed box, then use `Delete`, `Ctrl+C`, `Ctrl+X` and `Ctrl+V`. The bar of a drawing and of a text box has a **Copy** button too.
+**With no tool on**, the same works on what you click, and this is where highlights can be selected. Click a drawing, a text box or a highlight to select it, `Ctrl+click` others to add them (a highlight joins only when you click it yourself; `Shift+click` takes the drawings and text boxes in between, not the highlights), drag them by their dashed box, then use `Delete`, `Ctrl+C`, `Ctrl+X` and `Ctrl+V`. The bar of a drawing and of a text box has a **Copy** button too.
 
 ## Deleting and undoing
 
 - **Undo**: the ↶ button in the toolbar, or `Ctrl+Z`, takes back the last change to your highlights, notes, drawings, text boxes and reading marker. `Ctrl+Y` or `Ctrl+Shift+Z` redoes it. While you type in a note or a text box, undo takes back the typing instead.
+- **Undo lasts.** What you did is kept with your annotations, so you can still take it back after you closed the tab or VS Code, days later. Each document keeps its last 500 changes.
 - **Delete** or **Backspace** deletes whatever is selected: one thing you clicked, or everything the select tool took.
 - **Eraser** (in the draw tool's tray): rubs out only the part of a drawing under its ring. It leaves highlights and text boxes alone.
 - Deleting everything of one kind: the 🗑 next to **Drawings** or **Text boxes** in the ☰ list, or the commands **Delete All Highlights / Drawings / Text Boxes for This File**. They ask first, and undo brings everything back.
@@ -249,7 +251,7 @@ The **◐** button in the toolbar switches all pages to a dark theme, and back. 
 | `Ctrl+C`, `Ctrl+X` | Copy or cut what is selected (highlights: their text) | Something is selected |
 | `Ctrl+V` | Paste copied drawings and text boxes on the page in view | Reading Room is focused |
 | `Ctrl+click`, `Shift+click` | Add to the selection or take out of it; select a range | Over an annotation |
-| `Ctrl+A` | Select every highlight, drawing and text box | The select tool is on |
+| `Ctrl+A` | Select every drawing and text box | The select tool is on |
 | `Enter` | Edit what is selected: type in the text box, write the highlight's note | A text box or a highlight is selected |
 | `Ctrl+Enter` | Save the note; stop typing in a text box | Writing a note or typing in a text box |
 | `Esc` | Back out of one thing at a time: what is in progress, an open menu or popup, the selected entry of the list, what the select tool selected, the tool that is on | Reading Room is focused |
@@ -276,6 +278,7 @@ All commands are in the Command Palette: type **Reading Room**. Commands without
 | `readingRoom.allowRemoteImages` | `true` | Download `http(s)` images and show them on the pages |
 | `readingRoom.cacheDays` | `7` | Days the pages of a Markdown or text file are kept after it was last opened, so it reopens instantly. `0` turns the cache off |
 | `readingRoom.textSnapshots` | `true` | Keep a compressed copy of a document's text, so annotations can follow it exactly through changes. `false` deletes the copies; annotations are then found by searching for their text |
+| `readingRoom.backup.enabled` | `true` | Keep a second copy of your annotations outside VS Code's storage, so they come back when the extension is installed again (see [Your data](#your-data)). `false` stops the copying and leaves the folder as it is |
 | `readingRoom.chromiumPath` | _(empty)_ | Path to a Chrome, Edge or Chromium executable; empty means detect one |
 | `readingRoom.chromiumDownload` | `ask` | `ask`: offer to download Chromium when no browser is found; `never`: show an error instead |
 
@@ -285,10 +288,21 @@ The settings are the same in every workspace: workspace settings cannot change t
 
 Highlights, notes, drawings, text boxes, reading positions and your own sounds live in VS Code's storage for this extension, never in your folders. **Reading Room: Reveal Annotation Data Folder** opens it.
 
-- **Back up**: copy the `highlights` folder (and `sounds` for your own sounds). To restore, copy them back while VS Code is closed.
+- **Backup**: VS Code deletes an extension's storage when the extension is uninstalled. So Reading Room keeps a second copy of your annotations, and of their undo history, in a folder of its own outside VS Code. When it is installed again and finds no annotations, it brings them back from there and tells you. **Reading Room: Reveal Backup Folder** opens the folder:
+
+  | OS | Backup folder |
+  | --- | --- |
+  | Windows | `%APPDATA%\Reading Room\backup` |
+  | macOS | `~/Library/Application Support/Reading Room/backup` |
+  | Linux | `~/.local/share/reading-room/backup` |
+  - The copy follows every change, deletions too. It is a second copy, not a history of older versions.
+  - It is on this computer only, and shared by all your VS Code profiles: a profile without annotations starts with the ones in the backup.
+  - Your own sounds are not in it. After a new install, add them again.
+  - To remove your annotations for good after uninstalling, delete that folder. The setting `readingRoom.backup.enabled` turns the backup off.
+- **Another computer**: copy the `highlights` folder (and `sounds` for your own sounds) into the same place there while VS Code is closed.
 - **Renames**: when you rename or move a document inside VS Code, its annotations follow it. If you renamed it elsewhere, open the new file and run **Reading Room: Reattach Annotations from Another File…**.
 - **Start over for one file**: the **Delete All …** commands (undo brings everything back).
-- Annotations are kept per VS Code profile, and stay when the extension is uninstalled.
+- Annotations are kept per VS Code profile. Uninstalling the extension deletes them from VS Code's storage; the backup is what brings them back.
 - For files you annotated, a compressed copy of their text is kept there too (see `readingRoom.textSnapshots`), and the pages of Markdown and text files are cached for a few days (**Reading Room: Clear Cached Pages** deletes them).
 
 ## What Markdown and text files look like
@@ -317,7 +331,6 @@ Highlights, notes, drawings, text boxes, reading positions and your own sounds l
 - Drawings on a formula or a diagram follow the nearest line of text or the diagram as a whole, not single symbols.
 - A text box has one font, size, color and alignment. In downloads, characters outside Western European languages, and emoji, appear as "?" in text boxes (the download's message says how many).
 - What the eraser leaves of a rectangle or an ellipse is a plain stroke.
-- The undo history lasts while the tab is open.
 - Reading sounds play only while a Reading Room tab is open.
 - Renames done outside VS Code are not detected (use _Reattach Annotations_).
 

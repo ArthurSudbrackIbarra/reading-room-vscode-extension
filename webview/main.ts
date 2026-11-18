@@ -10,6 +10,7 @@ import { PageLayers } from './pageLayers';
 import { FileLinkLayer } from './fileLinks';
 import { Toolbar } from './toolbar';
 import { Banner, DrawingPopover, HighlightPopover, MOD_KEY, MarkerPopover, NoteTooltip, SelectionBar, Sidebar, StatusOverlay, TextPopover, Toast } from './panels';
+import { MAX_HISTORY_STEPS } from '../src/shared/history';
 import { UndoStack, type EditOp, type HighlightChanges } from './undo';
 import { ReadingSounds, canPlaySounds, type SoundSource } from './sounds';
 import { DrawingController, type DrawingMode } from './drawings';
@@ -116,7 +117,11 @@ class App {
   private readonly drawingPopover: DrawingPopover;
   private readonly textPopover: TextPopover;
   private readonly colorPicker = new ColorPicker();
-  private readonly undoStack = new UndoStack(500, () => this.showUndo());
+  private readonly undoStack = new UndoStack(MAX_HISTORY_STEPS, (change) => {
+    this.showUndo();
+    // The host keeps the history on disk, so it is still there when this tab is opened again.
+    if (change && !this.readOnly) post({ type: 'history', change });
+  });
   private readonly sounds?: ReadingSounds;
   /** Show how drawing works the first time draw mode turns on (once per VS Code session). */
   private drawHint = false;
@@ -469,6 +474,7 @@ class App {
         this.anchoring.keepSnapshots = init.keepSnapshots !== false;
         this.anchoring.setStoredPages(init.pages);
         this.setReadOnly(init.readOnly === true);
+        this.undoStack.load(init.readOnly ? undefined : init.history);
         this.showColor(init.color);
         this.toolbar.setFullView(init.fullView);
         this.setTool(init.toolActive, false);
@@ -536,7 +542,7 @@ class App {
         this.drawings.setDrawings(msg.drawings ?? []);
         this.anchoring.setStoredPages(msg.pages);
         this.setReadOnly(msg.readOnly === true);
-        this.undoStack.clear();
+        this.undoStack.load(msg.readOnly ? undefined : msg.history);
         this.anchoring.requestRun();
         break;
       case 'snapshots':
@@ -768,21 +774,27 @@ class App {
     };
     const run = async (o: EditOp): Promise<void> => {
       switch (o.kind) {
+        // A step from an earlier session may be about something that is gone or back by other
+        // means (another window, a file put back): such a part is skipped, the rest is applied.
         case 'create':
+          if (this.highlights.get(o.highlight.id)) break;
           post({ type: 'createHighlight', highlight: o.highlight });
           this.highlights.add(o.highlight);
           break;
         case 'replace':
+          if (!this.highlights.get(o.after.id)) break;
           if (this.popover.highlightId === o.after.id) this.popover.hide(false);
           post({ type: 'replaceHighlight', highlight: o.after });
           this.highlights.replace(o.after);
           break;
         case 'delete':
+          if (!this.highlights.get(o.highlight.id)) break;
           if (this.popover.highlightId === o.highlight.id) this.popover.hide(false);
           this.highlights.remove(o.highlight.id);
           post({ type: 'deleteHighlight', id: o.highlight.id });
           break;
         case 'update':
+          if (!this.highlights.get(o.id)) break;
           if (o.after.color) this.highlights.setColor(o.id, o.after.color);
           if (o.after.note !== undefined) this.highlights.setNote(o.id, o.after.note);
           post({ type: 'updateHighlight', id: o.id, ...o.after });
@@ -795,6 +807,7 @@ class App {
         case 'updateDrawing': {
           // Undo and redo work on drawings as they are stored; where they are shown is resolved again.
           const drawing = o.kind === 'createDrawing' ? o.drawing : o.after;
+          if (o.kind === 'updateDrawing' && !this.drawings.storedOf(drawing.id)) break;
           if (deleted.length > 0) flush();
           this.drawings.restore(drawing);
           saved.push(drawing);
