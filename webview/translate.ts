@@ -2,7 +2,8 @@
 // result), and the popover that shows a translation while it is made and when it is there.
 //   [Japanese (detected) ▾] → [English ▾]                    [copy] [×]
 //   In this study, we propose an automatic summary method of Japanese documents…
-//   Translated on this computer                           [Save as note]
+//                                                         [Save as note]
+// (Between two languages that are not English, the last row also says that it went by way of English.)
 // The translating itself is the host's (src/translate/): the viewer sends the text and shows what
 // comes back.
 import { AUTO, languageName, type TranslateLanguage, type TranslationUpdate } from '../src/shared/translate';
@@ -168,9 +169,10 @@ export class TranslationPopover {
       this.showText(update.text, update.to, false);
       this.translated = update.text;
       this.copy.disabled = false;
-      this.footnote.textContent = update.pivot ? 'Translated on this computer, by way of English' : 'Translated on this computer';
+      // Said only when it matters for how good the translation is: it was made in two steps.
+      this.footnote.textContent = update.pivot ? 'Translated by way of English' : '';
       this.note.hidden = !this.noteAllowed;
-      this.footer.hidden = false;
+      this.footer.hidden = !this.noteAllowed && !update.pivot;
     } else {
       this.statusRow.hidden = true;
       this.text.hidden = true;

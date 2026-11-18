@@ -1853,15 +1853,14 @@ body.mpv-select-mode .mpv-viewer-container {
 }
 
 /* The bar next to a selection: as wide as what it holds (the general limit of a popover cut its last
-   button off at the edge), with as much room after its last button as before the word it starts
-   with. In a panel narrower than that, it wraps. */
+   button off at the edge). Its last button stands as far from the end of the bar as from the line
+   before it: 6 px on either side. In a panel narrower than the bar, it wraps. */
 .mpv-selection-bar {
   max-width: calc(100vw - 8px);
 }
 
 .mpv-selection-bar .mpv-popover-row {
   flex-wrap: wrap;
-  padding-right: 6px;
 }
 
 .mpv-popover-label {
