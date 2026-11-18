@@ -7,8 +7,9 @@
 //   TEXT MODE  [12 ▾] [B] [I] [U] [≡ ≡ ≡ ≡] [● ▾]                               [Esc] [✓ Done]
 //   SELECT MODE  [Select all] [Copy] [Paste] [Delete] │ Drag to select several… [Esc] [✓ Done]
 //   MARKER MODE  Click the line where you stopped reading.                      [Esc] [Cancel]
-// A group where exactly one is picked sits in a well; toggles (bold, italic, underline) stand
-// alone. With the eraser picked, the three widths are its three sizes and the ink button rests.
+// Every tool and option stands in its own square, in groups: the drawing tools, the widths, the
+// toggles (bold, italic, underline), the alignment. With the eraser picked, the three widths are
+// its three sizes and the ink button rests.
 // The controls of the color, widths and text style are shared with the popovers.
 import type { Ink } from '../src/shared/colors';
 import { ALIGN_NAMES, DRAWING_TOOLS, INK_WIDTHS, TEXT_ALIGNS, TEXT_SIZES, WIDTH_NAMES, type DrawTool, type InkWidth, type TextAlign, type TextStyle } from '../src/shared/drawings';
@@ -55,13 +56,15 @@ export function bindRadios<T>(entries: [T, HTMLButtonElement][], pick: (value: T
   });
 }
 
-/** Marks the checked radio. */
-export function checkRadio<T>(buttons: Map<T, HTMLButtonElement>, value: T, className = 'mpv-active'): void {
+/** Marks the checked radio. With no value (several things that do not share one) none is checked, and Tab goes to the first. */
+export function checkRadio<T>(buttons: Map<T, HTMLButtonElement>, value: T | undefined, className = 'mpv-active'): void {
+  let first = true;
   for (const [v, button] of buttons) {
     const on = v === value;
     button.setAttribute('aria-checked', String(on));
-    button.tabIndex = on ? 0 : -1;
+    button.tabIndex = on || (value === undefined && first) ? 0 : -1;
     button.classList.toggle(className, on);
+    first = false;
   }
 }
 
@@ -84,14 +87,15 @@ const ERASER_SIZE_NAMES: Record<InkWidth, string> = { thin: 'Small', medium: 'Me
 
 export interface WidthRadios {
   group: HTMLElement;
-  set(width: InkWidth): void;
+  /** Checks a width, or none (several drawings of different widths). */
+  set(width: InkWidth | undefined): void;
   /** What the three radios pick: the width of a stroke (lines), or the size of the eraser (circles). */
   setKind(kind: 'stroke' | 'eraser'): void;
 }
 
-/** Stroke width radios in a well (lines of 1, 2 and 4 px); for the eraser, its three sizes. */
+/** Stroke width radios, each in its square (lines of 1, 2 and 4 px); for the eraser, its three sizes. */
 export function widthRadios(onPick: (width: InkWidth) => void): WidthRadios {
-  const group = h('div', { class: 'mpv-seg', role: 'radiogroup', 'aria-label': 'Stroke width' });
+  const group = h('div', { class: 'mpv-squares', role: 'radiogroup', 'aria-label': 'Stroke width' });
   const buttons = new Map<InkWidth, HTMLButtonElement>();
   for (const width of INK_WIDTHS) {
     const button = radio(`${WIDTH_NAMES[width]} stroke`, width, widthIcon(width));
@@ -120,11 +124,12 @@ export function widthRadios(onPick: (width: InkWidth) => void): WidthRadios {
 export interface TextStyleControls {
   /** The font size: a button that opens the list of sizes. */
   size: HTMLElement;
-  /** Bold, italic, underline: toggles, so they stand alone. */
+  /** Bold, italic, underline: three toggles. */
   format: HTMLElement;
-  /** The alignment: one of four, so it sits in a well. */
+  /** The alignment: one of four. */
   align: HTMLElement;
-  set(style: TextStyle): void;
+  /** Shows a style. `mixed`: what several text boxes do not share is shown as no value. */
+  set(style: TextStyle, mixed?: { size?: boolean; align?: boolean }): void;
 }
 
 /**
@@ -147,7 +152,7 @@ export function textStyleControls(onChange: (patch: Partial<TextStyle>) => void,
     { key: 'italic', label: 'Italic (Ctrl+I)', icon: italicIcon() },
     { key: 'underline', label: 'Underline (Ctrl+U)', icon: underlineIcon() },
   ];
-  const format = h('div', { class: 'mpv-group', role: 'group', 'aria-label': 'Text format' });
+  const format = h('div', { class: 'mpv-squares', role: 'group', 'aria-label': 'Text format' });
   const toggleButtons = new Map<'bold' | 'italic' | 'underline', HTMLButtonElement>();
   let current: TextStyle | undefined;
   for (const t of toggles) {
@@ -158,7 +163,7 @@ export function textStyleControls(onChange: (patch: Partial<TextStyle>) => void,
     format.append(button);
   }
 
-  const align = h('div', { class: 'mpv-seg', role: 'radiogroup', 'aria-label': 'Alignment' });
+  const align = h('div', { class: 'mpv-squares', role: 'radiogroup', 'aria-label': 'Alignment' });
   const alignButtons = new Map<TextAlign, HTMLButtonElement>();
   for (const a of TEXT_ALIGNS) {
     const button = radio(ALIGN_NAMES[a], a, alignIcon(a));
@@ -171,14 +176,15 @@ export function textStyleControls(onChange: (patch: Partial<TextStyle>) => void,
     size: size.element,
     format,
     align,
-    set(style) {
+    set(style, mixed) {
       current = style;
-      size.setValue(style.size, String(style.size));
+      if (mixed?.size) size.setMixed();
+      else size.setValue(style.size, String(style.size));
       for (const [key, button] of toggleButtons) {
         button.setAttribute('aria-pressed', String(style[key]));
         button.classList.toggle('mpv-active', style[key]);
       }
-      checkRadio(alignButtons, style.align);
+      checkRadio(alignButtons, mixed?.align ? undefined : style.align);
     },
   };
 }
@@ -348,7 +354,7 @@ export class DrawingBar extends Tray {
   private readonly widths: WidthRadios;
 
   constructor(actions: DrawingBarActions) {
-    const toolGroup = h('div', { class: 'mpv-seg', role: 'radiogroup', 'aria-label': 'Drawing tool' });
+    const toolGroup = h('div', { class: 'mpv-squares', role: 'radiogroup', 'aria-label': 'Drawing tool' });
     const tools = new Map<DrawTool, HTMLButtonElement>();
     for (const tool of [...DRAWING_TOOLS, 'eraser'] as DrawTool[]) {
       const button = radio(TOOL_TITLES[tool], tool, tool === 'eraser' ? rubberIcon() : toolIcon(tool), { 'data-tool': tool });

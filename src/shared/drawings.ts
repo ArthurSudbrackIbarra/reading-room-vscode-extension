@@ -213,6 +213,25 @@ export function textStyleOf(text: StyledText): TextStyle {
   return { size: text.size, align: text.align, color: text.color, ...rangeStyle(text.text, text.spans, 0, text.text.length) };
 }
 
+/**
+ * The style of several text boxes as one popover shows it: the size and the alignment they all
+ * have (`mixed` says which they do not share: then the first box's is given), bold and so on when
+ * all the text of all of them is, and the color of the first.
+ */
+export function commonTextStyle(texts: StyledText[]): { style: TextStyle; mixed: { size: boolean; align: boolean } } {
+  const styles = texts.map(textStyleOf);
+  const first = styles[0] ?? DEFAULT_TEXT_STYLE;
+  return {
+    style: {
+      ...first,
+      bold: styles.every((s) => s.bold),
+      italic: styles.every((s) => s.italic),
+      underline: styles.every((s) => s.underline),
+    },
+    mixed: { size: styles.some((s) => s.size !== first.size), align: styles.some((s) => s.align !== first.align) },
+  };
+}
+
 /** A text box with a style change applied: bold, italic and underline go to all of its text. */
 export function applyTextStyle<T extends StyledText>(text: T, patch: Partial<TextStyle>): T {
   const next = { ...text };

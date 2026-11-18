@@ -120,8 +120,10 @@ export interface DrawingEvents {
   editRequested(id: string, clientX: number, clientY: number): void;
   /**
    * The selection changed. `id`: the drawing or text box that is selected alone, if so. `popover`:
-   * one thing is selected, by a click: show its popover (`at`: where the click was, in client
-   * coordinates, when it was on a highlight).
+   * the selection is settled (a click, the end of a drag, Select all): what is selected may show
+   * its popover (`at`: where the click was, in client coordinates, when it was on a highlight).
+   * False while it is still changing (a drag around annotations, a move), and when the selection
+   * only lost something.
    */
   selectionChanged(id: string | undefined, popover: boolean, at?: [number, number]): void;
   /** Drawings were added, removed or changed (for the list). */
@@ -814,8 +816,8 @@ export class DrawingController {
   }
 
   /**
-   * Selects these drawings, text boxes and highlights, and nothing else. `popover`: when that is
-   * one thing, show its popover (`at`: where the click was, in client coordinates).
+   * Selects these drawings, text boxes and highlights, and nothing else. `popover`: what is
+   * selected may show its popover (`at`: where the click was, in client coordinates).
    */
   setSelection(drawings: Iterable<string>, highlights: Iterable<string> = [], popover = false, at?: [number, number]): void {
     const next = new Set([...drawings].filter((id) => this.drawings.has(id)));
@@ -835,7 +837,7 @@ export class DrawingController {
     if (changed || alone !== this.selectedId) for (const page of pages) this.redraw(page);
     this.highlights.setSelected(nextHighlights);
     if (this.anchor && !this.isPicked(this.anchor)) this.anchor = undefined;
-    this.events.selectionChanged(this.selectedId, popover && this.selectionCount === 1, at);
+    this.events.selectionChanged(this.selectedId, popover && this.selectionCount > 0, at);
   }
 
   clearSelection(): void {
@@ -848,7 +850,7 @@ export class DrawingController {
    * one at a time, by a click on it with no tool on.
    */
   selectAll(): void {
-    this.setSelection(this.drawings.keys(), []);
+    this.setSelection(this.drawings.keys(), [], this.modeValue !== 'text');
   }
 
   /** A highlight was removed (or is not shown any more): it leaves the selection. */
@@ -898,7 +900,7 @@ export class DrawingController {
       const range = ((from ? this.between(from, ref) : undefined) ?? rangeBetween(this.order(), refKey, from ? refKey(from) : undefined, refKey(ref))).filter(
         (item) => item.kind === 'drawing' || ends.has(refKey(item)),
       );
-      this.setSelection(ids(range, 'drawing'), ids(range, 'highlight'));
+      this.setSelection(ids(range, 'drawing'), ids(range, 'highlight'), this.modeValue !== 'text');
       this.anchor = from && this.isPicked(from) ? from : ref;
       return;
     }
@@ -907,7 +909,8 @@ export class DrawingController {
       const highlights = new Set(this.pickedHighlights);
       const set = ref.kind === 'drawing' ? drawings : highlights;
       if (!set.delete(ref.id)) set.add(ref.id);
-      this.setSelection(drawings, highlights);
+      // (Not in text mode, which has the text tray for what is selected.)
+      this.setSelection(drawings, highlights, this.modeValue !== 'text');
       if (this.isPicked(ref)) this.anchor = ref;
       return;
     }
@@ -1979,6 +1982,8 @@ export class DrawingController {
       this.marqueeSelect(g);
       // The first one it took is where a Shift+click continues from.
       this.anchor = this.selectionInOrder()[0];
+      // The drag is over: what it took may show its popover.
+      if (this.selectionCount > 0) this.events.selectionChanged(this.selectedId, true);
       return;
     }
     // A click on nothing the tool takes (the page, its text, a highlight): nothing is selected.
@@ -2194,8 +2199,8 @@ export class DrawingController {
       after.push(structuredClone(to));
     }
     for (const page of pages) this.redraw(page);
-    // What moved stays selected; one thing alone gets its popover back (not in text mode, which has the text tray).
-    this.events.selectionChanged(this.selectedId, this.modeValue !== 'text' && this.selectionCount === 1);
+    // What moved stays selected, and gets its popover back (not in text mode, which has the text tray).
+    this.events.selectionChanged(this.selectedId, this.modeValue !== 'text' && this.selectionCount > 0);
     this.events.moved(before, after);
     this.events.changed();
   }

@@ -10,6 +10,7 @@ import {
   sanitizeDrawing,
   sanitizeTextStyle,
   textStyleOf,
+  commonTextStyle,
 } from '../../src/shared/drawings';
 import { makeDrawing as make, makeText } from './helpers';
 
@@ -233,6 +234,21 @@ describe('text boxes', () => {
     expect(bold.spans).toEqual([{ start: 0, end: 7, bold: true }]);
     expect(textStyleOf(bold)).toMatchObject({ bold: true, size: 20 });
     expect(applyTextStyle(bold, { bold: false })).not.toHaveProperty('spans');
+  });
+
+  it('show the style several boxes have in common', () => {
+    const plain = makeText({ id: 't-a', text: 'one' });
+    const bold = applyTextStyle(makeText({ id: 't-b', text: 'two' }), { bold: true });
+    const big = applyTextStyle(makeText({ id: 't-c', text: 'three' }), { bold: true, size: 20, align: 'center' });
+    // Alike in everything: nothing is mixed.
+    expect(commonTextStyle([plain, plain])).toEqual({ style: textStyleOf(plain), mixed: { size: false, align: false } });
+    // Bold only when all of them are; the size and the alignment they do not share are mixed (the first box's is given).
+    expect(commonTextStyle([bold, big]).style).toMatchObject({ bold: true, size: 12, align: 'left' });
+    expect(commonTextStyle([bold, big]).mixed).toEqual({ size: true, align: true });
+    expect(commonTextStyle([plain, bold]).style.bold).toBe(false);
+    expect(commonTextStyle([plain, bold]).mixed).toEqual({ size: false, align: false });
+    // The color is the first box's.
+    expect(commonTextStyle([applyTextStyle(plain, { color: 'red' }), bold]).style.color).toBe('red');
   });
 
   it('fill in a missing style with the defaults, and refuse a wrong color', () => {

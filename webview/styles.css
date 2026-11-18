@@ -410,9 +410,72 @@ body[data-page-theme='dark'] .mpv-ink {
   color: var(--mpv-tool-fg);
 }
 
+/* ---------- Squares ---------- */
+
+/* Tools and options that stand next to each other, each in its own square: the four tools of the
+   toolbar and, in the trays and the popovers, the drawing tools, the stroke widths, bold, italic
+   and underline, and the alignment. A square is a button with the line and the fill of a field;
+   the one that is on is tinted and ringed like any button that is on. */
+.mpv-squares {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.mpv-squares .mpv-btn {
+  border-color: var(--mpv-field-line);
+  border-radius: var(--mpv-r-field);
+  background: var(--mpv-field-bg);
+}
+
+.mpv-squares .mpv-btn:hover {
+  border-color: var(--mpv-fg-2);
+  background: var(--mpv-hover);
+}
+
+.mpv-squares .mpv-btn:active {
+  background: var(--mpv-pressed);
+}
+
+.mpv-squares .mpv-btn.mpv-active {
+  border-color: var(--mpv-accent-line);
+  background: var(--mpv-accent-soft);
+}
+
+/* The tool switch: the tool that is on gets a stronger tint than a picked option. */
+.mpv-tools .mpv-btn.mpv-active {
+  border-color: var(--mpv-tool-line);
+  background: var(--mpv-tool-bg);
+  color: var(--mpv-tool-fg);
+  outline: var(--mpv-chip-ring);
+  outline-offset: 1px;
+}
+
+/* A tool that is not made yet (translate) rests: dimmed, and it does not answer the pointer. It
+   keeps its tooltip, which says so. */
+.mpv-squares .mpv-btn[aria-disabled='true'],
+.mpv-squares .mpv-btn[aria-disabled='true']:hover,
+.mpv-squares .mpv-btn[aria-disabled='true']:active {
+  border-color: var(--mpv-field-line);
+  outline: 0;
+  background: var(--mpv-field-bg);
+  color: var(--mpv-icon);
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* A mini panel: the squares stand closer, and a long group (the six drawing tools) can wrap. */
+body[data-size='mini'] .mpv-squares {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
 /* ---------- Well ---------- */
 
-/* A radio group: exactly one segment is picked. 28 px high: 1 px border, 1 px padding, 24 px segments. */
+/* A radio group of segments with words on them (the kinds of sound): exactly one is picked.
+   28 px high: 1 px border, 1 px padding, 24 px segments. */
 .mpv-seg {
   display: inline-flex;
   flex: 0 0 auto;
@@ -438,15 +501,6 @@ body[data-page-theme='dark'] .mpv-ink {
 .mpv-seg-wide .mpv-btn {
   flex: 1 1 0;
   font-size: var(--mpv-fs-2);
-}
-
-/* The tool switch: the tool that is on gets a stronger tint than a picked option. */
-.mpv-seg-tools .mpv-btn.mpv-active {
-  background: var(--mpv-tool-bg);
-  border-color: var(--mpv-tool-line);
-  color: var(--mpv-tool-fg);
-  outline: var(--mpv-chip-ring);
-  outline-offset: 1px;
 }
 
 /* ---------- Field, stepper, menu button ---------- */
@@ -573,10 +627,15 @@ body[data-page-theme='dark'] .mpv-ink {
   color: var(--mpv-fg-2);
 }
 
-/* The zoom: its value is a button that opens the zoom menu. */
+/* The zoom: its value is a button that opens the zoom menu. The value and its chevron are one
+   group between − and +, and the room on its two sides must look the same. Measured from ink to
+   ink it was (13 px before the first letter, 12 px after the chevron), but the chevron is a
+   light, pointed shape next to heavy text, so its side looked emptier. The group is therefore
+   set 2 px closer to +: less padding on the right than on the left. */
 button.mpv-step-value {
   gap: 6px;
-  min-width: 74px;
+  min-width: 72px;
+  padding: 0 3px 0 5px;
   cursor: pointer;
 }
 
@@ -1393,7 +1452,7 @@ body.mpv-sidebar-open .mpv-viewer-container {
   flex-direction: column;
   gap: 6px;
   /* Set apart from the sentence above: that one says what the list is, these say what to do. */
-  margin: 8px 0 0;
+  margin: 12px 0 0;
   padding: 0;
   color: var(--mpv-fg-2);
   font-size: var(--mpv-fs-2);
@@ -1778,6 +1837,13 @@ body.mpv-select-mode .mpv-viewer-container {
 /* In a panel too narrow for a row, it wraps (never wider than the viewer). */
 .mpv-popover-row.mpv-wraps {
   flex-wrap: wrap;
+}
+
+/* The popovers of a drawing and of a text box hold the widest rows (color, widths, what it follows,
+   copy, delete; color, size, bold/italic/underline, alignment): wide enough for each in one line,
+   so nothing drops to a line of its own. In a panel narrower than that, the row wraps. */
+.mpv-drawing-popover {
+  max-width: min(360px, calc(100vw - 8px));
 }
 
 .mpv-popover-label {
@@ -2613,7 +2679,10 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
 
 /* ---------- Color picker ---------- */
 
+/* Above the popover it may hang from: the picker opens under the color button of a popover, over
+   the rows of the popover that come after that button. (Below the menus.) */
 .mpv-color-picker {
+  z-index: 1002;
   gap: 8px;
   width: 212px;
   max-width: calc(100vw - 8px);
@@ -2702,6 +2771,11 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
   flex: 1 1 0;
   min-width: 0;
   text-transform: uppercase;
+}
+
+/* While the eyedropper is out, the picker steps out of the way: what is under it can be picked. */
+.mpv-color-picker.mpv-sampling {
+  visibility: hidden;
 }
 
 /* ---------- Text boxes ---------- */

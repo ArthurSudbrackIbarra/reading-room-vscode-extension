@@ -249,6 +249,14 @@ export class MenuButton<T> {
     this.element.setAttribute('aria-label', this.element.title);
   }
 
+  /** Shows that there is no one value (several things with different ones): a dash, and no item of the menu is checked. */
+  setMixed(): void {
+    this.value = undefined;
+    this.text.textContent = '–';
+    this.element.title = `${this.options.label}: mixed`;
+    this.element.setAttribute('aria-label', this.element.title);
+  }
+
   private toggle(keyboard: boolean): void {
     const { options } = this;
     const parts: MenuPart[] = options.options.map((o) => ({

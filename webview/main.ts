@@ -9,7 +9,21 @@ import { DarkPages } from './darkPages';
 import { PageLayers } from './pageLayers';
 import { FileLinkLayer } from './fileLinks';
 import { Toolbar } from './toolbar';
-import { Banner, DrawingPopover, HighlightPopover, MOD_KEY, MarkerPopover, NoteTooltip, SelectionBar, Sidebar, StatusOverlay, TextPopover, Toast } from './panels';
+import {
+  Banner,
+  DrawingPopover,
+  HighlightPopover,
+  MOD_KEY,
+  MarkerPopover,
+  NoteTooltip,
+  SelectionBar,
+  Sidebar,
+  StatusOverlay,
+  TextPopover,
+  Toast,
+  type Attachment,
+  type InkView,
+} from './panels';
 import { MAX_HISTORY_STEPS } from '../src/shared/history';
 import { UndoStack, type EditOp, type HighlightChanges } from './undo';
 import { ReadingSounds, canPlaySounds, type SoundSource } from './sounds';
@@ -81,6 +95,12 @@ function formatLabel(patch: Partial<TextStyle>): string {
   if (patch.italic !== undefined) return patch.italic ? 'Italicize text' : 'Remove italics';
   if (patch.underline !== undefined) return patch.underline ? 'Underline text' : 'Remove underline';
   return 'Format text box';
+}
+
+/** The label of an undo step that changed several drawings or text boxes at once: "Bold text (3 text boxes)". */
+function groupLabel(label: string, changed: Drawing[]): string {
+  if (changed.length < 2) return label;
+  return `${label} (${changed.length} ${isTextDrawing(changed[0]) ? 'text boxes' : 'drawings'})`;
 }
 
 /** "Draw a rectangle", "Draw an arrow", "Draw freehand": what an undo step of a new drawing undoes. */
@@ -360,20 +380,21 @@ class App {
       log: (level, message) => log(level, message),
       report: (result) => this.reportRun(result),
     });
+    // A popover opened for several drawings (or several text boxes) names the first: what is chosen goes to all of them.
     this.drawingPopover = new DrawingPopover({
       pickColor: (id, anchor) => this.pickDrawingColor(id, anchor),
-      setWidth: (id, width) => this.changeDrawing(id, { width }, 'Change drawing width'),
-      attach: (id, to) => this.attachDrawing(id, to),
+      setWidth: (id, width) => this.changeDrawings(this.popoverTargets(id), { width }, 'Change drawing width'),
+      attach: (id, to) => this.attachDrawings(this.popoverTargets(id), to),
       copy: () => this.copySelection(),
-      remove: (id) => this.removeDrawing(id),
+      remove: (id) => this.removeFromPopover(id),
     });
     this.textPopover = new TextPopover({
-      setStyle: (id, patch) => this.changeDrawing(id, patch, formatLabel(patch)),
-      attach: (id, to) => this.attachDrawing(id, to),
+      setStyle: (id, patch) => this.changeDrawings(this.popoverTargets(id), patch, formatLabel(patch)),
+      attach: (id, to) => this.attachDrawings(this.popoverTargets(id), to),
       pickColor: (id, anchor) => this.pickDrawingColor(id, anchor),
       edit: (id) => this.editText(id),
       copy: () => this.copySelection(),
-      remove: (id) => this.removeDrawing(id),
+      remove: (id) => this.removeFromPopover(id),
     });
     this.popover = new HighlightPopover({
       setColor: (id, color) => this.changeHighlight(id, { color }, 'Change highlight color'),
@@ -904,17 +925,32 @@ class App {
     return mode === 'block' ? 'image' : mode === 'page' ? 'page' : 'text';
   }
 
-  /** The reader chose what a drawing or text box follows (from its menu). One undo step. */
-  private attachDrawing(id: string, to: 'text' | 'image' | 'page'): void {
-    const shown = this.drawings.get(id);
-    if (!shown) return;
-    void this.commitDrawings(isTextDrawing(shown) ? 'Attach text box' : 'Attach drawing', [{ ...shown, updatedAt: new Date().toISOString() }], [], { prefer: to }).then(() => {
-      const now = this.attachmentOf(id);
+  /** The reader chose what a drawing or text box, or several of them, follow (from the menu of their popover). One undo step. */
+  private attachDrawings(ids: string[], to: Attachment): void {
+    const shown = ids.map((id) => this.drawings.get(id)).filter((d): d is Drawing => d !== undefined);
+    if (shown.length === 0) return;
+    const updatedAt = new Date().toISOString();
+    const label = groupLabel(isTextDrawing(shown[0]) ? 'Attach text box' : 'Attach drawing', shown);
+    void this.commitDrawings(
+      label,
+      shown.map((d) => ({ ...d, updatedAt })),
+      [],
+      { prefer: to },
+    ).then(() => {
+      const now = this.attachmentOf(shown[0].id);
       this.drawingPopover.setAttached(now);
       this.textPopover.setAttached(now);
       // An image was asked for and there is none under it: say what it follows instead.
-      if (now !== to)
+      const missed = shown.filter((d) => this.attachmentOf(d.id) !== to).length;
+      if (missed === 0) return;
+      if (shown.length === 1) {
         this.toast.show(to === 'image' ? 'There is no image here to attach it to. It follows the text.' : 'There is no text here to attach it to. It stays on the page.');
+      } else {
+        const some = missed === shown.length ? 'None of them has' : `${missed} of them ${missed === 1 ? 'has' : 'have'}`;
+        this.toast.show(
+          to === 'image' ? `${some} an image under it to attach to: there, they follow the text.` : `${some} text under it to attach to: there, they stay on the page.`,
+        );
+      }
     });
   }
 
@@ -1044,18 +1080,79 @@ class App {
 
   /** Changes a drawing's ink or width, or a text box's style (one undo step). */
   private changeDrawing(id: string, changes: Partial<Pick<InkDrawing, 'color' | 'width'>> | Partial<TextStyle>, label: string, from?: Drawing): void {
-    const before = from ?? this.drawings.get(id);
-    if (!before) return;
-    // (Bold, italic and underline of a text box go to all of its text.)
-    const after: Drawing = isTextDrawing(before) ? this.drawings.fitText(applyTextStyle(before, changes as Partial<TextStyle>)) : ({ ...before, ...changes } as Drawing);
-    const { updatedAt: _a, ...a } = after;
-    const { updatedAt: _b, ...b } = before;
-    if (JSON.stringify(a) === JSON.stringify(b)) return;
-    after.updatedAt = new Date().toISOString();
-    this.drawings.put(after);
-    if (isTextDrawing(after)) this.textPopover.update(after);
-    else this.drawingPopover.update(after);
-    void this.commitDrawings(label, [after]);
+    this.changeDrawings([id], changes, label, from ? new Map([[id, from]]) : undefined);
+  }
+
+  /**
+   * Changes the ink or the width of drawings, or the style of text boxes: all of them in one undo
+   * step. `from`: what they were before the change was tried out on them (a color being picked).
+   */
+  private changeDrawings(ids: string[], changes: Partial<Pick<InkDrawing, 'color' | 'width'>> | Partial<TextStyle>, label: string, from?: Map<string, Drawing>): void {
+    const changed: Drawing[] = [];
+    const updatedAt = new Date().toISOString();
+    for (const id of ids) {
+      const before = from?.get(id) ?? this.drawings.get(id);
+      if (!before) continue;
+      // (Bold, italic and underline of a text box go to all of its text.)
+      const after: Drawing = isTextDrawing(before) ? this.drawings.fitText(applyTextStyle(before, changes as Partial<TextStyle>)) : ({ ...before, ...changes } as Drawing);
+      const { updatedAt: _a, ...a } = after;
+      const { updatedAt: _b, ...b } = before;
+      if (JSON.stringify(a) === JSON.stringify(b)) continue;
+      after.updatedAt = updatedAt;
+      this.drawings.put(after);
+      changed.push(after);
+    }
+    if (changed.length === 0) return;
+    this.updatePopovers();
+    void this.commitDrawings(groupLabel(label, changed), changed);
+  }
+
+  /**
+   * Several drawings, or several text boxes, selected with nothing else: one popover works on all
+   * of them. The first one selected comes first.
+   */
+  private selectedGroup(): Drawing[] | undefined {
+    const { drawings: ids, highlights } = this.drawings.selection;
+    if (highlights.length > 0 || ids.length < 2) return undefined;
+    const drawings = ids.map((id) => this.drawings.get(id)).filter((d): d is Drawing => d !== undefined);
+    if (drawings.length !== ids.length) return undefined;
+    const text = isTextDrawing(drawings[0]);
+    return drawings.every((d) => isTextDrawing(d) === text) ? drawings : undefined;
+  }
+
+  /**
+   * What a control of a popover works on: the drawing or text box the popover was opened for, or,
+   * when that is one of several selected of its kind, all of them (it first).
+   */
+  private popoverTargets(id: string): string[] {
+    const group = this.selectedGroup();
+    return group?.some((d) => d.id === id) ? [id, ...group.filter((d) => d.id !== id).map((d) => d.id)] : [id];
+  }
+
+  /** What the popover of drawings shows for these: the color of the first, and the width they share. */
+  private inkView(inks: InkDrawing[]): InkView {
+    const [first] = inks;
+    return { id: first.id, color: first.color, width: inks.every((d) => d.width === first.width) ? first.width : undefined, count: inks.length };
+  }
+
+  /** The open popover shows the drawings or text boxes it works on as they are now. */
+  private updatePopovers(): void {
+    const targets = (id: string | undefined): Drawing[] =>
+      id
+        ? this.popoverTargets(id)
+            .map((other) => this.drawings.get(other))
+            .filter((d): d is Drawing => d !== undefined)
+        : [];
+    const texts = targets(this.textPopover.textId).filter(isTextDrawing);
+    if (texts.length > 0) this.textPopover.update(texts);
+    const inks = targets(this.drawingPopover.drawingId).filter(isInkDrawing);
+    if (inks.length > 0) this.drawingPopover.update(this.inkView(inks));
+  }
+
+  /** Delete in a popover: the drawing or text box it was opened for, or everything selected when it works on several. */
+  private removeFromPopover(id: string): void {
+    if (this.popoverTargets(id).length > 1) this.deleteSelection();
+    else this.removeDrawing(id);
   }
 
   private removeDrawing(id: string): void {
@@ -1068,27 +1165,36 @@ class App {
   }
 
   /**
-   * The color picker of a selected drawing or text box: the drawing shows each color while the
-   * reader drags in the picker, and every color they settle on is one undo step.
+   * The color picker of a selected drawing or text box, or of several selected of one kind: they
+   * show each color while the reader drags in the picker, and every color they settle on is one
+   * undo step.
    */
   private pickDrawingColor(id: string, anchor: HTMLElement): void {
-    let base = this.drawings.get(id);
-    if (!base) return;
-    const text = isTextDrawing(base);
+    const ids = this.popoverTargets(id);
+    const snapshot = (): Map<string, Drawing> => {
+      const map = new Map<string, Drawing>();
+      for (const other of ids) {
+        const drawing = this.drawings.get(other);
+        if (drawing) map.set(other, drawing);
+      }
+      return map;
+    };
+    let bases = snapshot();
+    const first = bases.get(id);
+    if (!first) return;
+    const text = isTextDrawing(first);
     this.colorPicker.toggle(anchor, {
       label: text ? 'Text color' : 'Ink color',
-      value: base.color,
+      value: first.color,
       onChange: (color, final) => {
-        if (!base) return;
         if (!final) {
-          this.drawings.put({ ...base, color });
+          for (const base of bases.values()) this.drawings.put({ ...base, color });
           return;
         }
-        const from = base;
-        this.changeDrawing(id, { color }, text ? 'Change text color' : 'Change drawing color', from);
-        base = this.drawings.get(id);
+        this.changeDrawings([...bases.keys()], { color }, text ? 'Change text color' : 'Change drawing color', bases);
+        bases = snapshot();
         // Nothing changed (the original color picked again): show the original.
-        if (base && base.color !== color) this.drawings.put(base);
+        for (const base of bases.values()) if (base.color !== color) this.drawings.put(base);
       },
     });
   }
@@ -1562,8 +1668,9 @@ class App {
   }
 
   /**
-   * The selection changed. One drawing or text box selected by a click shows its popover; so does
-   * one highlight (at the click). Popovers of what is not selected alone any more close.
+   * The selection changed. One drawing or text box that is selected shows its popover, and so do
+   * several drawings, or several text boxes, selected with nothing else: one popover for all of
+   * them. One highlight shows its own (at the click). Popovers of anything else close.
    */
   private onSelectionChanged(id: string | undefined, popover: boolean, at?: [number, number]): void {
     // Called while the controllers are still being built.
@@ -1585,8 +1692,10 @@ class App {
       }
     }
     if (this.drawings.textActive) this.showTextStyle();
-    const drawing = id && popover ? this.drawings.get(id) : undefined;
-    const r = id && popover ? this.drawings.clientRectOf(id) : undefined;
+    const alone = id ? this.drawings.get(id) : undefined;
+    const group: Drawing[] = !popover ? [] : alone ? [alone] : (this.selectedGroup() ?? []);
+    const drawing = group[0];
+    const r = this.clientRectAround(group);
     if (this.colorPicker.openedFrom && (this.drawingPopover.element.contains(this.colorPicker.openedFrom) || this.textPopover.element.contains(this.colorPicker.openedFrom))) {
       if (!drawing || drawing.id !== (this.drawingPopover.drawingId ?? this.textPopover.textId)) this.colorPicker.close();
     }
@@ -1599,16 +1708,32 @@ class App {
     this.markerPopover.hide();
     this.noteTooltip.hide();
     this.selectionBar.hide();
-    const x = (r.left + r.right) / 2;
+    // Under the middle of what is selected. Several may reach beyond what is in view: the popover stays in the viewer.
+    const view = this.container.getBoundingClientRect();
+    const x = Math.min(Math.max((r.left + r.right) / 2, view.left), view.right);
+    const y = Math.min(Math.max(r.bottom, view.top), view.bottom - 12);
     if (isTextDrawing(drawing)) {
       this.drawingPopover.hide();
       this.textPopover.setAttached(this.attachmentOf(drawing.id));
-      this.textPopover.show(drawing, x, r.bottom);
+      this.textPopover.show(group.filter(isTextDrawing), x, y);
     } else {
       this.textPopover.hide();
       this.drawingPopover.setAttached(this.attachmentOf(drawing.id));
-      this.drawingPopover.show(drawing, x, r.bottom);
+      this.drawingPopover.show(this.inkView(group.filter(isInkDrawing)), x, y);
     }
+  }
+
+  /** The rectangle on screen around these drawings and text boxes (those whose page is shown). */
+  private clientRectAround(drawings: Drawing[]): { left: number; top: number; right: number; bottom: number } | undefined {
+    let around: { left: number; top: number; right: number; bottom: number } | undefined;
+    for (const drawing of drawings) {
+      const r = this.drawings.clientRectOf(drawing.id);
+      if (!r) continue;
+      around = around
+        ? { left: Math.min(around.left, r.left), top: Math.min(around.top, r.top), right: Math.max(around.right, r.right), bottom: Math.max(around.bottom, r.bottom) }
+        : { ...r };
+    }
+    return around;
   }
 
   private pickColor(color: HighlightColor, createFromSelection = true): void {

@@ -2,7 +2,7 @@
 // tooltip, the selection bar, toast, banner and the status overlay.
 import type { OrphanReason, ResolutionKind } from '../src/anchoring/anchor';
 import type { BindingFlag } from '../src/anchoring/binding';
-import { TOOL_NAMES, textStyleOf, type InkDrawing, type InkWidth, type TextDrawing, type TextStyle } from '../src/shared/drawings';
+import { TOOL_NAMES, commonTextStyle, type InkDrawing, type InkWidth, type TextDrawing, type TextStyle } from '../src/shared/drawings';
 import { HIGHLIGHT_COLORS, HIGHLIGHT_HEX, MAX_NOTE_LENGTH, type Highlight, type HighlightColor, type ReadingMarker } from '../src/shared/types';
 import { sanitizeSections, type ListSection } from '../src/shared/ui';
 import { ColorButton } from './colorPicker';
@@ -791,6 +791,11 @@ export class HighlightPopover {
 /** What a drawing or text box follows when the document changes. */
 export type Attachment = 'text' | 'image' | 'page';
 
+function setTitle(button: HTMLButtonElement, title: string): void {
+  button.title = title;
+  button.setAttribute('aria-label', title);
+}
+
 /** The button of a selected drawing or text box that says what it follows, and opens the menu to choose. */
 function attachMenu(onPick: (to: Attachment) => void): { element: HTMLElement; set(to: Attachment): void } {
   const button = new MenuButton<Attachment>({
@@ -807,6 +812,23 @@ function attachMenu(onPick: (to: Attachment) => void): { element: HTMLElement; s
   return { element: button.element, set: (to) => button.setValue(to) };
 }
 
+/** "drawing" or "3 drawings": what a popover works on, for its labels. */
+function counted(count: number, one: string, many: string): string {
+  return count > 1 ? `${count} ${many}` : one;
+}
+
+/**
+ * What the popover of drawings shows: the id of the drawing it was opened for (the first, of
+ * several), its color, and the width (none when several drawings do not share one).
+ */
+export interface InkView {
+  id: string;
+  color: InkDrawing['color'];
+  width?: InkWidth;
+  /** How many drawings the popover works on. */
+  count: number;
+}
+
 export interface DrawingPopoverActions {
   /** Opens (or closes) the color picker for the drawing's ink, under `anchor`. */
   pickColor(id: string, anchor: HTMLElement): void;
@@ -818,11 +840,17 @@ export interface DrawingPopoverActions {
   remove(id: string): void;
 }
 
-/** Shown when a drawing is selected: its ink, its width, what it follows, delete. It stays open while changing them. */
+/**
+ * Shown when a drawing is selected, or several drawings and nothing else: the ink, the width, what
+ * it follows, delete. With several, what is chosen goes to all of them (the actions get the id of
+ * the first; the viewer knows the rest). It stays open while changing them.
+ */
 export class DrawingPopover {
   readonly element: HTMLElement;
   readonly color: ColorButton;
   private currentId?: string;
+  private readonly copyButton = iconButton('copy', '');
+  private readonly removeButton = iconButton('trash', '', { class: 'mpv-btn mpv-btn-danger' });
   private readonly widths: WidthRadios;
   private readonly attached: ReturnType<typeof attachMenu>;
 
@@ -841,33 +869,35 @@ export class DrawingPopover {
     this.widths = widthRadios((width) => {
       if (this.currentId) actions.setWidth(this.currentId, width);
     });
-    const copy = iconButton('copy', `Copy drawing (${MOD_KEY}+C)`);
-    copy.addEventListener('click', () => {
+    this.copyButton.addEventListener('click', () => {
       if (this.currentId) actions.copy(this.currentId);
     });
-    const remove = iconButton('trash', 'Delete drawing (Delete)', { class: 'mpv-btn mpv-btn-danger' });
-    remove.addEventListener('click', () => {
+    this.removeButton.addEventListener('click', () => {
       const id = this.currentId;
       this.hide();
       if (id) actions.remove(id);
     });
-    const row = h('div', { class: 'mpv-popover-row mpv-wraps' }, this.color.element, this.widths.group, this.attached.element, copy, sep(), remove);
+    const row = h('div', { class: 'mpv-popover-row mpv-wraps' }, this.color.element, this.widths.group, this.attached.element, this.copyButton, sep(), this.removeButton);
     // Esc reaches the viewer's handler, which deselects the drawing (and so closes this).
     this.element = h('div', { class: 'mpv-popover mpv-drawing-popover', role: 'dialog', 'aria-label': 'Edit drawing', hidden: true }, row);
     document.body.append(this.element);
   }
 
-  show(drawing: Pick<InkDrawing, 'id' | 'color' | 'width'>, x: number, y: number): void {
-    this.currentId = drawing.id;
-    this.update(drawing);
+  show(view: InkView, x: number, y: number): void {
+    this.currentId = view.id;
+    this.update(view);
     placeFloating(this.element, x, y);
   }
 
-  /** Reflects the drawing's current color and width. */
-  update(drawing: Pick<InkDrawing, 'id' | 'color' | 'width'>): void {
-    if (drawing.id !== this.currentId) return;
-    this.color.setValue(drawing.color);
-    this.widths.set(drawing.width);
+  /** Reflects the current color and width, and how many drawings it works on. */
+  update(view: InkView): void {
+    if (view.id !== this.currentId) return;
+    this.color.setValue(view.color);
+    this.widths.set(view.width);
+    const what = counted(view.count, 'drawing', 'drawings');
+    this.element.setAttribute('aria-label', `Edit ${what}`);
+    setTitle(this.copyButton, `Copy ${what} (${MOD_KEY}+C)`);
+    setTitle(this.removeButton, `Delete ${what} (Delete)`);
   }
 
   hide(): void {
@@ -897,13 +927,18 @@ export interface TextPopoverActions {
 }
 
 /**
- * Shown when a text box is selected (outside text mode), in two rows: how it looks (color, size,
- * format, alignment), then what it follows, Edit and delete.
+ * Shown when a text box is selected (outside text mode), or several text boxes and nothing else,
+ * in two rows: how it looks (color, size, format, alignment), then what it follows, Edit and
+ * delete. With several, what is chosen goes to all of them, and there is no Edit (typing is in
+ * one box).
  */
 export class TextPopover {
   readonly element: HTMLElement;
   readonly color: ColorButton;
   private currentId?: string;
+  private readonly editButton = labelButton(icon('edit'), 'Edit', 'Edit the text (Enter, or double-click the box)');
+  private readonly copyButton = iconButton('copy', '');
+  private readonly removeButton = iconButton('trash', '', { class: 'mpv-btn mpv-btn-danger' });
   private readonly controls: TextStyleControls;
   private readonly attached: ReturnType<typeof attachMenu>;
 
@@ -922,18 +957,15 @@ export class TextPopover {
     this.controls = textStyleControls((patch) => {
       if (this.currentId) actions.setStyle(this.currentId, patch);
     });
-    const edit = labelButton(icon('edit'), 'Edit', 'Edit the text (Enter, or double-click the box)');
-    edit.addEventListener('click', () => {
+    this.editButton.addEventListener('click', () => {
       const id = this.currentId;
       this.hide();
       if (id) actions.edit(id);
     });
-    const copy = iconButton('copy', `Copy text box (${MOD_KEY}+C)`);
-    copy.addEventListener('click', () => {
+    this.copyButton.addEventListener('click', () => {
       if (this.currentId) actions.copy(this.currentId);
     });
-    const remove = iconButton('trash', 'Delete text box (Delete)', { class: 'mpv-btn mpv-btn-danger' });
-    remove.addEventListener('click', () => {
+    this.removeButton.addEventListener('click', () => {
       const id = this.currentId;
       this.hide();
       if (id) actions.remove(id);
@@ -942,21 +974,29 @@ export class TextPopover {
       'div',
       { class: 'mpv-popover mpv-drawing-popover mpv-text-popover', role: 'dialog', 'aria-label': 'Edit text box', hidden: true },
       h('div', { class: 'mpv-popover-row mpv-wraps' }, this.color.element, this.controls.size, this.controls.format, this.controls.align),
-      h('div', { class: 'mpv-popover-row' }, this.attached.element, h('span', { class: 'mpv-grow' }), edit, copy, sep(), remove),
+      h('div', { class: 'mpv-popover-row' }, this.attached.element, h('span', { class: 'mpv-grow' }), this.editButton, this.copyButton, sep(), this.removeButton),
     );
     document.body.append(this.element);
   }
 
-  show(text: TextDrawing, x: number, y: number): void {
-    this.currentId = text.id;
-    this.update(text);
+  /** `texts`: the text box it is opened for, first, and the others it works on. */
+  show(texts: TextDrawing[], x: number, y: number): void {
+    this.currentId = texts[0]?.id;
+    this.update(texts);
     placeFloating(this.element, x, y);
   }
 
-  update(text: TextDrawing): void {
-    if (text.id !== this.currentId) return;
-    this.controls.set(textStyleOf(text));
-    this.color.setValue(text.color);
+  /** Reflects the current style (what several boxes do not share shows as no value), and how many boxes it works on. */
+  update(texts: TextDrawing[]): void {
+    if (texts.length === 0 || texts[0].id !== this.currentId) return;
+    const { style, mixed } = commonTextStyle(texts);
+    this.controls.set(style, mixed);
+    this.color.setValue(style.color);
+    const what = counted(texts.length, 'text box', 'text boxes');
+    this.element.setAttribute('aria-label', `Edit ${what}`);
+    this.editButton.hidden = texts.length > 1;
+    setTitle(this.copyButton, `Copy ${what} (${MOD_KEY}+C)`);
+    setTitle(this.removeButton, `Delete ${what} (Delete)`);
   }
 
   hide(): void {

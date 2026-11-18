@@ -1,10 +1,11 @@
 // The viewer toolbar: one row in three zones, with flexible space between them.
 //   find your place:  [☰] [↑ n / N ↓] [− zoom ▾ +]
-//   annotate:         [select │ highlight │ draw │ text] [🔖 ▾] [↶]
+//   annotate:         [select] [highlight] [draw] [text] [translate] [🔖 ▾] [↶]
 //   the room:         [🎧] [◐] [⤓ ▾] [⋯]
-// The four tools sit in one well: at most one is on, and the one that is on gets a tinted, ringed
-// chip; its options are in its tray (the row under the toolbar). The three tools that make
-// something show their color in a band under their icon.
+// The four tools stand side by side, each in its own square: at most one is on, and the one that
+// is on is tinted and ringed; its options are in its tray (the row under the toolbar). The three
+// tools that make something show their color in a band under their icon. A fifth square, the
+// translate tool, is not made yet: it is on the bar where there is room, and rests.
 // The toolbar never wraps. As the viewer gets narrower, controls move into the More menu, which
 // always lists exactly what is not on the bar (see `layout`).
 import type { Ink } from '../src/shared/colors';
@@ -13,7 +14,7 @@ import { HIGHLIGHT_HEX, MAX_ZOOM, MIN_ZOOM, type DocumentKind, type HighlightCol
 import { narrower, sizeClassOf, type SizeClass } from '../src/shared/ui';
 import { h, iconButton, MOD_KEY, placeUnder } from './dom';
 import { setInk } from './drawings';
-import { chevronIcon, drawIcon, highlighterIcon, pageIcon, selectIcon, textIcon } from './icons';
+import { chevronIcon, drawIcon, highlighterIcon, pageIcon, selectIcon, textIcon, translateIcon } from './icons';
 import { byKeyboard, menu, type MenuPart } from './menu';
 import { headphonesIcon } from './sounds';
 
@@ -53,6 +54,7 @@ const SELECT_TITLE = 'Select: click a drawing or text box, or drag around severa
 const DARK_TITLE = 'Dark pages';
 const DARK_ON_TITLE = 'Dark pages are on: click for light pages';
 const SELECT_ON_TITLE = 'Selecting is on (Esc to stop)';
+const TRANSLATE_TITLE = 'Translate: coming soon';
 const DOWNLOAD_TITLE = 'Download PDF with annotations';
 
 const ZOOM_FITS: { value: ZoomValue; label: string; icon: string }[] = [
@@ -86,6 +88,15 @@ export class Toolbar {
   private readonly drawButton = toolButton('mpv-draw-button', DRAW_TITLE, drawIcon());
   private readonly textButton = toolButton('mpv-text-button', TEXT_TITLE, textIcon());
   private readonly selectButton = toolButton('mpv-select-button', SELECT_TITLE, selectIcon());
+  /**
+   * Not made yet. It rests with `aria-disabled`, not `disabled`: a disabled button takes no
+   * pointer, so it would not show the tooltip that says why it does nothing.
+   */
+  private readonly translateButton = h(
+    'button',
+    { class: 'mpv-btn mpv-translate-button', type: 'button', title: TRANSLATE_TITLE, 'aria-label': TRANSLATE_TITLE, 'aria-disabled': 'true' },
+    translateIcon(),
+  );
   private readonly markerButton = iconButton('bookmark', 'Mark where you stopped reading: click this, then click a line', { 'aria-pressed': 'false' });
   private readonly markerMenu = menuToggle('Reading marker options');
   private readonly markerSplit: HTMLElement;
@@ -136,7 +147,15 @@ export class Toolbar {
     this.zoomStep = h('div', { class: 'mpv-step', role: 'group', 'aria-label': 'Zoom' }, zoomOut, this.zoomButton, zoomIn);
     this.markerSplit = h('div', { class: 'mpv-split' }, this.markerButton, this.markerMenu);
     this.downloadSplit = h('div', { class: 'mpv-split' }, this.downloadButton, this.downloadMenu);
-    const tools = h('div', { class: 'mpv-seg mpv-seg-tools', role: 'group', 'aria-label': 'Tools' }, this.selectButton, this.highlightButton, this.drawButton, this.textButton);
+    const tools = h(
+      'div',
+      { class: 'mpv-squares mpv-tools', role: 'group', 'aria-label': 'Tools' },
+      this.selectButton,
+      this.highlightButton,
+      this.drawButton,
+      this.textButton,
+      this.translateButton,
+    );
 
     this.element = h(
       'header',
@@ -206,6 +225,8 @@ export class Toolbar {
     this.zoomStep.hidden = size !== 'wide';
     this.downloadSplit.hidden = size !== 'wide';
     this.markerSplit.hidden = tight;
+    // The tool that is not made yet takes no room where there is little (and More does not list it: it does nothing).
+    this.translateButton.hidden = tight;
     this.soundsButton.hidden = !this.soundsAvailable || tight;
     // Dark pages is on the bar wherever there is room for it: everywhere but in a mini panel.
     this.themeButton.hidden = size === 'mini';
