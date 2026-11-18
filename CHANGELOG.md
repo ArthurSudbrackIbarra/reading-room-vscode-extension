@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- **No bar when selecting text**, a new entry of the ⋯ menu, for readers who follow the lines with the mouse as they read. While it is on, selecting text opens nothing: the bar with the colors, the note, the reading marker and the translation stays away. The highlight tool and the translate tool still work on what you select. It is off at first and remembered for all files.
+- **The bar next to a selection is not cut off any more.** Since the translate button joined it, the bar was wider than its box could be, and its last button touched the right edge. It is as wide as what it holds now, and the translate button stands as far from the end of the bar as from the line before it.
+- **The − and + of the zoom are in the middle of their squares.** Both stood a little over half a pixel to the left, which showed on the + when the pointer was on it.
+- **A picture of the book button** in the README's Getting started: where to click to open a Markdown or text file.
+- **More room in the annotations list.** The search field, the color dots and the first section stand further apart (8 and 12 px; they were 4 and 8), section headers are a little taller, and rows, their notes and their page numbers have more air between them.
+- **The pencil and the Aa of the toolbar clear their color band** like the highlighter does. The pencil's tip nearly touched the band and the letters stood right on it.
+- **A translate tool**, 文A in the toolbar, next to the text tool. Select text and read it in another language, between about sixty languages.
+  - **Nothing you read leaves your computer.** The translating is done by a translator that runs inside VS Code, with the language models Mozilla trains for Firefox. It works without a connection once a language is on your computer.
+  - With the tool on, every selection is translated as soon as you let go. With no tool on, **文A** is at the end of the bar next to a selection, and in the popover of a highlight.
+  - The translation opens next to the text, with the language that was found (_Japanese (detected)_) and the language it is translated into. Pick another in either menu and it is translated again. **Copy** copies it; **Save as note** highlights the text and keeps the translation as its note.
+  - **Language packs** are downloaded when you first need them, after asking: 11 to 38 MB each, from Mozilla's storage into VS Code's storage for the extension. Between two languages that are not English, Reading Room translates by way of English, with two packs.
+  - **Reading Room: Manage Translation Languages…** lists the packs on your computer, removes one, and downloads the packs of a language ahead of time. The setting `readingRoom.translationDownload` set to `never` forbids downloads.
+  - **Reading Room: Toggle Translate Mode** turns the tool on and off (give it a shortcut in **Preferences: Open Keyboard Shortcuts**).
+  - The translator takes several hundred megabytes of memory while it is used, and gives them back a minute after the last translation.
+
 ## 0.13.0 — 2026-11-13
 
 - **Your annotations survive an uninstall.** VS Code deletes an extension's storage when the extension is uninstalled, and with it everything you highlighted, wrote and drew. Reading Room now keeps a second copy of your annotations in a folder of its own, outside VS Code (`%APPDATA%\Reading Room\backup` on Windows, `~/Library/Application Support/Reading Room/backup` on macOS, `~/.local/share/reading-room/backup` on Linux).

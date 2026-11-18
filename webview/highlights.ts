@@ -1,6 +1,7 @@
 // Highlights in the viewer: anchoring stored quotes in the rendered PDF, drawing them over the
 // PDF.js text layer (plus a badge in the margin for highlights with a note), creating them from a
 // selection, and producing rectangles for export.
+import { readingText } from '../src/shared/translate';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { pdfjsLib } from './pdfjs';
 import { createAnchor, type AnchorState, type TextAnchor } from '../src/anchoring/anchor';
@@ -718,9 +719,40 @@ export class HighlightController {
     return e > s ? [s, e] : undefined;
   }
 
-  createFromSelection(color: HighlightColor): Highlight | undefined {
+  /**
+   * The text of a range as it reads, for the translator: a word cut at the end of a line is whole
+   * again, and lines of a script written without spaces are joined without one.
+   */
+  readingTextOf(start: number, end: number): string {
     const model = this.model;
-    const range = this.selectionRange();
+    if (!model) return '';
+    const from = Math.max(0, start);
+    return readingText(model.text.slice(from, end), (i) => {
+      const source = model.source(from + i);
+      // A space that is not a character of any text item stands for the end of a line (or of a page).
+      return !!source && source.offset >= model.itemLength(source.page, source.item);
+    });
+  }
+
+  /** The document around a range (the range included), `size` characters or so: enough to tell what language a few words are in. */
+  contextOf(start: number, end: number, size: number): string {
+    const model = this.model;
+    if (!model) return '';
+    const room = Math.max(0, size - (end - start));
+    const from = Math.max(0, start - Math.ceil(room / 2));
+    return model.text.slice(from, Math.min(model.text.length, Math.max(end, from + size)));
+  }
+
+  /** Where a highlight is in the text shown, if it is in it. */
+  rangeOf(id: string): [number, number] | undefined {
+    const rt = this.runtimes.get(id);
+    return rt && rt.start !== undefined && rt.end !== undefined ? [rt.start, rt.end] : undefined;
+  }
+
+  /** Makes a highlight of the selected text, or of `at` (a range of the text shown). */
+  createFromSelection(color: HighlightColor, at?: [number, number]): Highlight | undefined {
+    const model = this.model;
+    const range = at ?? this.selectionRange();
     if (!model || !range) return undefined;
     const [start, end] = range;
     const now = new Date().toISOString();

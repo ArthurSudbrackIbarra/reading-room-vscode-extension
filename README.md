@@ -1,6 +1,6 @@
 # Reading Room
 
-**A quiet place to read and study inside VS Code.** Open PDF, Markdown and plain text files as pages, highlight what matters, write notes next to it, draw and type on the page, mark where you stopped, and read to the sound of rain, a crackling fireplace or your own recordings.
+**A quiet place to read and study inside VS Code.** Open PDF, Markdown and plain text files as pages, highlight what matters, write notes next to it, draw and type on the page, translate what you select without sending it anywhere, mark where you stopped, and read to the sound of rain, a crackling fireplace or your own recordings.
 
 ![A Markdown file next to its pages in Reading Room: highlights in four colors, two notes, three drawings (a purple underline, a blue arrow and a red ellipse), a blue text box at the tail of the arrow, the red reading marker and the list of annotations](docs/demo.png)
 
@@ -17,6 +17,7 @@
 - **Highlight** text in five colors and write a **note** on any highlight.
 - **Draw** anywhere on a page: pen strokes, lines, arrows, rectangles and ellipses, in any color and three widths.
 - **Type** anywhere on a page: text boxes in any color and size, with bold, italic and underline on any part of the text.
+- **Translate** what you select, between about sixty languages. The translating is done on your own computer: what you read is never sent anywhere.
 - **Select** several drawings and text boxes at once, with a click or a rectangle, to move, copy, paste or delete them together. Your highlights are left out, so they are never deleted by accident.
 - **Take things back**: an undo button and `Ctrl+Z` that still work after you closed VS Code, and an eraser that rubs out part of a drawing.
 - **Your annotations stay on their content** when the file changes. They follow the words (or the picture) they are on through your edits. If that content is deleted they are kept and listed, and they return when it does.
@@ -43,6 +44,7 @@
 - [Getting started](#getting-started)
 - [The toolbar](#the-toolbar)
 - [Highlights and notes](#highlights-and-notes)
+- [Translating](#translating)
 - [Drawing](#drawing)
 - [Text boxes](#text-boxes)
 - [Selecting, copying and pasting](#selecting-copying-and-pasting)
@@ -71,6 +73,10 @@
 | | `Ctrl+Shift+Alt+R`, or **Open in Reading Room** | In the current group |
 | Any of them | Right-click the file in the Explorer → **Open in Reading Room to the Side** | To the side |
 
+The **book button** is the first one at the top right of the editor, on the row of the tabs, whenever a Markdown or text file is open:
+
+<img src="docs/open-button.png" alt="A Markdown file open in VS Code's editor. On the row of its tab, at the top right, the book button is circled in red, and its tooltip reads: Open in Reading Room to the Side (Ctrl+K Shift+R), [Alt] Open in Reading Room (Ctrl+Shift+Alt+R)" width="820">
+
 **Markdown and text files need a browser.** Their pages are made with Google Chrome, Microsoft Edge, Chromium or Brave, whichever is installed. If none is, Reading Room asks before downloading a small Chromium (about 126 MB) into its own storage. PDF files need nothing.
 
 **Another PDF extension installed?** VS Code asks once which one should open PDF files. Choose **Keep Reading Room**. To change it later, right-click a PDF tab → **Reopen Editor With…** → **Configure default editor for '\*.pdf'…**.
@@ -90,25 +96,27 @@ One row, in three groups: finding your place on the left, the tools in the middl
 | ☰ | Show or hide the list of annotations: the reading position, highlights with their notes, drawings and text boxes |
 | ↑ n / N ↓ | Previous and next page; type a number and press **Enter** to go to a page |
 | − zoom ▾ + | Zoom out, choose a zoom (Fit width, Fit page, Actual size, 50 %–400 %), zoom in |
-| Pointer | **Select tool**: click a drawing or a text box, or drag a rectangle around several, then move, copy, paste or delete them together (see [Selecting, copying and pasting](#selecting-copying-and-pasting)) |
+| Frame and pointer | **Select tool**: click a drawing or a text box, or drag a rectangle around several, then move, copy, paste or delete them together (see [Selecting, copying and pasting](#selecting-copying-and-pasting)) |
 | Highlighter | **Highlight tool**: while it is on, every text selection becomes a highlight. The band under the icon shows the current color |
 | Pencil | **Draw tool**: pen, lines, arrows, rectangles, ellipses and an eraser (see [Drawing](#drawing)). The band shows the current ink |
-| AA | **Text tool**: type anywhere on a page (see [Text boxes](#text-boxes)). The band shows the color new text gets |
+| Aa | **Text tool**: type anywhere on a page (see [Text boxes](#text-boxes)). The band shows the color new text gets |
+| 文A | **Translate tool**: while it is on, every text selection is translated (see [Translating](#translating)) |
 | 🔖 ▾ | **Reading marker**: click, then click the line where you stopped. The menu also has _Go to_ and _Remove_ |
 | ↶ | **Undo** the last change. Its tooltip says what it will take back |
 | 🎧 | **Reading sounds**: play rain, a fireplace or your own sounds |
 | ◐ | **Dark pages**: switch the pages between light and dark |
 | ⤓ ▾ | Download a PDF, with your annotations (the default) or without |
-| ⋯ | **More**: **Full view** (Markdown, text: the pages take the source's editor group instead of standing next to it) and **Convert the document again** (PDF files: **Reload from disk**) |
+| ⋯ | **More**: **Full view** (Markdown, text: the pages take the source's editor group instead of standing next to it), **No bar when selecting text** (see [Highlights and notes](#highlights-and-notes)) and **Convert the document again** (PDF files: **Reload from disk**) |
 
-**One tool at a time.** The four tools share one frame, and turning one on turns the others off. The tool that is on is tinted and outlined, and a second row opens under the toolbar: its **tray**. The tray looks like the toolbar. It starts with the name of the mode (**DRAW MODE**, **TEXT MODE**, …), holds that tool's options right after it, and ends with **Done**. Done, a second click on the tool and **Esc** all turn the tool off. Placing the reading marker works the same way, with **Cancel**.
+**One tool at a time.** The five tools stand side by side, and turning one on turns the others off. The tool that is on is tinted and outlined, and a second row opens under the toolbar: its **tray**. The tray looks like the toolbar. It starts with the name of the mode (**DRAW MODE**, **TEXT MODE**, …), holds that tool's options right after it, and ends with **Done**. Done, a second click on the tool and **Esc** all turn the tool off. Placing the reading marker works the same way, with **Cancel**.
 
-**In a narrow panel** the toolbar stays one row. What does not fit moves into ⋯, which always lists exactly what is missing from the bar: first the zoom and the download, then the reading marker and the sounds, and in a very narrow panel the page number and dark pages.
+**In a narrow panel** the toolbar stays one row. What does not fit moves into ⋯, which always lists exactly what is missing from the bar: first the zoom and the download, then the reading marker and the sounds, and in a very narrow panel the page number, dark pages and the translate tool.
 
 ## Highlights and notes
 
 - **Highlight tool on**: select text, and it is highlighted in the current color. Its tray has the five colors: yellow, pink, green, blue, orange.
 - **Highlight tool off**: select text and a small bar appears next to the selection. Pick a color, use 💬 to highlight and write a note right away, or 🔖 to mark that line as your reading position.
+  - **Do you follow the lines with the mouse as you read?** Turn on **No bar when selecting text** in the ⋯ menu, and selecting text opens nothing. It is off at first, and it is remembered for all files. While it is on, turn the highlight tool or the translate tool on to highlight or translate what you select; a click on a highlight still opens its bar.
 - **Click a highlight** to change its color, add or edit its note, copy its text or delete it. While its bar is open, **Delete** deletes it and **Enter** opens its note. A note shows under the buttons; click it to edit it.
 - **Notes**: type, then press **Ctrl+Enter** or click **Save**. Clicking elsewhere also saves; **Esc** cancels. Highlights with a note have a darker underline and a 💬 badge in the right margin; hover to read the note.
 - The **☰ list** shows your reading position at the top, then all highlights in document order with their notes, then your drawings and text boxes.
@@ -116,13 +124,36 @@ One row, in three groups: finding your place on the left, the tools in the middl
   - **Search** finds highlights by their text and their notes. The five dots show only the highlights of those colors, and **With notes** only the ones that have a note.
   - Click a section's title to **collapse** it. That is remembered.
 
+## Translating
+
+Select some text and read it in another language. **The translating is done on your computer**: the text is never sent to a translation service, and once a language is on your computer it works without a connection.
+
+- **With no tool on**: select text, then click **文A** at the end of the bar that appears next to the selection.
+- **With the translate tool on** (文A in the toolbar): every selection is translated as soon as you let go. Its tray has the two languages; **Done** or **Esc** turns it off.
+- **A highlight**: click it, then **文A** in its popover.
+
+The translation opens next to the text.
+
+- **The two menus** at its top are the language of the text and the language to translate into. The first starts as **Detect language** and then says what was found, for example _Japanese (detected)_. If that is wrong, which can happen with a few words or with a language close to another, pick the right one: the text is translated again. The language you translate into is remembered, and starts as the language of VS Code.
+- **Copy** copies the translation. **Save as note** highlights the text and keeps the translation as its note (for a highlight: adds it to its note), so it is in the list, in the search and in the PDF you download.
+- Scrolling leaves the translation open. A click elsewhere or **Esc** closes it.
+
+**Language packs.** Reading Room translates with the models Mozilla trains for Firefox's own page translation, one pack per language and direction.
+
+- The first time you translate from or into a language, Reading Room asks before it downloads the pack: 11 to 38 MB, once, from Mozilla's storage into VS Code's storage for this extension. That download is the only time the translate tool uses the network.
+- Every pack is to or from English. Between two other languages (Japanese to Portuguese) Reading Room translates by way of English, with two packs; the translation says so.
+- **Reading Room: Manage Translation Languages…** lists the packs on your computer, removes one, and downloads the packs of a language ahead of time, for reading without a connection later.
+- `readingRoom.translationDownload: never` forbids downloads: only the languages that are on the computer already can be translated.
+
+**What to expect.** The translations are good for understanding a passage, and plainer than those of the large online services: a rare word, a name or a very long sentence can come out wrong. While a translation is being made, the translator takes about half a gigabyte of memory, and about one gigabyte between two languages other than English (two packs); it gives them back a minute after you last used it.
+
 ## Drawing
 
 Circle a figure, underline a line, point at something with an arrow, scribble in the margin. Drawing works on any page: over text, pictures, tables and empty space, on light and dark pages, at any zoom, with mouse, pen and touch.
 
 Click the pencil in the toolbar. Its tray opens, and every drag on a page draws:
 
-<img src="docs/drawing-bar.png" alt="The toolbar with the draw tool on: the pencil is tinted and outlined. Under it, its tray: the words DRAW MODE, the tools (pen, line, arrow, rectangle, ellipse, eraser) in one frame with the pen picked, the ink color, three widths in one frame, the Esc key and a Done button on the right" width="870">
+<img src="docs/drawing-bar.png" alt="The toolbar with the draw tool on: the pencil is tinted and outlined. Under it, its tray: the words DRAW MODE, the tools (pen, line, arrow, rectangle, ellipse, eraser) as six squares with the pen picked, the ink color, three widths with the middle one picked, the Esc key and a Done button on the right" width="870">
 
 | Tool | Key | Draws | With Shift |
 | --- | --- | --- | --- |
@@ -138,7 +169,7 @@ Click the pencil in the toolbar. Its tray opens, and every drag on a page draws:
 - **Eraser**: a ring follows the pointer and shows exactly what will be rubbed out, also while you drag. With the eraser picked, the three widths become its three **sizes** (small, medium, large), the ring grows with them, and the ink button rests: the eraser has no color. Drag across a line to cut it in two, along it to shorten it.
 - **Stop drawing** with **Esc**, **Done** or the pencil. Esc while dragging cancels only that shape.
 
-<img src="docs/color-picker.png" alt="The color picker: twelve colors in two rows of six, red picked; below, a saturation and brightness square, a rainbow hue slider and the hex code #D1242F" width="214">
+<img src="docs/color-picker.png" alt="The color picker: twelve colors in two rows of six, red picked; below, a saturation and brightness square, a rainbow hue slider, the hex code #D1242F and an eyedropper button" width="214">
 
 **Change a drawing** (with the draw tool off): click its line. It gets a dashed outline and a small bar to pick another ink or width, to choose what it follows, or to delete it. Drag a selected drawing to move it.
 
@@ -146,7 +177,7 @@ Click the pencil in the toolbar. Its tray opens, and every drag on a page draws:
 
 Write a word in the margin, label an arrow, add a correction. Click **AA** in the toolbar. Its tray opens:
 
-<img src="docs/text-bar.png" alt="The toolbar with the text tool on: the AA button is tinted and outlined. Under it, its tray: the words TEXT MODE, the font size, bold, italic and underline, the four alignments in one frame with left picked, the text color, the Esc key and a Done button on the right" width="870">
+<img src="docs/text-bar.png" alt="The toolbar with the text tool on: the Aa button is tinted and outlined. Under it, its tray: the words TEXT MODE, the font size, bold, italic and underline, the four alignments with left picked, the text color, the Esc key and a Done button on the right" width="870">
 
 - **Click** on a page and type. The box grows as you type; **Enter** starts a new line.
 - **Drag** across a page instead to choose the box's width first: the text wraps inside it.
@@ -158,9 +189,9 @@ Write a word in the margin, label an arrow, add a correction. Click **AA** in th
 
 ## Selecting, copying and pasting
 
-Click the pointer in the toolbar to turn the **select tool** on. Its tray has the actions and says how many things are selected:
+Click the select tool in the toolbar (a dashed frame with a pointer) to turn it on. Its tray has the actions and says how many things are selected:
 
-<img src="docs/select-bar.png" alt="The toolbar with the select tool on: the pointer is tinted and outlined. Under it, its tray: the words SELECT MODE, the buttons Select all, Copy, Paste and Delete, the text 4 selected, the Esc key and a Done button on the right" width="870">
+<img src="docs/select-bar.png" alt="The toolbar with the select tool on: its button, a dashed frame with a pointer, is tinted and outlined. Under it, its tray: the words SELECT MODE, the buttons Select all, Copy, Paste and Delete, the text 4 selected, the Esc key and a Done button on the right" width="870">
 
 - **Click** a drawing or a text box to select it. **Drag** from anywhere else to open a rectangle: every drawing and text box it touches is selected.
 - **Highlights are left out.** The select tool does not take them, by a click, a rectangle or **Select all**, so deleting what you selected never deletes a highlight with it. To select a highlight, click it with no tool on.
@@ -281,6 +312,7 @@ All commands are in the Command Palette: type **Reading Room**. Commands without
 | `readingRoom.backup.enabled` | `true` | Keep a second copy of your annotations outside VS Code's storage, so they come back when the extension is installed again (see [Your data](#your-data)). `false` stops the copying and leaves the folder as it is |
 | `readingRoom.chromiumPath` | _(empty)_ | Path to a Chrome, Edge or Chromium executable; empty means detect one |
 | `readingRoom.chromiumDownload` | `ask` | `ask`: offer to download Chromium when no browser is found; `never`: show an error instead |
+| `readingRoom.translationDownload` | `ask` | `ask`: offer to download a language pack when a translation needs one; `never`: translate only with the packs that are on this computer |
 
 The settings are the same in every workspace: workspace settings cannot change them.
 
@@ -303,6 +335,7 @@ Highlights, notes, drawings, text boxes, reading positions and your own sounds l
 - **Renames**: when you rename or move a document inside VS Code, its annotations follow it. If you renamed it elsewhere, open the new file and run **Reading Room: Reattach Annotations from Another File…**.
 - **Start over for one file**: the **Delete All …** commands (undo brings everything back).
 - Annotations are kept per VS Code profile. Uninstalling the extension deletes them from VS Code's storage; the backup is what brings them back.
+- **Language packs** of the translate tool are in the same storage, in `translation`. They are not in the backup: after a new install they are downloaded again when you need them. **Reading Room: Manage Translation Languages…** removes them.
 - For files you annotated, a compressed copy of their text is kept there too (see `readingRoom.textSnapshots`), and the pages of Markdown and text files are cached for a few days (**Reading Room: Clear Cached Pages** deletes them).
 
 ## What Markdown and text files look like
@@ -320,6 +353,8 @@ Highlights, notes, drawings, text boxes, reading positions and your own sounds l
 - **The pages look outdated**: choose **Convert the document again** in the ⋯ menu, or run **Reading Room: Clear Cached Pages**.
 - **"Click anywhere in this viewer to start the sound"**: VS Code lets a tab play sound only after you have clicked or typed in it. One click and it plays.
 - **"… can't be played in VS Code"**: the file's audio is in a format VS Code lacks (usually Opus or AAC). Convert it to MP3, Ogg Vorbis, WAV or FLAC.
+- **The translation is in the wrong language, or says the text is in your language already**: the language of the text was told wrong. Pick it in the first menu of the translation.
+- **Downloading a language pack fails**: check the connection, and VS Code's proxy settings (`http.proxy`) behind a proxy, then choose **Try again** in the translation.
 - Anything else: run **Reading Room: Show Log**.
 
 ## Known limitations
@@ -331,10 +366,14 @@ Highlights, notes, drawings, text boxes, reading positions and your own sounds l
 - Drawings on a formula or a diagram follow the nearest line of text or the diagram as a whole, not single symbols.
 - A text box has one font, size, color and alignment. In downloads, characters outside Western European languages, and emoji, appear as "?" in text boxes (the download's message says how many).
 - What the eraser leaves of a rectangle or an ellipse is a plain stroke.
+- Translating needs text that can be selected: scanned pages cannot be translated. Formulas, tables and text in pictures are not translated as such.
+- A translation is made sentence by sentence: the translator does not know the rest of the document, so the same term can be translated in two ways on two pages. At most 20,000 characters are translated at once.
 - Reading sounds play only while a Reading Room tab is open.
 - Renames done outside VS Code are not detected (use _Reattach Annotations_).
 
 ## Credits
+
+The translate tool is built on the work of the [Bergamot project](https://browser.mt/) and of Mozilla: the translation engine ([bergamot-translator](https://github.com/browsermt/bergamot-translator), Mozilla Public License 2.0) and the [language models Mozilla trains for Firefox](https://github.com/mozilla/translations). The language of a text is told with [franc](https://github.com/wooorm/franc) and [tinyld](https://github.com/komodojp/tinyld) (both MIT).
 
 The built-in reading sounds are loops cut from these recordings on [Freesound](https://freesound.org/), which their authors dedicated to the public domain ([Creative Commons 0](https://creativecommons.org/publicdomain/zero/1.0/)). Thank you for recording and sharing them.
 

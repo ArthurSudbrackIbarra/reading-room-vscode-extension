@@ -1,6 +1,7 @@
-// Build: three bundles plus static assets, all into dist/.
+// Build: four bundles plus static assets, all into dist/.
 //   dist/extension.js           CommonJS, loaded by VS Code (small; activation stays fast)
 //   dist/converter/index.mjs    ESM with code splitting, imported lazily on the first render
+//   dist/translate/worker.js    CommonJS, the worker thread of the translate tool (started by the first translation)
 //   dist/webview/main.js        ESM for the viewer webview (PDF.js components)
 // Usage: node esbuild.mjs [--dev] [--watch]
 import * as esbuild from 'esbuild';
@@ -54,6 +55,14 @@ const builds = [
   },
   {
     ...common,
+    entryPoints: { worker: 'src/translate/worker.ts' },
+    outdir: 'dist/translate',
+    platform: 'node',
+    format: 'cjs',
+    target: 'node22',
+  },
+  {
+    ...common,
     entryPoints: { main: 'webview/main.ts', styles: 'webview/styles.css' },
     outdir: 'dist/webview',
     platform: 'browser',
@@ -76,6 +85,12 @@ async function copyAssets() {
     [nm('pdfjs-dist/wasm'), join(dist, 'webview/pdfjs/wasm')],
     [nm('@vscode/codicons/dist/codicon.css'), join(dist, 'webview/codicons/codicon.css')],
     [nm('@vscode/codicons/dist/codicon.ttf'), join(dist, 'webview/codicons/codicon.ttf')],
+    // The translator (Bergamot, as published: Emscripten's glue code and the WebAssembly module), next to its worker.
+    [nm('@browsermt/bergamot-translator/worker/bergamot-translator-worker.js'), join(dist, 'translate/bergamot-translator-worker.js')],
+    [nm('@browsermt/bergamot-translator/worker/bergamot-translator-worker.wasm'), join(dist, 'translate/bergamot-translator-worker.wasm')],
+    // The list of language packs (made by `npm run translation-models`, kept in git).
+    [join(root, 'src/translate/models.json'), join(dist, 'translate/models.json')],
+    [join(root, 'src/translate/NOTICE.txt'), join(dist, 'translate/NOTICE.txt')],
   ];
   for (const [from, to] of copies) {
     await mkdir(dirname(to), { recursive: true });

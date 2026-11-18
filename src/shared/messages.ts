@@ -5,6 +5,7 @@ import type { HexColor, Ink } from './colors';
 import type { DrawTool, Drawing, InkWidth, TextLayout, TextStyle } from './drawings';
 import type { HistoryChange, StoredHistory } from './history';
 import type { CustomSound, SoundRequest, SoundState } from './sounds';
+import type { TranslateLanguage, TranslateRequest, TranslationUpdate } from './translate';
 import type { DocumentKind, Highlight, HighlightColor, PageRects, PageTheme, ReadingMarker, ZoomValue } from './types';
 import type { ListSection } from './ui';
 
@@ -35,6 +36,8 @@ export interface ViewerInit {
   eraseHint: boolean;
   /** Custom colors picked lately, newest first (shared by all files). */
   recentColors: HexColor[];
+  /** Selecting text does not open the selection bar (the reader's choice, shared by all files). */
+  quietSelection: boolean;
   fullView: boolean;
   /** Top and bottom page margins in PDF points; text inside them is header/footer and is not highlightable. */
   marginsPt: { top: number; bottom: number };
@@ -49,6 +52,8 @@ export interface ViewerInit {
   pages?: string[];
   /** What was done and undone here before (it is stored with the annotations), so undo goes on where it stopped. */
   history?: StoredHistory;
+  /** The translate tool: the languages there are packs for, and the one translations are into (the last one picked, shared by all files). */
+  translate?: { languages: TranslateLanguage[]; to: string };
 }
 
 export interface DrawStyle {
@@ -95,8 +100,13 @@ export type HostToViewer =
   | { type: 'toggleDrawing' }
   | { type: 'toggleText' }
   | { type: 'toggleSelect' }
+  | { type: 'toggleTranslate' }
+  /** How the translation a viewer asked for is going, and its result. */
+  | { type: 'translation'; requestId: number; update: TranslationUpdate }
   | { type: 'fullView'; full: boolean }
   | { type: 'theme'; theme: PageTheme }
+  /** Whether selecting text opens the selection bar changed (here or in another viewer). */
+  | { type: 'quietSelection'; quiet: boolean }
   | { type: 'document'; fileName: string; uri: string }
   | { type: 'requestExport'; requestId: number }
   | { type: 'undo' }
@@ -168,6 +178,8 @@ export type ViewerToHost =
   | { type: 'toolChanged'; active: boolean }
   | { type: 'listChanged'; open: boolean }
   | { type: 'listSectionsChanged'; collapsed: ListSection[] }
+  /** The reader turned the selection bar off (`quiet`) or on again, for all files. */
+  | { type: 'quietSelectionChanged'; quiet: boolean }
   | { type: 'openLink'; href: string }
   | { type: 'command'; command: ViewerCommand }
   | {
@@ -193,6 +205,12 @@ export type ViewerToHost =
       error?: string;
     }
   | { type: 'copyText'; text: string }
+  /** Translate a text (the answer comes as `translation` messages with the same id). */
+  | ({ type: 'translate' } & TranslateRequest)
+  /** The viewer does not wait for its translation any more. */
+  | { type: 'cancelTranslation' }
+  /** The language translations are into was picked (remembered for all files). */
+  | { type: 'translateTargetChanged'; to: string }
   | ({ type: 'sound' } & SoundRequest)
   | { type: 'log'; level: 'info' | 'warn' | 'error'; message: string };
 

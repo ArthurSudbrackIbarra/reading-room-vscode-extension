@@ -45,17 +45,35 @@ export function highlighterIcon(): SVGSVGElement {
   );
 }
 
-/** The Draw toggle: a pencil at 45°, above the band (in the current ink). */
+/**
+ * The Draw toggle: a pencil at 45°, above the band (in the current ink). Its tip ends as far above
+ * the band as the highlighter's does: the three icons with a band keep the same clear space over it.
+ */
 export function drawIcon(): SVGSVGElement {
   return icon16(
-    [['path', { ...STROKE, d: 'M11.1.9 13.7 3.5 6.4 10.8 2.6 11.9 3.7 8.1Z' }], ['path', { ...STROKE, d: 'M9.5 2.5 12.1 5.1M3.7 8.1 6.4 10.8' }], BAND],
+    [['path', { ...STROKE, d: 'M10.35.9 12.95 3.5 7.15 9.3 3.35 10.4 4.45 6.6Z' }], ['path', { ...STROKE, d: 'M8.75 2.5 11.35 5.1M4.45 6.6 7.15 9.3' }], BAND],
     'mpv-band-icon',
   );
 }
 
-/** The Text toggle: a small A and a big A, above the band (in the current text color). */
+/** The Text toggle: "Aa", a capital A and a small a, above the band (in the current text color). */
 export function textIcon(): SVGSVGElement {
-  return icon16([['path', { ...STROKE, d: 'M7.2 11.3 10.9 1.6l3.7 9.7M8.4 8.1h5M1.2 11.3 3.4 6l2.2 5.3M2 9.5h2.8' }], BAND], 'mpv-band-icon');
+  return icon16(
+    [['path', { ...STROKE, d: 'M1.1 10.55 4.5 1.15l3.4 9.4M2.3 7.35h4.4' }], ['path', { ...STROKE, d: 'M14.6 5.15v5.4M14.6 7.95a2.4 2.4 0 1 1-4.8 0 2.4 2.4 0 0 1 4.8 0Z' }], BAND],
+    'mpv-band-icon',
+  );
+}
+
+/**
+ * The − and + of the zoom. (The codicons' glyphs are not in the middle of their 16 px box: their ink
+ * starts 0.75 px from its left edge and ends 2 px from its right one.)
+ */
+export function minusIcon(): SVGSVGElement {
+  return icon16([['path', { ...STROKE, d: 'M2 8h12' }]]);
+}
+
+export function plusIcon(): SVGSVGElement {
+  return icon16([['path', { ...STROKE, d: 'M2 8h12M8 2v12' }]]);
 }
 
 /** A text box in the list: one "A", in the color of its text. */
@@ -75,11 +93,46 @@ export function toolIcon(tool: DrawingTool): SVGSVGElement {
   return icon16(TOOL_ICONS[tool]);
 }
 
-/** The select tool of the toolbar (click or drag around annotations to select them): the arrow of a pointer. */
+/** An 18×18 toolbar icon: one that has no band under it and needs the room (the same stroke, 1 unit is 1 px). */
+function icon18(parts: SvgPart[]): SVGSVGElement {
+  return svg('0 0 18 18', 18, parts, 'mpv-svg-icon');
+}
+
+/**
+ * The select tool of the toolbar (click or drag around annotations to select them): the dashed
+ * frame that is dragged around them, and the pointer that drags it, at the corner it ends in.
+ * Only the two thin tips of the pointer reach the right and bottom edges, so the drawing is
+ * centered by what is seen of it, not by its outline: the frame, which is most of what is seen,
+ * starts 2.7 px in from the left, and the tip of the pointer ends at the right edge.
+ */
 export function selectIcon(): SVGSVGElement {
-  // The arrow is narrow and heavy on its left side, so it is centered by its weight, not by its
-  // outline: with the outline in the middle it looks pushed to the left, far from the icon after it.
-  return icon16([['path', { ...STROKE, d: 'M5.1 1.9v10.8l2.8-2.6 1.9 4 1.7-.8-1.9-4h3.8Z' }]]);
+  return icon18([
+    // The frame: its three corners and a dash on each side. The fourth corner is under the pointer.
+    ['path', { ...STROKE, d: 'M3.35 4.5V3.65a1.3 1.3 0 0 1 1.3-1.3h.85M12.2 2.35h.85a1.3 1.3 0 0 1 1.3 1.3v.85M5.5 13.35h-.85a1.3 1.3 0 0 1-1.3-1.3v-.85' }],
+    ['path', { ...STROKE, d: 'M7.9 2.35h1.9M3.35 6.9v1.9M14.35 6.9v1M7.9 13.35h1' }],
+    ['path', { ...STROKE, fill: 'currentColor', 'stroke-width': '1.1', d: 'M10.4 9.5 17.4 12.1 14.3 13.5 13 17Z' }],
+  ]);
+}
+
+/**
+ * The translate tool of the toolbar: a Japanese character and, a step lower and to the right, a
+ * Latin one.
+ */
+export function translateIcon(): SVGSVGElement {
+  return icon18([
+    // 文: the dot, the bar, and the two strokes that cross under it.
+    ['path', { ...STROKE, d: 'M5.4 1.5v1.7M1.6 3.6h7.6M7.5 3.8C7 6.7 4.7 9 1.7 10M3.3 3.8c.6 2.9 2.9 5.2 5.9 6.2' }],
+    ['path', { ...STROKE, d: 'M9.7 16.5 13.2 8.3l3.5 8.2M11 13.6h4.4' }],
+  ]);
+}
+
+/** The eyedropper of the color picker: a pipette at 45°, its tip at the bottom left. */
+export function eyedropperIcon(): SVGSVGElement {
+  return icon16([
+    ['path', { ...STROKE, d: 'M2.5 13.5 3.3 11.1 8.9 5.5 10.5 7.1 4.9 12.7Z' }],
+    ['path', { ...STROKE, d: 'M7.8 4.4 11.6 8.2' }],
+    ['path', { ...STROKE, d: 'M10.8 7.4 12.9 5.3a1.55 1.55 0 0 0-2.2-2.2L8.6 5.2' }],
+  ]);
 }
 
 /** The eraser of the drawing bar (it rubs out part of a drawing): a block at 45°, on a pen stroke with a gap. */

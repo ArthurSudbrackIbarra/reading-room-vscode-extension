@@ -11,6 +11,7 @@ import { copyFolderFromFirst } from './store/atomicWrite';
 import { ANNOTATIONS_FOLDER, Backup, backupRoot } from './store/Backup';
 import { HighlightStore } from './store/HighlightStore';
 import { HistoryStore } from './store/HistoryStore';
+import { TranslationService } from './translate/TranslationService';
 import { SECTION, readSettings } from './util/settings';
 
 let manager: PreviewManager | undefined;
@@ -158,8 +159,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // Converted PDFs live in the extension's own storage folder, never next to the documents.
   const pdfCache = new PdfCache({ dir: vscode.Uri.joinPath(context.globalStorageUri, 'cache').fsPath, log });
   renderer = new RenderService(context, log);
-  manager = new PreviewManager(context, log, store, history, renderer, pdfCache);
-  context.subscriptions.push(manager, renderer);
+  // The translator starts (in a worker thread) with the first translation, not here.
+  const translation = new TranslationService(context, log);
+  manager = new PreviewManager(context, log, store, history, renderer, pdfCache, translation);
+  context.subscriptions.push(manager, renderer, translation);
 
   const m = manager;
   const withPanel = (fn: (panel: NonNullable<ReturnType<PreviewManager['current']>>) => unknown) => () => {
@@ -185,6 +188,8 @@ export function activate(context: vscode.ExtensionContext): void {
     'readingRoom.toggleDrawing': withPanel((p) => p.toggleDrawing()),
     'readingRoom.toggleText': withPanel((p) => p.toggleText()),
     'readingRoom.toggleSelectTool': withPanel((p) => p.toggleSelect()),
+    'readingRoom.toggleTranslate': withPanel((p) => p.toggleTranslate()),
+    'readingRoom.manageTranslationLanguages': () => translation.manage(),
     'readingRoom.deleteAllDrawings': () => m.deleteAllDrawings(undefined, 'ink'),
     'readingRoom.deleteAllTextBoxes': () => m.deleteAllDrawings(undefined, 'text'),
     'readingRoom.toggleHighlightsList': withPanel((p) => p.toggleList()),

@@ -16,6 +16,7 @@ import { duplicateOf, hintFor } from './copyHints';
 import { sanitizeSections } from '../shared/ui';
 import { MAX_CACHE_BYTES, PreviewPanel, kindOf, panelTitle, type PanelHost, type UiState } from './PreviewPanel';
 import type { RenderService } from './RenderService';
+import type { TranslationService } from '../translate/TranslationService';
 import { SoundCoordinator } from './SoundCoordinator';
 import { PDF_VIEW_TYPE, VIEW_TYPE, availableSounds, webviewOptions } from './webviewHtml';
 
@@ -63,6 +64,7 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
     readonly history: HistoryStore,
     readonly renderer: RenderService,
     readonly pdfCache: PdfCache,
+    readonly translation: TranslationService,
   ) {
     const saved = context.globalState.get<Partial<UiState>>(UI_STATE_KEY) ?? {};
     this.ui = {
@@ -80,6 +82,8 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
         .map(normalizeHex)
         .filter((c): c is HexColor => c !== undefined)
         .slice(0, MAX_RECENT_COLORS),
+      translateTo: typeof saved.translateTo === 'string' ? saved.translateTo : undefined,
+      quietSelection: saved.quietSelection === true,
     };
     void vscode.commands.executeCommand('setContext', FOCUS_CONTEXT, false);
     // A file: URI on purpose: globalStorageUri can have VS Code's own scheme (vscode-userdata:),
@@ -197,6 +201,12 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
     const theme: PageTheme = this.ui.theme === 'dark' ? 'light' : 'dark';
     this.updateUiState({ theme });
     for (const panel of this.panels.values()) void panel.setTheme(theme);
+  }
+
+  setQuietSelection(quiet: boolean): void {
+    if (quiet === this.ui.quietSelection) return;
+    this.updateUiState({ quietSelection: quiet });
+    for (const panel of this.panels.values()) panel.setQuietSelection(quiet);
   }
 
   // ---------- Panel bookkeeping ----------

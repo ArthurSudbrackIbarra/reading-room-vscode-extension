@@ -17,6 +17,8 @@ export interface Settings {
   textSnapshots: boolean;
   /** Keep a second copy of the annotations outside VS Code's storage, so an uninstall does not delete them. */
   backup: boolean;
+  /** Whether the translate tool may download a language pack (after asking) when it needs one. */
+  translationDownload: 'ask' | 'never';
 }
 
 /**
@@ -37,6 +39,7 @@ export function readSettings(): Settings {
     cacheDays: Number.isFinite(cacheDays) ? Math.min(365, Math.max(0, Math.floor(cacheDays))) : 7,
     textSnapshots: c.get<boolean>('textSnapshots') !== false,
     backup: c.get<boolean>('backup.enabled') !== false,
+    translationDownload: c.get<string>('translationDownload') === 'never' ? 'never' : 'ask',
   };
 }
 

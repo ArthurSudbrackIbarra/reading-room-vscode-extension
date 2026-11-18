@@ -9,12 +9,27 @@ import { DarkPages } from './darkPages';
 import { PageLayers } from './pageLayers';
 import { FileLinkLayer } from './fileLinks';
 import { Toolbar } from './toolbar';
-import { Banner, DrawingPopover, HighlightPopover, MOD_KEY, MarkerPopover, NoteTooltip, SelectionBar, Sidebar, StatusOverlay, TextPopover, Toast } from './panels';
+import {
+  Banner,
+  DrawingPopover,
+  HighlightPopover,
+  MOD_KEY,
+  MarkerPopover,
+  NoteTooltip,
+  SelectionBar,
+  Sidebar,
+  StatusOverlay,
+  TextPopover,
+  Toast,
+  type Attachment,
+  type InkView,
+} from './panels';
 import { MAX_HISTORY_STEPS } from '../src/shared/history';
 import { UndoStack, type EditOp, type HighlightChanges } from './undo';
 import { ReadingSounds, canPlaySounds, type SoundSource } from './sounds';
 import { DrawingController, type DrawingMode } from './drawings';
-import { DrawingBar, HighlightTray, HintTray, SelectTray, TOOL_KEYS, TextBar } from './drawingBar';
+import { DrawingBar, HighlightTray, HintTray, SelectTray, TOOL_KEYS, TextBar, TranslateTray } from './drawingBar';
+import { TranslationPopover } from './translate';
 import { menu } from './menu';
 import { ColorPicker } from './colorPicker';
 import { h } from './dom';
@@ -36,7 +51,8 @@ import {
 } from '../src/shared/drawings';
 import { CHAR_STYLES, PLAIN } from '../src/shared/richText';
 import { CLIP_MIME, decodeClip, encodeClip } from '../src/shared/selection';
-import type { Highlight } from '../src/shared/types';
+import { AUTO, CONTEXT_CHARS, MAX_TRANSLATE_CHARS, type TranslateLanguage } from '../src/shared/translate';
+import { MAX_NOTE_LENGTH, type Highlight } from '../src/shared/types';
 import { DEFAULT_CHOICES, DEFAULT_SOUND, DEFAULT_VOLUME } from '../src/shared/sounds';
 import { DEFAULT_COLOR, DEFAULT_ZOOM, type DocumentKind, type HighlightColor, type PageTheme, type ReadingMarker, type ZoomValue } from '../src/shared/types';
 
@@ -83,6 +99,12 @@ function formatLabel(patch: Partial<TextStyle>): string {
   return 'Format text box';
 }
 
+/** The label of an undo step that changed several drawings or text boxes at once: "Bold text (3 text boxes)". */
+function groupLabel(label: string, changed: Drawing[]): string {
+  if (changed.length < 2) return label;
+  return `${label} (${changed.length} ${isTextDrawing(changed[0]) ? 'text boxes' : 'drawings'})`;
+}
+
 /** "Draw a rectangle", "Draw an arrow", "Draw freehand": what an undo step of a new drawing undoes. */
 function drawLabel(tool: DrawingTool): string {
   if (tool === 'pen') return 'Draw freehand';
@@ -113,6 +135,8 @@ class App {
   private readonly drawingBar: DrawingBar;
   private readonly textBar: TextBar;
   private readonly selectTray: SelectTray;
+  private readonly translateTray: TranslateTray;
+  private readonly translation: TranslationPopover;
   private readonly markerTray: HintTray;
   private readonly drawingPopover: DrawingPopover;
   private readonly textPopover: TextPopover;
@@ -137,6 +161,17 @@ class App {
   private cutNext = false;
   /** The style new text boxes get (the last one picked). */
   private textStyle: TextStyle = { ...DEFAULT_TEXT_STYLE };
+  /** The translate tool: selecting text translates it. */
+  private translateActive = false;
+  /** The reader's choice in More: selecting text opens nothing (the selection bar stays away). */
+  private quietSelection = false;
+  private languages: TranslateLanguage[] = [];
+  /** The language of the text (`AUTO`: told from the text) and the one it is translated into. */
+  private translateFrom: string = AUTO;
+  private translateTo = 'en';
+  private translateSeq = 0;
+  /** What the translation popover is about: the text sent, and where it is from (a range of the text shown, or a highlight). */
+  private translating?: { requestId: number; text: string; context: string; range?: [number, number]; highlightId?: string; detected?: string };
 
   private uri = '';
   private fileName = '';
@@ -177,6 +212,7 @@ class App {
       toggleDrawing: () => this.setMode(this.drawings.active ? 'off' : 'draw'),
       toggleText: () => this.setMode(this.drawings.textActive ? 'off' : 'text'),
       toggleSelect: () => this.setMode(this.drawings.selecting ? 'off' : 'select'),
+      toggleTranslate: () => this.setTranslate(!this.translateActive),
       undo: () => this.undoOrRedo(true),
       placeMarker: () => this.toggleMarkerPlacement(),
       goToMarker: () => this.goToMarker(),
@@ -185,6 +221,7 @@ class App {
       toggleTheme: () => this.command('toggleTheme'),
       refresh: () => this.command('refresh'),
       toggleFullView: () => this.command('toggleFullView'),
+      toggleQuietSelection: () => this.toggleQuietSelection(),
       download: (withHighlights) => this.command(withHighlights ? 'download' : 'downloadWithoutHighlights'),
     });
     this.toolbar.setKind(this.kind);
@@ -252,6 +289,24 @@ class App {
       remove: () => this.deleteSelection(),
       done: () => this.setMode('off'),
     });
+    const languageActions = {
+      setFrom: (code: string) => this.setTranslateLanguages(code, this.translateTo),
+      setTo: (code: string) => this.setTranslateLanguages(this.translateFrom, code),
+    };
+    this.translateTray = new TranslateTray({ ...languageActions, done: () => this.setTranslate(false) });
+    this.translation = new TranslationPopover({
+      ...languageActions,
+      copy: (text) => {
+        post({ type: 'copyText', text });
+        this.toast.show('Translation copied.');
+      },
+      saveNote: (text) => this.saveTranslationAsNote(text),
+      retry: () => this.requestTranslation(),
+      closed: () => {
+        if (this.translating) post({ type: 'cancelTranslation' });
+        this.translating = undefined;
+      },
+    });
     this.markerTray = new HintTray('mpv-marker-tray', 'Marker mode', 'Click the line where you stopped reading.', {
       title: 'Cancel (Esc)',
       text: 'Cancel',
@@ -294,6 +349,7 @@ class App {
       this.drawingBar.element,
       this.textBar.element,
       this.selectTray.element,
+      this.translateTray.element,
       this.markerTray.element,
       this.progress,
       this.banner.element,
@@ -360,20 +416,21 @@ class App {
       log: (level, message) => log(level, message),
       report: (result) => this.reportRun(result),
     });
+    // A popover opened for several drawings (or several text boxes) names the first: what is chosen goes to all of them.
     this.drawingPopover = new DrawingPopover({
       pickColor: (id, anchor) => this.pickDrawingColor(id, anchor),
-      setWidth: (id, width) => this.changeDrawing(id, { width }, 'Change drawing width'),
-      attach: (id, to) => this.attachDrawing(id, to),
+      setWidth: (id, width) => this.changeDrawings(this.popoverTargets(id), { width }, 'Change drawing width'),
+      attach: (id, to) => this.attachDrawings(this.popoverTargets(id), to),
       copy: () => this.copySelection(),
-      remove: (id) => this.removeDrawing(id),
+      remove: (id) => this.removeFromPopover(id),
     });
     this.textPopover = new TextPopover({
-      setStyle: (id, patch) => this.changeDrawing(id, patch, formatLabel(patch)),
-      attach: (id, to) => this.attachDrawing(id, to),
+      setStyle: (id, patch) => this.changeDrawings(this.popoverTargets(id), patch, formatLabel(patch)),
+      attach: (id, to) => this.attachDrawings(this.popoverTargets(id), to),
       pickColor: (id, anchor) => this.pickDrawingColor(id, anchor),
       edit: (id) => this.editText(id),
       copy: () => this.copySelection(),
-      remove: (id) => this.removeDrawing(id),
+      remove: (id) => this.removeFromPopover(id),
     });
     this.popover = new HighlightPopover({
       setColor: (id, color) => this.changeHighlight(id, { color }, 'Change highlight color'),
@@ -383,6 +440,7 @@ class App {
         if (text) post({ type: 'copyText', text });
       },
       saveNote: (id, note) => this.changeHighlight(id, { note }, note ? 'Edit note' : 'Delete note'),
+      translate: (id, x, y) => this.translateHighlight(id, x, y),
       // Outside the select tool, a highlight is selected for as long as its popover is open.
       hidden: (id) => {
         const { drawings, highlights } = this.drawings.selection;
@@ -402,6 +460,11 @@ class App {
       },
       note: () => this.highlightWithNote(),
       marker: () => this.markSelection(),
+      translate: () => {
+        const [x, y] = this.selectionBar.position;
+        this.selectionBar.hide();
+        this.translateSelection(x, y);
+      },
     });
 
     this.viewer.onScaleChange = (zoom, scale) => {
@@ -477,6 +540,7 @@ class App {
         this.undoStack.load(init.readOnly ? undefined : init.history);
         this.showColor(init.color);
         this.toolbar.setFullView(init.fullView);
+        this.setQuietSelection(init.quietSelection === true);
         this.setTool(init.toolActive, false);
         if (init.drawStyle) this.setDrawStyle(init.drawStyle, false);
         this.drawHint = init.drawHint === true;
@@ -486,6 +550,14 @@ class App {
         this.toolbar.setTextColor(this.textStyle.color);
         this.textBar.setStyle(this.textStyle);
         this.colorPicker.setRecent(init.recentColors ?? []);
+        this.languages = init.translate?.languages ?? [];
+        this.translateTray.picker.setLanguages(this.languages);
+        this.translation.picker.setLanguages(this.languages);
+        this.setTranslateLanguages(AUTO, init.translate?.to ?? 'en', false);
+        // A build without the list of language packs cannot translate: nothing offers to.
+        this.toolbar.setTranslateAvailable(this.languages.length > 0);
+        this.selectionBar.setTranslateAvailable(this.languages.length > 0);
+        this.popover.setTranslateAvailable(this.languages.length > 0);
         if (init.customSounds) this.sounds?.setCustomSounds(init.customSounds);
         if (init.sound) this.sounds?.apply(init.sound);
         // In a narrow panel the list would cover the pages; open it only on request there.
@@ -563,11 +635,26 @@ class App {
       case 'toggleSelect':
         this.setMode(this.drawings.selecting ? 'off' : 'select');
         break;
+      case 'toggleTranslate':
+        this.setTranslate(!this.translateActive);
+        break;
+      case 'translation':
+        if (this.translating?.requestId !== msg.requestId) break;
+        // The language the text was found to be in is said in the first menu, as soon as it is known.
+        if (this.translateFrom === AUTO && msg.update.from && this.translating.detected !== msg.update.from) {
+          this.translating.detected = msg.update.from;
+          this.showTranslateLanguages();
+        }
+        this.translation.update(msg.update);
+        break;
       case 'fullView':
         this.toolbar.setFullView(msg.full);
         break;
       case 'theme':
         this.applyTheme(msg.theme);
+        break;
+      case 'quietSelection':
+        this.setQuietSelection(msg.quiet === true);
         break;
       case 'document':
         this.uri = msg.uri;
@@ -904,17 +991,32 @@ class App {
     return mode === 'block' ? 'image' : mode === 'page' ? 'page' : 'text';
   }
 
-  /** The reader chose what a drawing or text box follows (from its menu). One undo step. */
-  private attachDrawing(id: string, to: 'text' | 'image' | 'page'): void {
-    const shown = this.drawings.get(id);
-    if (!shown) return;
-    void this.commitDrawings(isTextDrawing(shown) ? 'Attach text box' : 'Attach drawing', [{ ...shown, updatedAt: new Date().toISOString() }], [], { prefer: to }).then(() => {
-      const now = this.attachmentOf(id);
+  /** The reader chose what a drawing or text box, or several of them, follow (from the menu of their popover). One undo step. */
+  private attachDrawings(ids: string[], to: Attachment): void {
+    const shown = ids.map((id) => this.drawings.get(id)).filter((d): d is Drawing => d !== undefined);
+    if (shown.length === 0) return;
+    const updatedAt = new Date().toISOString();
+    const label = groupLabel(isTextDrawing(shown[0]) ? 'Attach text box' : 'Attach drawing', shown);
+    void this.commitDrawings(
+      label,
+      shown.map((d) => ({ ...d, updatedAt })),
+      [],
+      { prefer: to },
+    ).then(() => {
+      const now = this.attachmentOf(shown[0].id);
       this.drawingPopover.setAttached(now);
       this.textPopover.setAttached(now);
       // An image was asked for and there is none under it: say what it follows instead.
-      if (now !== to)
+      const missed = shown.filter((d) => this.attachmentOf(d.id) !== to).length;
+      if (missed === 0) return;
+      if (shown.length === 1) {
         this.toast.show(to === 'image' ? 'There is no image here to attach it to. It follows the text.' : 'There is no text here to attach it to. It stays on the page.');
+      } else {
+        const some = missed === shown.length ? 'None of them has' : `${missed} of them ${missed === 1 ? 'has' : 'have'}`;
+        this.toast.show(
+          to === 'image' ? `${some} an image under it to attach to: there, they follow the text.` : `${some} text under it to attach to: there, they stay on the page.`,
+        );
+      }
     });
   }
 
@@ -1044,18 +1146,79 @@ class App {
 
   /** Changes a drawing's ink or width, or a text box's style (one undo step). */
   private changeDrawing(id: string, changes: Partial<Pick<InkDrawing, 'color' | 'width'>> | Partial<TextStyle>, label: string, from?: Drawing): void {
-    const before = from ?? this.drawings.get(id);
-    if (!before) return;
-    // (Bold, italic and underline of a text box go to all of its text.)
-    const after: Drawing = isTextDrawing(before) ? this.drawings.fitText(applyTextStyle(before, changes as Partial<TextStyle>)) : ({ ...before, ...changes } as Drawing);
-    const { updatedAt: _a, ...a } = after;
-    const { updatedAt: _b, ...b } = before;
-    if (JSON.stringify(a) === JSON.stringify(b)) return;
-    after.updatedAt = new Date().toISOString();
-    this.drawings.put(after);
-    if (isTextDrawing(after)) this.textPopover.update(after);
-    else this.drawingPopover.update(after);
-    void this.commitDrawings(label, [after]);
+    this.changeDrawings([id], changes, label, from ? new Map([[id, from]]) : undefined);
+  }
+
+  /**
+   * Changes the ink or the width of drawings, or the style of text boxes: all of them in one undo
+   * step. `from`: what they were before the change was tried out on them (a color being picked).
+   */
+  private changeDrawings(ids: string[], changes: Partial<Pick<InkDrawing, 'color' | 'width'>> | Partial<TextStyle>, label: string, from?: Map<string, Drawing>): void {
+    const changed: Drawing[] = [];
+    const updatedAt = new Date().toISOString();
+    for (const id of ids) {
+      const before = from?.get(id) ?? this.drawings.get(id);
+      if (!before) continue;
+      // (Bold, italic and underline of a text box go to all of its text.)
+      const after: Drawing = isTextDrawing(before) ? this.drawings.fitText(applyTextStyle(before, changes as Partial<TextStyle>)) : ({ ...before, ...changes } as Drawing);
+      const { updatedAt: _a, ...a } = after;
+      const { updatedAt: _b, ...b } = before;
+      if (JSON.stringify(a) === JSON.stringify(b)) continue;
+      after.updatedAt = updatedAt;
+      this.drawings.put(after);
+      changed.push(after);
+    }
+    if (changed.length === 0) return;
+    this.updatePopovers();
+    void this.commitDrawings(groupLabel(label, changed), changed);
+  }
+
+  /**
+   * Several drawings, or several text boxes, selected with nothing else: one popover works on all
+   * of them. The first one selected comes first.
+   */
+  private selectedGroup(): Drawing[] | undefined {
+    const { drawings: ids, highlights } = this.drawings.selection;
+    if (highlights.length > 0 || ids.length < 2) return undefined;
+    const drawings = ids.map((id) => this.drawings.get(id)).filter((d): d is Drawing => d !== undefined);
+    if (drawings.length !== ids.length) return undefined;
+    const text = isTextDrawing(drawings[0]);
+    return drawings.every((d) => isTextDrawing(d) === text) ? drawings : undefined;
+  }
+
+  /**
+   * What a control of a popover works on: the drawing or text box the popover was opened for, or,
+   * when that is one of several selected of its kind, all of them (it first).
+   */
+  private popoverTargets(id: string): string[] {
+    const group = this.selectedGroup();
+    return group?.some((d) => d.id === id) ? [id, ...group.filter((d) => d.id !== id).map((d) => d.id)] : [id];
+  }
+
+  /** What the popover of drawings shows for these: the color of the first, and the width they share. */
+  private inkView(inks: InkDrawing[]): InkView {
+    const [first] = inks;
+    return { id: first.id, color: first.color, width: inks.every((d) => d.width === first.width) ? first.width : undefined, count: inks.length };
+  }
+
+  /** The open popover shows the drawings or text boxes it works on as they are now. */
+  private updatePopovers(): void {
+    const targets = (id: string | undefined): Drawing[] =>
+      id
+        ? this.popoverTargets(id)
+            .map((other) => this.drawings.get(other))
+            .filter((d): d is Drawing => d !== undefined)
+        : [];
+    const texts = targets(this.textPopover.textId).filter(isTextDrawing);
+    if (texts.length > 0) this.textPopover.update(texts);
+    const inks = targets(this.drawingPopover.drawingId).filter(isInkDrawing);
+    if (inks.length > 0) this.drawingPopover.update(this.inkView(inks));
+  }
+
+  /** Delete in a popover: the drawing or text box it was opened for, or everything selected when it works on several. */
+  private removeFromPopover(id: string): void {
+    if (this.popoverTargets(id).length > 1) this.deleteSelection();
+    else this.removeDrawing(id);
   }
 
   private removeDrawing(id: string): void {
@@ -1068,27 +1231,36 @@ class App {
   }
 
   /**
-   * The color picker of a selected drawing or text box: the drawing shows each color while the
-   * reader drags in the picker, and every color they settle on is one undo step.
+   * The color picker of a selected drawing or text box, or of several selected of one kind: they
+   * show each color while the reader drags in the picker, and every color they settle on is one
+   * undo step.
    */
   private pickDrawingColor(id: string, anchor: HTMLElement): void {
-    let base = this.drawings.get(id);
-    if (!base) return;
-    const text = isTextDrawing(base);
+    const ids = this.popoverTargets(id);
+    const snapshot = (): Map<string, Drawing> => {
+      const map = new Map<string, Drawing>();
+      for (const other of ids) {
+        const drawing = this.drawings.get(other);
+        if (drawing) map.set(other, drawing);
+      }
+      return map;
+    };
+    let bases = snapshot();
+    const first = bases.get(id);
+    if (!first) return;
+    const text = isTextDrawing(first);
     this.colorPicker.toggle(anchor, {
       label: text ? 'Text color' : 'Ink color',
-      value: base.color,
+      value: first.color,
       onChange: (color, final) => {
-        if (!base) return;
         if (!final) {
-          this.drawings.put({ ...base, color });
+          for (const base of bases.values()) this.drawings.put({ ...base, color });
           return;
         }
-        const from = base;
-        this.changeDrawing(id, { color }, text ? 'Change text color' : 'Change drawing color', from);
-        base = this.drawings.get(id);
+        this.changeDrawings([...bases.keys()], { color }, text ? 'Change text color' : 'Change drawing color', bases);
+        bases = snapshot();
         // Nothing changed (the original color picked again): show the original.
-        if (base && base.color !== color) this.drawings.put(base);
+        for (const base of bases.values()) if (base.color !== color) this.drawings.put(base);
       },
     });
   }
@@ -1399,6 +1571,7 @@ class App {
     this.hideFloating();
     // The highlight tool, draw mode, text mode and placing the marker exclude each other.
     if (this.toolActive) this.setTool(false, true);
+    this.setTranslate(false);
     this.setMode('off');
     this.marker.startPlacing();
   }
@@ -1470,8 +1643,9 @@ class App {
 
   private setTool(active: boolean, notify: boolean): void {
     if (active) {
-      // The highlight tool, draw mode, text mode and placing the marker exclude each other.
+      // The highlight tool, the translate tool, draw mode, text mode and placing the marker exclude each other.
       this.setMode('off');
+      this.setTranslate(false);
       if (this.marker.placing) this.marker.stopPlacing();
     }
     this.toolActive = active;
@@ -1482,11 +1656,155 @@ class App {
     if (active && this.highlights.selectionRange()) this.highlights.createFromSelection(this.color);
   }
 
-  /** Draw mode, text mode or neither. Turning one on turns off the highlight tool and placing the marker. */
+  // ---------- The selection bar, or none ----------
+
+  private setQuietSelection(quiet: boolean): void {
+    this.quietSelection = quiet;
+    this.toolbar.setQuietSelection(quiet);
+    if (quiet) this.selectionBar.hide();
+  }
+
+  /** From More: turns the selection bar off or on again, for all files, and says what that means. */
+  private toggleQuietSelection(): void {
+    const quiet = !this.quietSelection;
+    this.setQuietSelection(quiet);
+    post({ type: 'quietSelectionChanged', quiet });
+    this.toast.show(
+      quiet
+        ? 'Selecting text opens nothing now. To highlight or translate, turn that tool on first.'
+        : 'Selecting text opens the bar again: highlight, note, reading marker, translate.',
+      { durationMs: 6000 },
+    );
+  }
+
+  // ---------- Translating ----------
+
+  /** The translate tool: while it is on, text that is selected is translated. It excludes the other tools. */
+  private setTranslate(active: boolean): void {
+    if (active === this.translateActive || (active && this.languages.length === 0)) return;
+    if (active) {
+      this.setMode('off');
+      if (this.toolActive) this.setTool(false, true);
+      if (this.marker.placing) this.marker.stopPlacing();
+      this.hideFloating();
+    } else {
+      this.translation.hide();
+      menu().close();
+    }
+    this.translateActive = active;
+    document.body.classList.toggle('mpv-translate-active', active);
+    this.toolbar.setTranslating(active);
+    this.syncTrays();
+    // Text that is selected already is what the reader wants translated.
+    if (active && this.highlights.selectionRange()) {
+      const r = window.getSelection()?.getRangeAt(0).getBoundingClientRect();
+      if (r) this.translateSelection(r.left + r.width / 2, r.bottom);
+    }
+  }
+
+  /** The two menus (of the tray and of the popover) show the same languages. */
+  private showTranslateLanguages(): void {
+    const detected = this.translating?.detected;
+    this.translateTray.picker.set(this.translateFrom, this.translateTo);
+    this.translation.picker.set(this.translateFrom, this.translateTo, detected);
+  }
+
+  /** A language was picked in either menu: remembered (the one translated into, for all files), and what is shown is translated again. */
+  private setTranslateLanguages(from: string, to: string, byReader = true): void {
+    const changed = from !== this.translateFrom || to !== this.translateTo;
+    if (byReader && to !== this.translateTo) post({ type: 'translateTargetChanged', to });
+    this.translateFrom = from;
+    this.translateTo = to;
+    if (this.translating && changed) this.translating.detected = undefined;
+    this.showTranslateLanguages();
+    if (byReader && changed && this.translation.visible && this.translating) this.requestTranslation();
+  }
+
+  /** Translates the text that is selected on the pages; the result opens at (x, y). */
+  private translateSelection(x: number, y: number): void {
+    const range = this.highlights.selectionRange();
+    if (!range) return;
+    const text = this.highlights.readingTextOf(range[0], range[1]);
+    if (!text) return;
+    this.openTranslation({ text, context: this.highlights.contextOf(range[0], range[1], CONTEXT_CHARS), range }, x, y);
+  }
+
+  /** Translates the text of a highlight. */
+  private translateHighlight(id: string, x: number, y: number): void {
+    const rt = this.highlights.get(id);
+    if (!rt) return;
+    const range = this.highlights.rangeOf(id);
+    // A highlight whose text is not in this version is translated as it was stored.
+    const text = range ? this.highlights.readingTextOf(range[0], range[1]) : rt.data.target.selector[0].exact;
+    if (!text) return;
+    this.openTranslation({ text, context: range ? this.highlights.contextOf(range[0], range[1], CONTEXT_CHARS) : text, highlightId: id }, x, y);
+  }
+
+  private openTranslation(source: { text: string; context: string; range?: [number, number]; highlightId?: string }, x: number, y: number): void {
+    this.popover.hide();
+    this.selectionBar.hide();
+    this.noteTooltip.hide();
+    // (Closing the popover that is open, if any, cancels what it was waiting for.)
+    this.translation.hide();
+    this.translating = { requestId: 0, ...source };
+    this.translation.setNoteTarget(this.readOnly ? undefined : source.highlightId ? 'add' : 'new');
+    this.showTranslateLanguages();
+    this.translation.open(x, y);
+    this.requestTranslation();
+  }
+
+  /** Asks the host for the translation of what the popover is about (again, after another language was picked). */
+  private requestTranslation(): void {
+    const source = this.translating;
+    if (!source) return;
+    source.requestId = ++this.translateSeq;
+    this.translation.restart();
+    if (source.text.length > MAX_TRANSLATE_CHARS) {
+      this.translation.update({
+        status: 'error',
+        problem: 'too-long',
+        message: `That is more than ${MAX_TRANSLATE_CHARS.toLocaleString('en-US')} characters. Select less to translate it.`,
+        to: this.translateTo,
+      });
+      return;
+    }
+    this.translation.update({ status: 'working', step: this.translateFrom === AUTO ? 'detecting' : 'translating', to: this.translateTo });
+    post({ type: 'translate', requestId: source.requestId, text: source.text, context: source.context, from: this.translateFrom, to: this.translateTo });
+  }
+
+  /** "Save as note": the translation becomes the note of a highlight on the text (a new one, or the one that was translated). */
+  private saveTranslationAsNote(translated: string): void {
+    const source = this.translating;
+    if (!source || this.readOnly) return;
+    let id = source.highlightId;
+    let before = id ? (this.highlights.get(id)?.data.note ?? '') : '';
+    if (!id) {
+      const created = source.range ? this.highlights.createFromSelection(this.color, source.range) : undefined;
+      if (!created) {
+        this.toast.show('The text is not on the pages any more, so there is nothing to put the note on.');
+        return;
+      }
+      id = created.id;
+      before = '';
+      // From now on the popover is about that highlight: saving again does not make another one.
+      source.highlightId = id;
+      this.translation.setNoteTarget('add');
+    }
+    if (before.includes(translated)) {
+      this.toast.show('The note has this translation already.');
+      return;
+    }
+    const note = (before ? `${before}\n\n${translated}` : translated).slice(0, MAX_NOTE_LENGTH);
+    this.changeHighlight(id, { note }, 'Save translation as note');
+    this.toast.show(before ? 'Translation added to the note.' : 'Highlighted, with the translation as its note.', { action: this.undoAction() });
+  }
+
+  /** Draw mode, text mode or neither. Turning one on turns off the highlight tool, the translate tool and placing the marker. */
   private setMode(mode: DrawingMode): void {
     if (mode === this.drawings.mode) return;
     if (mode !== 'off') {
       if (this.toolActive) this.setTool(false, true);
+      this.setTranslate(false);
       if (this.marker.placing) this.marker.stopPlacing();
       this.hideFloating();
       window.getSelection()?.removeAllRanges();
@@ -1514,8 +1832,8 @@ class App {
     }
   }
 
-  private get trays(): (HighlightTray | DrawingBar | TextBar | SelectTray | HintTray)[] {
-    return [this.highlightTray, this.drawingBar, this.textBar, this.selectTray, this.markerTray];
+  private get trays(): (HighlightTray | DrawingBar | TextBar | SelectTray | TranslateTray | HintTray)[] {
+    return [this.highlightTray, this.drawingBar, this.textBar, this.selectTray, this.translateTray, this.markerTray];
   }
 
   /**
@@ -1532,6 +1850,7 @@ class App {
     this.drawingBar.visible = mode === 'draw';
     this.textBar.visible = mode === 'text';
     this.selectTray.visible = mode === 'select';
+    this.translateTray.visible = this.translateActive;
     this.markerTray.visible = this.marker.placing;
     const moved = this.container.getBoundingClientRect().top - top;
     if (moved !== 0) this.container.scrollTop += moved;
@@ -1562,8 +1881,9 @@ class App {
   }
 
   /**
-   * The selection changed. One drawing or text box selected by a click shows its popover; so does
-   * one highlight (at the click). Popovers of what is not selected alone any more close.
+   * The selection changed. One drawing or text box that is selected shows its popover, and so do
+   * several drawings, or several text boxes, selected with nothing else: one popover for all of
+   * them. One highlight shows its own (at the click). Popovers of anything else close.
    */
   private onSelectionChanged(id: string | undefined, popover: boolean, at?: [number, number]): void {
     // Called while the controllers are still being built.
@@ -1585,8 +1905,10 @@ class App {
       }
     }
     if (this.drawings.textActive) this.showTextStyle();
-    const drawing = id && popover ? this.drawings.get(id) : undefined;
-    const r = id && popover ? this.drawings.clientRectOf(id) : undefined;
+    const alone = id ? this.drawings.get(id) : undefined;
+    const group: Drawing[] = !popover ? [] : alone ? [alone] : (this.selectedGroup() ?? []);
+    const drawing = group[0];
+    const r = this.clientRectAround(group);
     if (this.colorPicker.openedFrom && (this.drawingPopover.element.contains(this.colorPicker.openedFrom) || this.textPopover.element.contains(this.colorPicker.openedFrom))) {
       if (!drawing || drawing.id !== (this.drawingPopover.drawingId ?? this.textPopover.textId)) this.colorPicker.close();
     }
@@ -1599,16 +1921,32 @@ class App {
     this.markerPopover.hide();
     this.noteTooltip.hide();
     this.selectionBar.hide();
-    const x = (r.left + r.right) / 2;
+    // Under the middle of what is selected. Several may reach beyond what is in view: the popover stays in the viewer.
+    const view = this.container.getBoundingClientRect();
+    const x = Math.min(Math.max((r.left + r.right) / 2, view.left), view.right);
+    const y = Math.min(Math.max(r.bottom, view.top), view.bottom - 12);
     if (isTextDrawing(drawing)) {
       this.drawingPopover.hide();
       this.textPopover.setAttached(this.attachmentOf(drawing.id));
-      this.textPopover.show(drawing, x, r.bottom);
+      this.textPopover.show(group.filter(isTextDrawing), x, y);
     } else {
       this.textPopover.hide();
       this.drawingPopover.setAttached(this.attachmentOf(drawing.id));
-      this.drawingPopover.show(drawing, x, r.bottom);
+      this.drawingPopover.show(this.inkView(group.filter(isInkDrawing)), x, y);
     }
+  }
+
+  /** The rectangle on screen around these drawings and text boxes (those whose page is shown). */
+  private clientRectAround(drawings: Drawing[]): { left: number; top: number; right: number; bottom: number } | undefined {
+    let around: { left: number; top: number; right: number; bottom: number } | undefined;
+    for (const drawing of drawings) {
+      const r = this.drawings.clientRectOf(drawing.id);
+      if (!r) continue;
+      around = around
+        ? { left: Math.min(around.left, r.left), top: Math.min(around.top, r.top), right: Math.max(around.right, r.right), bottom: Math.max(around.bottom, r.bottom) }
+        : { ...r };
+    }
+    return around;
   }
 
   private pickColor(color: HighlightColor, createFromSelection = true): void {
@@ -1669,6 +2007,8 @@ class App {
     if (!passive || !this.popover.editing) this.popover.hide();
     // The sounds panel hangs from the toolbar, so scrolling and zooming leave it open.
     if (!passive) this.sounds?.hide();
+    // A translation is read: scrolling and zooming leave it where it is.
+    if (!passive) this.translation.hide();
     this.selectionBar.hide();
     this.markerPopover.hide();
     this.noteTooltip.hide();
@@ -1717,7 +2057,9 @@ class App {
         if (!range) return;
         if (this.toolActive) {
           this.highlights.createFromSelection(this.color);
-        } else {
+        } else if (this.translateActive) {
+          this.translateSelection(e.clientX, e.clientY);
+        } else if (!this.quietSelection) {
           this.selectionBar.show(e.clientX, e.clientY);
         }
       }, 0);
@@ -1779,6 +2121,8 @@ class App {
       if (!this.popover.element.contains(target) && !adding) this.popover.hide();
       if (!this.selectionBar.element.contains(target)) this.selectionBar.hide();
       if (!this.markerPopover.element.contains(target)) this.markerPopover.hide();
+      // (The menus of the tray are about the translation that is open too: picking a language there translates it again.)
+      if (!this.translation.contains(target) && !this.translateTray.element.contains(target)) this.translation.hide();
       // A press on the selected drawing hides its popover while it may move; it comes back after.
       // (Not while picking its color: the picker belongs to the popover.)
       if (!this.drawingPopover.element.contains(target) && !this.colorPicker.contains(target)) this.drawingPopover.hide();
@@ -1845,7 +2189,7 @@ class App {
       if (this.drawings.cancelGesture()) return;
       // Esc backs out of one thing at a time: a popover first (a menu and the color picker take
       // the key themselves), then the tool that is on.
-      if (this.popover.visible || this.selectionBar.visible || this.markerPopover.visible || this.drawingPopover.visible || this.textPopover.visible) {
+      if (this.popover.visible || this.selectionBar.visible || this.markerPopover.visible || this.drawingPopover.visible || this.textPopover.visible || this.translation.visible) {
         this.hideFloating();
         return;
       }
@@ -1866,6 +2210,10 @@ class App {
         this.setTool(false, true);
         return;
       }
+      if (this.translateActive) {
+        this.setTranslate(false);
+        return;
+      }
       this.hideFloating();
       if (this.toolbar.hasFocus()) this.container.focus();
     });
@@ -1877,7 +2225,7 @@ class App {
     document.addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
       const focused = document.activeElement;
-      if (isTextField(focused) || focused?.closest('.mpv-sounds, .mpv-menu, .mpv-status, .mpv-color-picker, select')) return;
+      if (isTextField(focused) || focused?.closest('.mpv-sounds, .mpv-menu, .mpv-status, .mpv-color-picker, .mpv-translation, select')) return;
       const tool = this.drawings.active ? TOOL_KEYS[e.key.toLowerCase()] : undefined;
       if (tool) {
         e.preventDefault();

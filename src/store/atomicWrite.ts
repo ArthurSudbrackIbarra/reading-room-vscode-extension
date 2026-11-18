@@ -83,6 +83,11 @@ export async function removeFile(path: string): Promise<void> {
   await fs.rm(path, { force: true });
 }
 
+/** Removes a folder of the storage folder with everything in it (a downloaded language pack). */
+export async function removeFolder(path: string): Promise<void> {
+  await fs.rm(path, { recursive: true, force: true });
+}
+
 /** Sets a file's modification time (the PDF cache uses it as "last used"). */
 export async function touchFile(path: string, time: Date = new Date()): Promise<void> {
   await fs.utimes(path, time, time);

@@ -1,6 +1,7 @@
 // The color picker of drawings and text boxes: preset colors (with their own shade on dark
 // pages), the custom colors used lately, and a full picker (saturation/brightness area, hue
-// slider, hex field). One instance is shared by the bars and the popovers.
+// slider, hex field), and an eyedropper that takes a color from anywhere on the screen. One
+// instance is shared by the bars and the popovers.
 import {
   INK_PRESETS,
   INK_PRESET_NAMES,
@@ -18,7 +19,7 @@ import {
 } from '../src/shared/colors';
 import { h, placeUnder, swatchButton } from './dom';
 import { setInk } from './drawings';
-import { chevronIcon } from './icons';
+import { chevronIcon, eyedropperIcon } from './icons';
 
 export interface ColorPickerRequest {
   /** What the color is for, e.g. "Ink color" (the picker's label). */
@@ -30,6 +31,16 @@ export interface ColorPickerRequest {
    */
   onChange(ink: Ink, final: boolean): void;
   onClose?(): void;
+}
+
+/** The browser's eyedropper (Chromium has it; it is not in TypeScript's DOM types). */
+interface EyeDropper {
+  open(options?: { signal?: AbortSignal }): Promise<{ sRGBHex: string }>;
+}
+
+function eyeDropper(): EyeDropper | undefined {
+  const Dropper = (window as { EyeDropper?: new () => EyeDropper }).EyeDropper;
+  return Dropper ? new Dropper() : undefined;
 }
 
 /** A button that shows a color (a dot in its ink) and opens the picker. */
@@ -75,6 +86,13 @@ export class ColorPicker {
   private readonly hue = h('input', { class: 'mpv-cp-hue', type: 'range', min: 0, max: 359, step: 1, 'aria-label': 'Hue' });
   private readonly hex = h('input', { class: 'mpv-field mpv-cp-hex', type: 'text', maxlength: 7, spellcheck: 'false', 'aria-label': 'Hex color' });
   private readonly preview = h('span', { class: 'mpv-dot mpv-cp-preview', 'aria-hidden': 'true' });
+  private readonly dropper = h(
+    'button',
+    { class: 'mpv-btn', type: 'button', title: 'Pick a color from the page (Esc cancels)', 'aria-label': 'Pick a color from the page' },
+    eyedropperIcon(),
+  );
+  /** Set while the eyedropper is out: aborting it puts it away. */
+  private sampling?: AbortController;
   /** The reader changed the recent colors (to remember them). */
   onRecentChanged?: (colors: HexColor[]) => void;
 
@@ -95,10 +113,12 @@ export class ColorPicker {
       h('div', { class: 'mpv-cp-label mpv-caps', text: 'Custom' }),
       this.area,
       this.hue,
-      h('div', { class: 'mpv-cp-row' }, this.preview, this.hex),
+      // The eyedropper is offered where the browser has one (VS Code does).
+      h('div', { class: 'mpv-cp-row' }, this.preview, this.hex, eyeDropper() && h('div', { class: 'mpv-squares' }, this.dropper)),
     );
     document.body.append(this.element);
     this.bindArea();
+    this.dropper.addEventListener('click', () => void this.sample());
     this.hue.addEventListener('input', () => {
       this.hsv[0] = Number(this.hue.value);
       this.emitCustom(false);
@@ -181,6 +201,7 @@ export class ColorPicker {
   }
 
   close(): void {
+    this.sampling?.abort();
     if (!this.request) {
       this.element.hidden = true;
       return;
@@ -282,6 +303,36 @@ export class ColorPicker {
     this.pending = !final;
     if (final) this.settled = hex;
     request.onChange(hex, final);
+  }
+
+  /**
+   * The eyedropper: the reader clicks anything on the screen (the page, a picture in it, a
+   * drawing) and its color becomes the custom color, as if they had typed its hex value. The
+   * picker steps out of the way meanwhile, so what is under it can be picked too. Esc, or closing
+   * the picker, puts the eyedropper away and leaves the color as it was.
+   */
+  private async sample(): Promise<void> {
+    const dropper = eyeDropper();
+    const request = this.request;
+    if (!dropper || !request || this.sampling) return;
+    const sampling = new AbortController();
+    this.sampling = sampling;
+    this.element.classList.add('mpv-sampling');
+    let picked: HexColor | undefined;
+    try {
+      picked = normalizeHex((await dropper.open({ signal: sampling.signal })).sRGBHex);
+    } catch {
+      // Put away without a pick.
+    }
+    this.sampling = undefined;
+    this.element.classList.remove('mpv-sampling');
+    // (The picker may have been closed, or opened for something else, meanwhile.)
+    if (this.request !== request) return;
+    if (picked) {
+      this.hsv = rgbToHsv(hexToRgb(picked));
+      this.emitCustom(true, picked);
+    }
+    this.dropper.focus({ preventScroll: true });
   }
 
   private remember(color: HexColor): void {

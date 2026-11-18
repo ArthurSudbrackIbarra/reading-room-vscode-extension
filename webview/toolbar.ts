@@ -1,10 +1,11 @@
 // The viewer toolbar: one row in three zones, with flexible space between them.
 //   find your place:  [☰] [↑ n / N ↓] [− zoom ▾ +]
-//   annotate:         [select │ highlight │ draw │ text] [🔖 ▾] [↶]
+//   annotate:         [select] [highlight] [draw] [text] [translate] [🔖 ▾] [↶]
 //   the room:         [🎧] [◐] [⤓ ▾] [⋯]
-// The four tools sit in one well: at most one is on, and the one that is on gets a tinted, ringed
-// chip; its options are in its tray (the row under the toolbar). The three tools that make
-// something show their color in a band under their icon.
+// The five tools stand side by side, each in its own square: at most one is on, and the one that
+// is on is tinted and ringed; its options are in its tray (the row under the toolbar). The three
+// tools that make something show their color in a band under their icon. (In a mini panel the
+// fifth, the translate tool, is in More.)
 // The toolbar never wraps. As the viewer gets narrower, controls move into the More menu, which
 // always lists exactly what is not on the bar (see `layout`).
 import type { Ink } from '../src/shared/colors';
@@ -13,7 +14,7 @@ import { HIGHLIGHT_HEX, MAX_ZOOM, MIN_ZOOM, type DocumentKind, type HighlightCol
 import { narrower, sizeClassOf, type SizeClass } from '../src/shared/ui';
 import { h, iconButton, MOD_KEY, placeUnder } from './dom';
 import { setInk } from './drawings';
-import { chevronIcon, drawIcon, highlighterIcon, pageIcon, selectIcon, textIcon } from './icons';
+import { chevronIcon, drawIcon, highlighterIcon, minusIcon, pageIcon, plusIcon, selectIcon, textIcon, translateIcon } from './icons';
 import { byKeyboard, menu, type MenuPart } from './menu';
 import { headphonesIcon } from './sounds';
 
@@ -29,6 +30,7 @@ export interface ToolbarActions {
   toggleDrawing(): void;
   toggleText(): void;
   toggleSelect(): void;
+  toggleTranslate(): void;
   /** Takes back the last change (or, while typing, the last typing). */
   undo(): void;
   placeMarker(): void;
@@ -39,6 +41,8 @@ export interface ToolbarActions {
   toggleTheme(): void;
   refresh(): void;
   toggleFullView(): void;
+  /** Selecting text opens the bar next to it (highlight, note, marker, translate), or leaves the text alone. */
+  toggleQuietSelection(): void;
   /** `withAnnotations`: with highlights, notes, drawings and text boxes (the default), or without any. */
   download(withAnnotations: boolean): void;
 }
@@ -53,7 +57,11 @@ const SELECT_TITLE = 'Select: click a drawing or text box, or drag around severa
 const DARK_TITLE = 'Dark pages';
 const DARK_ON_TITLE = 'Dark pages are on: click for light pages';
 const SELECT_ON_TITLE = 'Selecting is on (Esc to stop)';
+const TRANSLATE_TITLE = 'Translate: select text to read it in another language (translated on this computer)';
+const TRANSLATE_ON_TITLE = 'Translating is on: selecting text translates it (Esc to stop)';
 const DOWNLOAD_TITLE = 'Download PDF with annotations';
+/** The entry of More that keeps the selection bar away. */
+export const QUIET_LABEL = 'No bar when selecting text';
 
 const ZOOM_FITS: { value: ZoomValue; label: string; icon: string }[] = [
   { value: 'page-width', label: 'Fit width', icon: 'arrow-both' },
@@ -86,6 +94,7 @@ export class Toolbar {
   private readonly drawButton = toolButton('mpv-draw-button', DRAW_TITLE, drawIcon());
   private readonly textButton = toolButton('mpv-text-button', TEXT_TITLE, textIcon());
   private readonly selectButton = toolButton('mpv-select-button', SELECT_TITLE, selectIcon());
+  private readonly translateButton = toolButton('mpv-translate-button', TRANSLATE_TITLE, translateIcon());
   private readonly markerButton = iconButton('bookmark', 'Mark where you stopped reading: click this, then click a line', { 'aria-pressed': 'false' });
   private readonly markerMenu = menuToggle('Reading marker options');
   private readonly markerSplit: HTMLElement;
@@ -118,12 +127,17 @@ export class Toolbar {
   private zoom: ZoomValue = 'page-width';
   private theme: PageTheme = 'light';
   private fullView = false;
+  private quietSelection = false;
   private markerExists = false;
   private soundsAvailable = false;
+  private translateAvailable = true;
+  private translating = false;
 
   constructor(private readonly actions: ToolbarActions) {
-    const zoomOut = iconButton('remove', `Zoom out (${MOD_KEY}+-)`);
-    const zoomIn = iconButton('add', `Zoom in (${MOD_KEY}+=)`);
+    const zoomOutTitle = `Zoom out (${MOD_KEY}+-)`;
+    const zoomInTitle = `Zoom in (${MOD_KEY}+=)`;
+    const zoomOut = h('button', { class: 'mpv-btn', type: 'button', title: zoomOutTitle, 'aria-label': zoomOutTitle }, minusIcon());
+    const zoomIn = h('button', { class: 'mpv-btn', type: 'button', title: zoomInTitle, 'aria-label': zoomInTitle }, plusIcon());
 
     // "n / N": the field and the count are one line of text.
     this.pageStep = h(
@@ -136,7 +150,15 @@ export class Toolbar {
     this.zoomStep = h('div', { class: 'mpv-step', role: 'group', 'aria-label': 'Zoom' }, zoomOut, this.zoomButton, zoomIn);
     this.markerSplit = h('div', { class: 'mpv-split' }, this.markerButton, this.markerMenu);
     this.downloadSplit = h('div', { class: 'mpv-split' }, this.downloadButton, this.downloadMenu);
-    const tools = h('div', { class: 'mpv-seg mpv-seg-tools', role: 'group', 'aria-label': 'Tools' }, this.selectButton, this.highlightButton, this.drawButton, this.textButton);
+    const tools = h(
+      'div',
+      { class: 'mpv-squares mpv-tools', role: 'group', 'aria-label': 'Tools' },
+      this.selectButton,
+      this.highlightButton,
+      this.drawButton,
+      this.textButton,
+      this.translateButton,
+    );
 
     this.element = h(
       'header',
@@ -159,6 +181,7 @@ export class Toolbar {
     this.drawButton.addEventListener('click', () => actions.toggleDrawing());
     this.textButton.addEventListener('click', () => actions.toggleText());
     this.selectButton.addEventListener('click', () => actions.toggleSelect());
+    this.translateButton.addEventListener('click', () => actions.toggleTranslate());
     // The button does not take the keyboard: while typing in a text box, it undoes the typing.
     this.undoButton.addEventListener('pointerdown', (e) => e.preventDefault());
     this.undoButton.addEventListener('click', () => actions.undo());
@@ -207,6 +230,8 @@ export class Toolbar {
     this.downloadSplit.hidden = size !== 'wide';
     this.markerSplit.hidden = tight;
     this.soundsButton.hidden = !this.soundsAvailable || tight;
+    // The fifth tool is the one that makes nothing on the page: in a mini panel it is in More.
+    this.translateButton.hidden = !this.translateAvailable || size === 'mini';
     // Dark pages is on the bar wherever there is room for it: everywhere but in a mini panel.
     this.themeButton.hidden = size === 'mini';
     // Narrow: the page field without its arrows. Mini: "Go to page…" in More.
@@ -273,11 +298,14 @@ export class Toolbar {
       ]);
     } else if (size !== 'wide') {
       groups.push([
-        { icon: 'add', label: 'Zoom in', end: `${MOD_KEY}+=`, run: () => actions.zoomIn() },
-        { icon: 'remove', label: 'Zoom out', end: `${MOD_KEY}+-`, run: () => actions.zoomOut() },
+        { icon: plusIcon(), label: 'Zoom in', end: `${MOD_KEY}+=`, run: () => actions.zoomIn() },
+        { icon: minusIcon(), label: 'Zoom out', end: `${MOD_KEY}+-`, run: () => actions.zoomOut() },
         ...ZOOM_FITS.slice(0, 2).map((z) => ({ icon: z.icon, label: z.label, role: 'radio' as const, checked: current === z.value, run: () => actions.setZoom(z.value) })),
         { icon: 'zoom-in', label: 'Other zoom levels', more: true, run: () => this.openZoom(this.moreButton, true) },
       ]);
+    }
+    if (size === 'mini' && this.translateAvailable) {
+      groups.push([{ icon: translateIcon(), label: 'Translate', role: 'checkbox', checked: this.translating, run: () => actions.toggleTranslate() }]);
     }
     if (tight) {
       const reading = this.markerParts(false);
@@ -290,6 +318,8 @@ export class Toolbar {
     if (this.kind !== 'pdf') {
       room.push({ icon: this.fullView ? 'screen-normal' : 'screen-full', label: 'Full view', role: 'checkbox', checked: this.fullView, run: () => actions.toggleFullView() });
     }
+    // For readers who follow the lines with the selection: nothing opens over the text they select.
+    room.push({ icon: 'eye-closed', label: QUIET_LABEL, role: 'checkbox', checked: this.quietSelection, run: () => actions.toggleQuietSelection() });
     room.push({
       icon: 'refresh',
       label: this.kind === 'pdf' ? 'Reload from disk' : size === 'wide' ? 'Convert the document again' : 'Convert again',
@@ -416,6 +446,17 @@ export class Toolbar {
     this.setPressed(this.selectButton, active, active ? SELECT_ON_TITLE : SELECT_TITLE);
   }
 
+  setTranslating(active: boolean): void {
+    this.translating = active;
+    this.setPressed(this.translateButton, active, active ? TRANSLATE_ON_TITLE : TRANSLATE_TITLE);
+  }
+
+  /** The translate tool is not on the bar when this build cannot translate (no list of language packs). */
+  setTranslateAvailable(available: boolean): void {
+    this.translateAvailable = available;
+    this.layout();
+  }
+
   /** What the undo button would take back (`label`), or nothing. */
   setUndo(label: string | undefined, shortcut: string): void {
     this.undoButton.disabled = label === undefined;
@@ -484,6 +525,11 @@ export class Toolbar {
 
   setFullView(full: boolean): void {
     this.fullView = full;
+  }
+
+  /** Whether selecting text leaves the selection bar away (the check of its entry in More). */
+  setQuietSelection(quiet: boolean): void {
+    this.quietSelection = quiet;
   }
 
   setListOpen(open: boolean): void {

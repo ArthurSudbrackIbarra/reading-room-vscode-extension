@@ -45,6 +45,8 @@ import { sanitizeHistoryChange, type HistoryStore } from '../store/HistoryStore'
 import { applyResolved, prepareRecord } from '../store/resolutions';
 import type { SoundRequest, SoundState } from '../shared/sounds';
 import type { SoundLibrary } from '../store/SoundLibrary';
+import { AUTO, CONTEXT_CHARS, MAX_TRANSLATE_CHARS } from '../shared/translate';
+import type { TranslationService } from '../translate/TranslationService';
 import { readSettings } from '../util/settings';
 import { RenderError, type RenderService } from './RenderService';
 import type { SoundCoordinator } from './SoundCoordinator';
@@ -68,6 +70,10 @@ export interface UiState {
   textStyle: TextStyle;
   /** Custom colors picked lately (newest first), offered again in the color picker. */
   recentColors: HexColor[];
+  /** The language the translate tool translates into (none picked yet: the language of VS Code). */
+  translateTo?: string;
+  /** Selecting text does not open the selection bar. */
+  quietSelection: boolean;
 }
 
 export interface PanelHost {
@@ -82,6 +88,8 @@ export interface PanelHost {
   /** The reader's own reading sounds, and the folder their files are in. */
   readonly soundLibrary: SoundLibrary;
   readonly customSoundsUri: vscode.Uri;
+  /** The translate tool (shared by all viewers). */
+  readonly translation: TranslationService;
   /** A reading sounds request from a viewer's controls. */
   soundRequest(panel: PreviewPanel, request: SoundRequest): void;
   uiState(): UiState;
@@ -98,6 +106,8 @@ export interface PanelHost {
    */
   deleteAllDrawings(panel: PreviewPanel, kind: 'ink' | 'text'): Promise<void>;
   toggleTheme(): void;
+  /** Whether selecting text opens the selection bar, in every viewer. */
+  setQuietSelection(quiet: boolean): void;
   refFor(uri: vscode.Uri): DocumentRef;
   focusChanged(panel: PreviewPanel, focused: boolean): void;
   viewStateChanged(panel: PreviewPanel): void;
@@ -438,6 +448,9 @@ export class PreviewPanel implements vscode.Disposable {
       case 'listSectionsChanged':
         this.host.updateUiState({ collapsedSections: sanitizeSections(msg.collapsed) });
         break;
+      case 'quietSelectionChanged':
+        this.host.setQuietSelection(msg.quiet === true);
+        break;
       case 'openLink':
         await this.openLink(msg.href);
         break;
@@ -451,6 +464,15 @@ export class PreviewPanel implements vscode.Disposable {
       case 'copyText':
         await vscode.env.clipboard.writeText(msg.text);
         break;
+      case 'translate':
+        this.translate(msg);
+        break;
+      case 'cancelTranslation':
+        this.host.translation.cancel(this);
+        break;
+      case 'translateTargetChanged':
+        if (this.host.translation.languages().some((language) => language.code === msg.to && language.to)) this.host.updateUiState({ translateTo: msg.to });
+        break;
       case 'sound':
         this.host.soundRequest(this, msg);
         break;
@@ -458,6 +480,20 @@ export class PreviewPanel implements vscode.Disposable {
         this.host.log[msg.level](`[viewer] ${msg.message}`);
         break;
     }
+  }
+
+  /** A viewer asks for a translation: what it sent is checked, and the answers go back with its id. */
+  private translate(msg: Extract<ViewerToHost, { type: 'translate' }>): void {
+    const requestId = Number(msg.requestId);
+    const code = (value: unknown): string | undefined => (typeof value === 'string' && /^[a-z_]{2,8}$/.test(value) ? value : undefined);
+    const from = msg.from === AUTO ? AUTO : code(msg.from);
+    const to = code(msg.to);
+    if (!Number.isFinite(requestId) || typeof msg.text !== 'string' || !from || !to) return;
+    // One character more than is allowed stays "too long": the viewer is told so.
+    const text = msg.text.slice(0, MAX_TRANSLATE_CHARS + 1).trim();
+    if (!text) return;
+    const context = typeof msg.context === 'string' ? msg.context.slice(0, CONTEXT_CHARS * 2) : undefined;
+    void this.host.translation.translate(this, { requestId, text, context, from, to }, (update) => this.post({ type: 'translation', requestId, update }));
   }
 
   /** Stores new drawings and new versions of existing ones, after checking every one of them. */
@@ -555,6 +591,7 @@ export class PreviewPanel implements vscode.Disposable {
         textHint: this.host.textHint(),
         eraseHint: this.host.eraseHint(),
         recentColors: ui.recentColors,
+        quietSelection: ui.quietSelection,
         fullView: this.kind !== 'pdf' && this.isFullView(),
         marginsPt: margins,
         sound: this.host.sounds.stateFor(this),
@@ -563,6 +600,7 @@ export class PreviewPanel implements vscode.Disposable {
         keepSnapshots: readSettings().textSnapshots,
         pages: record.pages,
         history,
+        translate: { languages: this.host.translation.languages(), to: ui.translateTo ?? this.host.translation.defaultTarget() },
       },
     } satisfies HostToViewer);
     const queued = this.outbox.splice(0);
@@ -833,6 +871,10 @@ export class PreviewPanel implements vscode.Disposable {
 
   // ---------- Commands ----------
 
+  setQuietSelection(quiet: boolean): void {
+    this.post({ type: 'quietSelection', quiet });
+  }
+
   async setTheme(theme: PageTheme): Promise<void> {
     if (theme === this.theme) return;
     this.theme = theme;
@@ -859,6 +901,10 @@ export class PreviewPanel implements vscode.Disposable {
 
   toggleSelect(): void {
     this.post({ type: 'toggleSelect' });
+  }
+
+  toggleTranslate(): void {
+    this.post({ type: 'toggleTranslate' });
   }
 
   toggleText(): void {
@@ -1196,6 +1242,7 @@ export class PreviewPanel implements vscode.Disposable {
 
   dispose(): void {
     if (this.disposed) return;
+    this.host.translation.cancel(this);
     this.disposed = true;
     clearTimeout(this.renderTimer);
     for (const waiter of this.exportWaiters.values())

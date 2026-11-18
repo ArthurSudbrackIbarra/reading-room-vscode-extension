@@ -223,8 +223,10 @@ export class MenuButton<T> {
   readonly element: HTMLButtonElement;
   private readonly text = h('span', { class: 'mpv-label' });
   private value?: T;
+  private choices: { value: T; label: string }[];
 
   constructor(private readonly options: MenuButtonOptions<T>) {
+    this.choices = options.options;
     this.element = h(
       'button',
       { class: `mpv-select ${options.className ?? ''}`.trim(), type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false' },
@@ -240,18 +242,34 @@ export class MenuButton<T> {
     });
   }
 
-  /** Shows a value. One that is not in the list is shown as `label` (and has no item in the menu). */
-  setValue(value: T, label?: string): void {
+  /** Replaces the list of values (the languages, once the host has said which there are). */
+  setOptions(options: { value: T; label: string }[]): void {
+    this.choices = options;
+  }
+
+  /**
+   * Shows a value. One that is not in the list is shown as `label` (and has no item in the menu).
+   * `display`: what the button says in place of the item's own label ("Japanese (detected)").
+   */
+  setValue(value: T, label?: string, display?: string): void {
     this.value = value;
-    const shown = this.options.options.find((o) => o.value === value)?.label ?? label ?? String(value);
+    const shown = display ?? this.choices.find((o) => o.value === value)?.label ?? label ?? String(value);
     this.text.textContent = shown;
     this.element.title = `${this.options.label}: ${this.options.describe ? this.options.describe(shown) : shown}`;
     this.element.setAttribute('aria-label', this.element.title);
   }
 
+  /** Shows that there is no one value (several things with different ones): a dash, and no item of the menu is checked. */
+  setMixed(): void {
+    this.value = undefined;
+    this.text.textContent = '–';
+    this.element.title = `${this.options.label}: mixed`;
+    this.element.setAttribute('aria-label', this.element.title);
+  }
+
   private toggle(keyboard: boolean): void {
     const { options } = this;
-    const parts: MenuPart[] = options.options.map((o) => ({
+    const parts: MenuPart[] = this.choices.map((o) => ({
       label: o.label,
       role: 'radio' as const,
       checked: o.value === this.value,
