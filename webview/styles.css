@@ -3150,7 +3150,7 @@ body[data-page-theme='dark'] .mpv-term-layer {
   max-width: min(320px, calc(100vw - 8px));
 }
 
-/* The text starts where the icons of the buttons under it start (as in the marker's popover). */
+/* The text is inset as in the marker's popover. */
 .mpv-term-popover-title {
   padding: 2px 9px 0;
 }
@@ -3178,6 +3178,11 @@ body[data-page-theme='dark'] .mpv-term-layer {
   overflow-wrap: anywhere;
   cursor: text;
   user-select: text;
+}
+
+/* Edit and Delete sit at the right, under the end of the text. */
+.mpv-term-popover > .mpv-popover-row {
+  justify-content: flex-end;
 }
 
 /* Where a term is defined or changed: the term, what it means, then Cancel and Save. It looks

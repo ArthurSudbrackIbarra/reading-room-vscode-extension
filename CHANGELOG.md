@@ -21,6 +21,8 @@
   - The conversion starts while the viewer is still loading, and the browser starts while the text is being read, so every document opens a little sooner.
 - **Esc in the color picker gives the keyboard back to the text box** you are typing in. It stayed on the color button, so the next `Ctrl+Z` undid the whole box instead of the typing.
 - **A letter typed right after an arrow key** takes the bold, italic, underline and color of where the caret now is. Typed very quickly, it took the style of where the caret was.
+- **Pages with a photo no longer stay blank for 30 seconds.** Some JPEG photos carry a color profile (the thumbnail of a YouTube video does), and drawing them needs a small file from the extension. The viewer asked for that file from a place VS Code does not answer, waited 30 seconds and gave up. That happened every time the document was opened, so the cache did not help: the conversion was quick, and the wait came after it. The viewer now fetches the file itself. A README with such a thumbnail is on screen in about a second instead of thirty-one. The fonts a PDF leaves out, the character maps of some CJK text and the JPEG 2000 and JBIG2 decoders came the same way, and now load like the color profiles.
+- **The popover of a glossary term** says _Glossary, written 4 times_ without a dot in the middle, and its Edit and Delete buttons are at the right.
 
 ## 0.14.0 — 2026-11-18
 

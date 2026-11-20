@@ -2,10 +2,10 @@
 // each of them is written (marked with a dotted line under it, on a layer of its own under the
 // text), and the two popovers: the one that says what a term means, and the one a term is
 // defined in.
-//   Glossary · written 12 times            Term
+//   Glossary, written 12 times             Term
 //   MLP                                    [MLP                         ]
 //   Multi-Layer Perceptron                 What it means
-//   [✎ Edit] [🗑 Delete]                    [Multi-Layer Perceptron      ]
+//              [✎ Edit] [🗑 Delete]         [Multi-Layer Perceptron      ]
 //                                          Ctrl+Enter to save   [Cancel] [Save]
 // Where the terms are written is found again whenever the document or the glossary changes (it is
 // a search in the text, not something stored).
@@ -318,7 +318,7 @@ export class TermPopover {
   show(term: GlossaryTerm, count: number, x: number, y: number): void {
     this.currentId = term.id;
     this.anchor = [x, y];
-    this.label.textContent = `Glossary · ${timesWritten(count)}`;
+    this.label.textContent = `Glossary, ${timesWritten(count)}`;
     this.name.textContent = term.term;
     this.definition.textContent = term.definition;
     this.definition.scrollTop = 0;
