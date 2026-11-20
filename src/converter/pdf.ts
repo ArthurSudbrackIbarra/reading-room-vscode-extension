@@ -54,6 +54,8 @@ export interface PrintOptions {
   docPath: string;
   pageSize: PageSize;
   pageNumbers: boolean;
+  /** False for a first part of a document: its last page is not the document's, so pages are numbered "3", not "3 / 8". */
+  pageTotal?: boolean;
   theme: PageTheme;
   allowRemoteImages: boolean;
   assetsDir: string;
@@ -168,9 +170,10 @@ async function fixupDocument(args: { origin: string; fsPrefix: string; docPath: 
   return { warnings, tables, keptBlocks };
 }
 
-function footerTemplate(theme: PageTheme): string {
+function footerTemplate(theme: PageTheme, withTotal: boolean): string {
   const color = theme === 'dark' ? '#9198a1' : '#6e7781';
-  return `<div style="font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 8px; width: 100%; text-align: center; color: ${color};"><span class="pageNumber"></span> / <span class="totalPages"></span></div>`;
+  const total = withTotal ? ' / <span class="totalPages"></span>' : '';
+  return `<div style="font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 8px; width: 100%; text-align: center; color: ${color};"><span class="pageNumber"></span>${total}</div>`;
 }
 
 export async function printPdf(browser: Browser, options: PrintOptions): Promise<{ pdf: Uint8Array; warnings: string[]; remoteFailures: number }> {
@@ -216,7 +219,7 @@ export async function printPdf(browser: Browser, options: PrintOptions): Promise
       outline: true,
       displayHeaderFooter: options.pageNumbers,
       headerTemplate: '<div></div>',
-      footerTemplate: footerTemplate(options.theme),
+      footerTemplate: footerTemplate(options.theme, options.pageTotal !== false),
       preferCSSPageSize: false,
       timeout: 60_000,
     });

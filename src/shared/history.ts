@@ -2,6 +2,7 @@
 // applied again. It is kept with the annotations (see store/HistoryStore.ts), so it lasts when the
 // tab or VS Code is closed. Shared by the viewer and the extension host; no runtime dependencies.
 import type { Drawing } from './drawings';
+import type { GlossaryTerm } from './glossary';
 import type { Highlight, HighlightColor, ReadingMarker } from './types';
 
 /** Changeable properties of a highlight. `note: ''` means "no note". */
@@ -21,6 +22,8 @@ export type EditOp =
   | { kind: 'deleteDrawing'; drawing: Drawing }
   /** A drawing's color, width or position changed: the whole drawing before and after. */
   | { kind: 'updateDrawing'; before: Drawing; after: Drawing }
+  /** A term of the glossary defined (`before` is null), changed, or deleted (`after` is null): the whole term before and after. */
+  | { kind: 'term'; before: GlossaryTerm | null; after: GlossaryTerm | null }
   | { kind: 'batch'; ops: EditOp[] };
 
 export interface UndoStep {
@@ -61,6 +64,8 @@ export function inverse(op: EditOp): EditOp {
       return { kind: 'createDrawing', drawing: op.drawing };
     case 'updateDrawing':
       return { kind: 'updateDrawing', before: op.after, after: op.before };
+    case 'term':
+      return { kind: 'term', before: op.after, after: op.before };
     case 'batch':
       return { kind: 'batch', ops: op.ops.map(inverse).reverse() };
   }

@@ -144,9 +144,10 @@ export class ColorPicker {
       if (e.key !== 'Escape') return;
       e.preventDefault();
       e.stopPropagation();
-      const anchor = this.anchor;
+      // The keyboard goes back to the button the picker was opened from, unless what it was opened
+      // for takes it when the picker closes (a text box being typed in: the typing goes on there).
+      this.anchor?.focus();
       this.close();
-      anchor?.focus();
     });
     // A press outside closes it (the button that opened it toggles it itself).
     document.addEventListener(

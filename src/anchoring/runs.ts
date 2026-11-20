@@ -131,6 +131,11 @@ export interface RunOptions {
   chunk?: number;
   /** Whether this is the first run for this document in this viewer (a banner may be due even without a change). */
   first?: boolean;
+  /**
+   * Only the quick pass: nothing is searched for approximately. For the first part of a document
+   * that is shown ahead of the rest, where most of what is not found is simply further down.
+   */
+  quick?: boolean;
 }
 
 const MARKER_QUOTE_LENGTH = 48;
@@ -399,6 +404,12 @@ export class ResolverRuns {
         await pause();
         if (!live()) return undefined;
       }
+    }
+
+    if (options.quick) {
+      result.pending.clear();
+      this.summarize(result, input, options);
+      return result;
     }
 
     // Slow pass: approximate search for what the quick pass did not find.

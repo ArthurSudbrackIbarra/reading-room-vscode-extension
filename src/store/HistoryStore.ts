@@ -9,6 +9,7 @@
 // unit-testable.
 import { promises as fs } from 'node:fs';
 import { sanitizeDrawing } from '../shared/drawings';
+import { sanitizeTerm } from '../shared/glossary';
 import {
   MAX_HISTORY_STEPS,
   MAX_STEP_LABEL,
@@ -99,6 +100,13 @@ function sanitizeOp(value: unknown, budget: { ops: number }, depth = 0): EditOp 
       const before = sanitizeDrawing(raw.before);
       const after = sanitizeDrawing(raw.after);
       return before && after && before.id === after.id ? { kind: 'updateDrawing', before, after } : undefined;
+    }
+    case 'term': {
+      const before = raw.before === null ? null : sanitizeTerm(raw.before);
+      const after = raw.after === null ? null : sanitizeTerm(raw.after);
+      // Defined, changed (the same term before and after) or deleted: never nothing on both sides.
+      if (before === undefined || after === undefined || (!before && !after) || (before && after && before.id !== after.id)) return undefined;
+      return { kind: 'term', before, after };
     }
     case 'batch': {
       if (depth >= MAX_BATCH_DEPTH || !Array.isArray(raw.ops)) return undefined;

@@ -1,8 +1,8 @@
 # Reading Room
 
-**A quiet place to read and study inside VS Code.** Open PDF, Markdown and plain text files as pages, highlight what matters, write notes next to it, draw and type on the page, translate what you select without sending it anywhere, mark where you stopped, and read to the sound of rain, a crackling fireplace or your own recordings.
+**A quiet place to read and study inside VS Code.** Open PDF, Markdown and plain text files as pages, highlight what matters, write notes next to it, draw and type on the page, translate what you select without sending it anywhere, keep a glossary of the terms you meet, mark where you stopped, and read to the sound of rain, a crackling fireplace or your own recordings.
 
-![A Markdown file next to its pages in Reading Room: highlights in four colors, two notes, three drawings (a purple underline, a blue arrow and a red ellipse), a blue text box at the tail of the arrow, the red reading marker and the list of annotations](docs/demo.png)
+![A Markdown file next to its pages in Reading Room: highlights in four colors, two notes, a glossary term with a dotted purple line under each place it is written, three drawings (a purple underline, a blue arrow and a red ellipse), a blue text box at the tail of the arrow, the red reading marker and the list of annotations](docs/demo.png)
 
 ## What you can do
 
@@ -10,18 +10,20 @@
 
 - **PDF files** open as they are, including password-protected ones.
 - **Markdown and `.txt` files** become print-quality pages: clickable links, an outline, syntax-highlighted code, math and diagrams. They are converted again when you save.
+- **Long documents do not keep you waiting**: the first pages are there in a moment, and the rest follows while you read.
 - Zoom freely (toolbar, `Ctrl`+wheel, pinch) and switch the pages to a **dark theme**.
 
 **Study**
 
 - **Highlight** text in five colors and write a **note** on any highlight.
 - **Draw** anywhere on a page: pen strokes, lines, arrows, rectangles and ellipses, in any color and three widths.
-- **Type** anywhere on a page: text boxes in any color and size, with bold, italic and underline on any part of the text.
+- **Type** anywhere on a page: text boxes in any color and size, with bold, italic, underline and a color of its own on any part of the text.
 - **Translate** what you select, between about sixty languages. The translating is done on your own computer: what you read is never sent anywhere.
+- **Define terms**: write what a word or an acronym means once, and it is marked everywhere it is written. A click on it shows its meaning.
 - **Select** several drawings and text boxes at once, with a click or a rectangle, to move, copy, paste or delete them together. Your highlights are left out, so they are never deleted by accident.
 - **Take things back**: an undo button and `Ctrl+Z` that still work after you closed VS Code, and an eraser that rubs out part of a drawing.
 - **Your annotations stay on their content** when the file changes. They follow the words (or the picture) they are on through your edits. If that content is deleted they are kept and listed, and they return when it does.
-- A side list shows every highlight, note, drawing and text box. Search it, filter it by color, click an entry to jump to it.
+- A side list shows every highlight, note, drawing, text box and glossary term. Search it, filter it by color, click an entry to jump to it.
 
 **Keep your place**
 
@@ -45,6 +47,7 @@
 - [The toolbar](#the-toolbar)
 - [Highlights and notes](#highlights-and-notes)
 - [Translating](#translating)
+- [The glossary](#the-glossary)
 - [Drawing](#drawing)
 - [Text boxes](#text-boxes)
 - [Selecting, copying and pasting](#selecting-copying-and-pasting)
@@ -86,6 +89,8 @@ Good to know:
 - Each file has one Reading Room tab; opening it again brings that tab forward.
 - A Markdown or text file is converted again when you **save** it, and you stay where you were. **Convert the document again** (in the ⋯ menu) also shows unsaved changes.
 - A PDF file is reloaded when it changes on disk.
+- **A long Markdown or text file** (about ninety pages or more) is shown part by part the first time: its first pages after a moment, with a line under the last one that says the rest is being converted, then the whole document. You can read, highlight and draw meanwhile, and you stay where you are when the rest arrives. Annotations and the reading marker that are further down appear with their pages.
+- **A large PDF** (more than forty pages) shows its pages at once. Highlighting and the other tools are ready a few seconds later, when its text has been read.
 
 ## The toolbar
 
@@ -101,34 +106,35 @@ One row, in three groups: finding your place on the left, the tools in the middl
 | Pencil | **Draw tool**: pen, lines, arrows, rectangles, ellipses and an eraser (see [Drawing](#drawing)). The band shows the current ink |
 | Aa | **Text tool**: type anywhere on a page (see [Text boxes](#text-boxes)). The band shows the color new text gets |
 | 文A | **Translate tool**: while it is on, every text selection is translated (see [Translating](#translating)) |
+| Book with an A | **Glossary tool**: while it is on, select a word or a phrase to write what it means (see [The glossary](#the-glossary)) |
 | 🔖 ▾ | **Reading marker**: click, then click the line where you stopped. The menu also has _Go to_ and _Remove_ |
 | ↶ | **Undo** the last change. Its tooltip says what it will take back |
 | 🎧 | **Reading sounds**: play rain, a fireplace or your own sounds |
 | ◐ | **Dark pages**: switch the pages between light and dark |
 | ⤓ ▾ | Download a PDF, with your annotations (the default) or without |
-| ⋯ | **More**: **Full view** (Markdown, text: the pages take the source's editor group instead of standing next to it), **No bar when selecting text** (see [Highlights and notes](#highlights-and-notes)) and **Convert the document again** (PDF files: **Reload from disk**) |
+| ⋯ | **More**: **Full view** (Markdown, text: the pages take the source's editor group instead of standing next to it), **No bar when selecting text** (see [Highlights and notes](#highlights-and-notes)), **Import glossary terms…** (see [The glossary](#the-glossary)) and **Convert the document again** (PDF files: **Reload from disk**) |
 
-**One tool at a time.** The five tools stand side by side, and turning one on turns the others off. The tool that is on is tinted and outlined, and a second row opens under the toolbar: its **tray**. The tray looks like the toolbar. It starts with the name of the mode (**DRAW MODE**, **TEXT MODE**, …), holds that tool's options right after it, and ends with **Done**. Done, a second click on the tool and **Esc** all turn the tool off. Placing the reading marker works the same way, with **Cancel**.
+**One tool at a time.** The six tools stand side by side, and turning one on turns the others off. The tool that is on is tinted and outlined, and a second row opens under the toolbar: its **tray**. The tray looks like the toolbar. It starts with the name of the mode (**DRAW MODE**, **TEXT MODE**, …), holds that tool's options right after it, and ends with **Done**. Done, a second click on the tool and **Esc** all turn the tool off. Placing the reading marker works the same way, with **Cancel**.
 
-**In a narrow panel** the toolbar stays one row. What does not fit moves into ⋯, which always lists exactly what is missing from the bar: first the zoom and the download, then the reading marker and the sounds, and in a very narrow panel the page number, dark pages and the translate tool.
+**In a narrow panel** the toolbar stays one row. What does not fit moves into ⋯, which always lists exactly what is missing from the bar: first the zoom and the download, then the reading marker and the sounds, and in a very narrow panel the page number, dark pages, the translate tool and the glossary tool.
 
 ## Highlights and notes
 
 - **Highlight tool on**: select text, and it is highlighted in the current color. Its tray has the five colors: yellow, pink, green, blue, orange.
-- **Highlight tool off**: select text and a small bar appears next to the selection. Pick a color, use 💬 to highlight and write a note right away, or 🔖 to mark that line as your reading position.
-  - **Do you follow the lines with the mouse as you read?** Turn on **No bar when selecting text** in the ⋯ menu, and selecting text opens nothing. It is off at first, and it is remembered for all files. While it is on, turn the highlight tool or the translate tool on to highlight or translate what you select; a click on a highlight still opens its bar.
+- **Highlight tool off**: select text and a small bar appears next to the selection. Pick a color, or use 💬 next to the colors to highlight and write a note right away. The buttons after the divider do something else with the selection: 🔖 marks that line as your reading position, **文A** [translates](#translating) it, and the book [defines](#the-glossary) it as a term.
+  - **Do you follow the lines with the mouse as you read?** Turn on **No bar when selecting text** in the ⋯ menu, and selecting text opens nothing. It is off at first, and it is remembered for all files. While it is on, turn the highlight tool, the translate tool or the glossary tool on to highlight, translate or define what you select; a click on a highlight still opens its bar.
 - **Click a highlight** to change its color, add or edit its note, copy its text or delete it. While its bar is open, **Delete** deletes it and **Enter** opens its note. A note shows under the buttons; click it to edit it.
 - **Notes**: type, then press **Ctrl+Enter** or click **Save**. Clicking elsewhere also saves; **Esc** cancels. Highlights with a note have a darker underline and a 💬 badge in the right margin; hover to read the note.
-- The **☰ list** shows your reading position at the top, then all highlights in document order with their notes, then your drawings and text boxes.
+- The **☰ list** shows your reading position at the top, then all highlights in document order with their notes, then your drawings, your text boxes and the glossary.
   - **Click an entry** to jump to it. The entry is selected, and what you can do with it opens under it: add or edit the note, copy, delete.
-  - **Search** finds highlights by their text and their notes. The five dots show only the highlights of those colors, and **With notes** only the ones that have a note.
+  - **Search** finds highlights by their text and their notes, and glossary terms by the term and its meaning. The five dots show only the highlights of those colors, and **With notes** only the ones that have a note.
   - Click a section's title to **collapse** it. That is remembered.
 
 ## Translating
 
 Select some text and read it in another language. **The translating is done on your computer**: the text is never sent to a translation service, and once a language is on your computer it works without a connection.
 
-- **With no tool on**: select text, then click **文A** at the end of the bar that appears next to the selection.
+- **With no tool on**: select text, then click **文A** in the bar that appears next to the selection.
 - **With the translate tool on** (文A in the toolbar): every selection is translated as soon as you let go. Its tray has the two languages; **Done** or **Esc** turns it off.
 - **A highlight**: click it, then **文A** in its popover.
 
@@ -146,6 +152,29 @@ The translation opens next to the text.
 - `readingRoom.translationDownload: never` forbids downloads: only the languages that are on the computer already can be translated.
 
 **What to expect.** The translations are good for understanding a passage, and plainer than those of the large online services: a rare word, a name or a very long sentence can come out wrong. While a translation is being made, the translator takes about half a gigabyte of memory, and about one gigabyte between two languages other than English (two packs); it gives them back a minute after you last used it.
+
+## The glossary
+
+Keep the meaning of the words you meet. Define a term once, and every place where it is written in the document is marked with a dotted purple line. Click a marked term to read what it means.
+
+<img src="docs/glossary.png" alt="A page of lecture notes on neural networks. MLP, ReLU, gradient descent, SGD and CNN have a dotted purple line under them wherever they are written. One MLP was clicked: a small panel under it reads Glossary, written 6 times, MLP, Multi-Layer Perceptron: layers of units, each fully connected to the next, with the buttons Edit and Delete. On the left, the list has a Glossary section with the five terms, their meanings and how many times each is written" width="870">
+
+Click the book with an A in the toolbar to turn the glossary tool on. Its tray opens:
+
+<img src="docs/glossary-bar.png" alt="The toolbar with the glossary tool on: its button, a book with an A on it, is tinted and outlined. Under it, its tray: the words GLOSSARY MODE, the hint Select a word or a phrase to define it, the Esc key and a Done button on the right" width="870">
+
+- **With the glossary tool on**: select a word, an acronym or a short phrase, and a small form opens with the term in it. Write what it means, then press `Ctrl+Enter` or click **Save**. A click elsewhere saves too; **Esc** cancels.
+- **With no tool on**: select the term, then click the book at the end of the bar that appears next to the selection.
+- **Click a marked term** to read its meaning, with **Edit** and **Delete** under it. Selecting a term you already defined opens it for editing.
+- **What is marked.** Whole words only: `MLP` is not marked inside `MLPs`. A term written in capitals only, like `MLP` or `IT`, is found exactly as written; any other term is found whatever its capitals, so `gradient descent` also marks `Gradient Descent`.
+- **The ☰ list** has a **Glossary** section: every term with its meaning and how many times it is written. Click a row to go to the term, and again for the next place.
+- **Each document has its own glossary**, because the same acronym can mean two things in two documents.
+- **Import glossary terms…** in the ⋯ menu brings in terms you defined in other documents. It lists only the ones that are written in this document, with the document each comes from. Tick the ones you want. A term that two documents define differently is listed once for each meaning, and a term this document already defines is not listed: its own meaning stays.
+
+  <img src="docs/glossary-import.png" alt="VS Code's pick list, titled Import glossary terms into backpropagation.md. Three terms from neural-networks.md are listed with their meanings: MLP and ReLU are ticked, SGD is not. At the top it says 2 Selected, next to an OK button" width="602">
+
+- Defining, changing, deleting and importing terms can be undone with `Ctrl+Z`.
+- The glossary is stored with your annotations and is in the [backup](#your-data), so it comes back when the extension is installed again. It follows a document you rename inside VS Code.
 
 ## Drawing
 
@@ -181,11 +210,14 @@ Write a word in the margin, label an arrow, add a correction. Click **AA** in th
 
 - **Click** on a page and type. The box grows as you type; **Enter** starts a new line.
 - **Drag** across a page instead to choose the box's width first: the text wraps inside it.
-- **Size, alignment and color** apply to the whole box.
-- **Bold, italic and underline** go where you want them: select part of the text and click **B**, _I_ or U, or press `Ctrl+B`, `Ctrl+I`, `Ctrl+U`.
+- **Size and alignment** apply to the whole box.
+- **Bold, italic, underline and the color** go where you want them: select part of the text and click **B**, _I_ or U (or press `Ctrl+B`, `Ctrl+I`, `Ctrl+U`), or pick a color. With nothing selected they apply to what you type next.
+
+  <img src="docs/text-color.png" alt="The text tool is on and a text box is being written: Derive the gradient by hand before the exam. The words by hand are red, the word gradient is selected, and the color picker is open under the tray's color button, ready to give the selected word a color" width="870">
+
 - **Esc**, `Ctrl+Enter` or a click elsewhere ends typing. **Esc** again, **Done** or **AA** turns the text tool off.
 
-**Change a text box**: with the text tool on, click its text to type in it, or drag it to move it. With the tool off, click a box to select it: a small bar changes its color, size, alignment and style, edits it (**Enter** or a double click) or deletes it. Drag a handle on its side to make it wider or narrower.
+**Change a text box**: with the text tool on, click its text to type in it, or drag it to move it. With the tool off, click a box to select it: a small bar changes its color, size, alignment and style, edits it (**Enter** or a double click) or deletes it. A color picked for a selected box goes to all of its text. Drag a handle on its side to make it wider or narrower.
 
 ## Selecting, copying and pasting
 
@@ -205,7 +237,7 @@ Click the select tool in the toolbar (a dashed frame with a pointer) to turn it 
 
 ## Deleting and undoing
 
-- **Undo**: the ↶ button in the toolbar, or `Ctrl+Z`, takes back the last change to your highlights, notes, drawings, text boxes and reading marker. `Ctrl+Y` or `Ctrl+Shift+Z` redoes it. While you type in a note or a text box, undo takes back the typing instead.
+- **Undo**: the ↶ button in the toolbar, or `Ctrl+Z`, takes back the last change to your highlights, notes, drawings, text boxes, glossary terms and reading marker. `Ctrl+Y` or `Ctrl+Shift+Z` redoes it. While you type in a note or a text box, undo takes back the typing instead.
 - **Undo lasts.** What you did is kept with your annotations, so you can still take it back after you closed the tab or VS Code, days later. Each document keeps its last 500 changes.
 - **Delete** or **Backspace** deletes whatever is selected: one thing you clicked, or everything the select tool took.
 - **Eraser** (in the draw tool's tray): rubs out only the part of a drawing under its ring. It leaves highlights and text boxes alone.
@@ -284,7 +316,7 @@ The **◐** button in the toolbar switches all pages to a dark theme, and back. 
 | `Ctrl+click`, `Shift+click` | Add to the selection or take out of it; select a range | Over an annotation |
 | `Ctrl+A` | Select every drawing and text box | The select tool is on |
 | `Enter` | Edit what is selected: type in the text box, write the highlight's note | A text box or a highlight is selected |
-| `Ctrl+Enter` | Save the note; stop typing in a text box | Writing a note or typing in a text box |
+| `Ctrl+Enter` | Save the note or the term; stop typing in a text box | Writing a note, defining a term or typing in a text box |
 | `Esc` | Back out of one thing at a time: what is in progress, an open menu or popup, the selected entry of the list, what the select tool selected, the tool that is on | Reading Room is focused |
 | `P`, `L`, `A`, `R`, `O`, `E` | Pen, Line, Arrow, Rectangle, Ellipse, Eraser | The draw tool is on |
 | `↓`, `Enter`, `Space` | Open a menu; `↑` `↓` `Home` `End` move in it, typing jumps to an item | A button with a ▾ (or ⋯) is focused |
@@ -318,9 +350,9 @@ The settings are the same in every workspace: workspace settings cannot change t
 
 ## Your data
 
-Highlights, notes, drawings, text boxes, reading positions and your own sounds live in VS Code's storage for this extension, never in your folders. **Reading Room: Reveal Annotation Data Folder** opens it.
+Highlights, notes, drawings, text boxes, glossaries, reading positions and your own sounds live in VS Code's storage for this extension, never in your folders. **Reading Room: Reveal Annotation Data Folder** opens it.
 
-- **Backup**: VS Code deletes an extension's storage when the extension is uninstalled. So Reading Room keeps a second copy of your annotations, and of their undo history, in a folder of its own outside VS Code. When it is installed again and finds no annotations, it brings them back from there and tells you. **Reading Room: Reveal Backup Folder** opens the folder:
+- **Backup**: VS Code deletes an extension's storage when the extension is uninstalled. So Reading Room keeps a second copy of your annotations, of your glossaries and of the undo history, in a folder of its own outside VS Code. When it is installed again and finds no annotations, it brings them back from there and tells you. **Reading Room: Reveal Backup Folder** opens the folder:
 
   | OS | Backup folder |
   | --- | --- |
@@ -332,7 +364,7 @@ Highlights, notes, drawings, text boxes, reading positions and your own sounds l
   - Your own sounds are not in it. After a new install, add them again.
   - To remove your annotations for good after uninstalling, delete that folder. The setting `readingRoom.backup.enabled` turns the backup off.
 - **Another computer**: copy the `highlights` folder (and `sounds` for your own sounds) into the same place there while VS Code is closed.
-- **Renames**: when you rename or move a document inside VS Code, its annotations follow it. If you renamed it elsewhere, open the new file and run **Reading Room: Reattach Annotations from Another File…**.
+- **Renames**: when you rename or move a document inside VS Code, its annotations and its glossary follow it. If you renamed it elsewhere, open the new file and run **Reading Room: Reattach Annotations from Another File…**, which copies both.
 - **Start over for one file**: the **Delete All …** commands (undo brings everything back).
 - Annotations are kept per VS Code profile. Uninstalling the extension deletes them from VS Code's storage; the backup is what brings them back.
 - **Language packs** of the translate tool are in the same storage, in `translation`. They are not in the backup: after a new install they are downloaded again when you need them. **Reading Room: Manage Translation Languages…** removes them.
@@ -364,10 +396,13 @@ Highlights, notes, drawings, text boxes, reading positions and your own sounds l
 - A drawing or text box cannot span two pages.
 - Two identical passages cannot always be told apart: when an annotated paragraph is duplicated outside VS Code, its annotations may end up on the copy.
 - Drawings on a formula or a diagram follow the nearest line of text or the diagram as a whole, not single symbols.
-- A text box has one font, size, color and alignment. In downloads, characters outside Western European languages, and emoji, appear as "?" in text boxes (the download's message says how many).
+- A text box has one font, size and alignment. In downloads, characters outside Western European languages, and emoji, appear as "?" in text boxes (the download's message says how many).
 - What the eraser leaves of a rectangle or an ellipse is a plain stroke.
 - Translating needs text that can be selected: scanned pages cannot be translated. Formulas, tables and text in pictures are not translated as such.
 - A translation is made sentence by sentence: the translator does not know the rest of the document, so the same term can be translated in two ways on two pages. At most 20,000 characters are translated at once.
+- Glossary terms are found as whole words, exactly as they are spelled: a plural or another form of a term is not marked, nor is a term that a line break cuts with a hyphen. Scanned pages have no text to mark.
+- The glossary is not written into the PDF you download.
+- While the first part of a long document is on screen, the rest is not there yet: the page count grows, and **Go to** the reading marker waits for its page.
 - Reading sounds play only while a Reading Room tab is open.
 - Renames done outside VS Code are not detected (use _Reattach Annotations_).
 

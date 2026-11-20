@@ -191,3 +191,94 @@ describe('plain text files', () => {
     expect(info.links).toEqual(['https://example.com/docs']);
   });
 });
+
+describe('long documents are converted in batches', () => {
+  /** A document of `sections` sections of prose, the same every time. */
+  function longDocument(sections: number): string {
+    const words = 'reading memory practice interval review recall knowledge schedule spaced repetition forgetting curve retention session question answer method evidence'.split(
+      ' ',
+    );
+    let seed = 7;
+    const next = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+    const sentence = () => `${Array.from({ length: 10 + Math.floor(next() * 12) }, () => words[Math.floor(next() * words.length)]).join(' ')}.`;
+    const paragraph = () => Array.from({ length: 4 + Math.floor(next() * 4) }, sentence).join(' ');
+    const out = ['# A long document', ''];
+    for (let s = 1; s <= sections; s++) out.push(`## Section ${s}`, '', paragraph(), '', paragraph(), '', '- ' + sentence(), '- ' + sentence(), '', paragraph(), '');
+    return out.join('\n');
+  }
+
+  /** The text of each page without its footer (the page number, in the bottom margin). */
+  async function pageTexts(pdf: Uint8Array): Promise<{ pages: string[]; footer: string }> {
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(pdf), verbosity: 0 }).promise;
+    const pages: string[] = [];
+    let footer = '';
+    for (let p = 1; p <= doc.numPages; p++) {
+      const items = (await (await doc.getPage(p)).getTextContent()).items as { str?: string; transform?: number[] }[];
+      const inMargin = (item: { transform?: number[] }) => (item.transform?.[5] ?? 100) <= 57;
+      pages.push(
+        items
+          .filter((item) => !inMargin(item))
+          .map((item) => item.str ?? '')
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim(),
+      );
+      if (p === 1)
+        footer = items
+          .filter(inMargin)
+          .map((item) => item.str ?? '')
+          .join('')
+          .trim();
+    }
+    return { pages, footer };
+  }
+
+  it('hands out the first part of a long document before the whole, with the pages the whole will have', async () => {
+    const parts: { pdf: Uint8Array; fraction: number; ms: number }[] = [];
+    let settled = false;
+    const result = await render(longDocument(260), {
+      onPartial: (part: { pdf: Uint8Array; fraction: number; ms: number }) => {
+        // Never after the whole document is there.
+        expect(settled).toBe(false);
+        parts.push(part);
+      },
+    });
+    settled = true;
+    expect(parts.length).toBeGreaterThanOrEqual(1);
+    const whole = await pageTexts(result.pdf);
+    const first = await pageTexts(parts[0].pdf);
+    expect(whole.pages.length).toBeGreaterThan(80);
+    expect(first.pages.length).toBeGreaterThanOrEqual(4);
+    expect(first.pages.length).toBeLessThan(whole.pages.length / 4);
+    expect(parts[0].fraction).toBeGreaterThan(0);
+    expect(parts[0].fraction).toBeLessThan(0.25);
+    // Every page but its last is a page of the whole document; its last one ends early.
+    for (let i = 0; i < first.pages.length - 1; i++) expect(first.pages[i]).toBe(whole.pages[i]);
+    expect(whole.pages[first.pages.length - 1].startsWith(first.pages[first.pages.length - 1])).toBe(true);
+    // Its last page is not the document's: pages are numbered without a total.
+    expect(first.footer).toBe('1');
+    expect(whole.footer).toBe(`1 / ${whole.pages.length}`);
+    expect(result.timings.firstPart).toBeGreaterThan(0);
+    // Later parts hold more, each from the top.
+    for (let i = 1; i < parts.length; i++) expect(parts[i].fraction).toBeGreaterThan(parts[i - 1].fraction);
+  });
+
+  it('converts a short document in one go', async () => {
+    let parts = 0;
+    const result = await render(longDocument(12), { onPartial: () => parts++ });
+    expect(parts).toBe(0);
+    expect(result.timings.firstPart).toBeUndefined();
+    expect((await pageTexts(result.pdf)).pages.length).toBeGreaterThan(3);
+  });
+
+  it('does the same for a long plain text file', async () => {
+    const lines = Array.from({ length: 9000 }, (_, i) => `Line ${i + 1}: some text that fills a good part of the line of the page.`);
+    const parts: { pdf: Uint8Array; fraction: number }[] = [];
+    const result = await render(lines.join('\n'), { kind: 'text', fileName: 'long.txt', onPartial: (part: { pdf: Uint8Array; fraction: number }) => parts.push(part) });
+    expect(parts.length).toBeGreaterThanOrEqual(1);
+    const whole = await pageTexts(result.pdf);
+    const first = await pageTexts(parts[0].pdf);
+    expect(first.pages.length).toBeLessThan(whole.pages.length / 4);
+    for (let i = 0; i < first.pages.length - 1; i++) expect(first.pages[i]).toBe(whole.pages[i]);
+  });
+});

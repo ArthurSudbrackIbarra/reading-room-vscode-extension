@@ -7,6 +7,7 @@
 //   TEXT MODE  [12 ▾] [B] [I] [U] [≡ ≡ ≡ ≡] [● ▾]                               [Esc] [✓ Done]
 //   SELECT MODE  [Select all] [Copy] [Paste] [Delete] │ Drag to select several… [Esc] [✓ Done]
 //   TRANSLATE MODE  [Detect language v] > [English v] | Select text to translate it.  [Esc] [Done]
+//   GLOSSARY MODE  Select a word or a phrase to define it.                      [Esc] [✓ Done]
 //   MARKER MODE  Click the line where you stopped reading.                      [Esc] [Cancel]
 // Every tool and option stands in its own square, in groups: the drawing tools, the widths, the
 // toggles (bold, italic, underline), the alignment. With the eraser picked, the three widths are
@@ -308,6 +309,21 @@ export class TranslateTray extends Tray {
       ),
     );
     this.picker = picker;
+  }
+}
+
+/** The tray of the glossary tool: it says what the tool does (a term is defined in the popover that opens at the selection). */
+export class GlossaryTray extends Tray {
+  constructor(actions: { done(): void }) {
+    super(
+      tray(
+        'mpv-glossary-tray',
+        'Glossary mode',
+        'Glossary mode',
+        [hint('Select a word or a phrase to define it.')],
+        doneButton('Stop defining terms (Esc)', () => actions.done()),
+      ),
+    );
   }
 }
 

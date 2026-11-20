@@ -146,6 +146,12 @@ export class Viewer {
       cMapPacked: true,
       standardFontDataUrl: this.assets.standardFonts,
       wasmUrl: this.assets.wasm,
+      // The files above are fetched by this page and handed to the worker. VS Code serves a
+      // webview's files through a service worker that cannot answer a request made by a worker
+      // started from a blob: URL: such a fetch waits 30 s for "Request Timeout". (A PDF with an
+      // ICC color profile, such as one with a JPEG photo, needs qcms_bg.wasm before its first
+      // page is drawn.)
+      useWorkerFetch: false,
       enableXfa: false,
     });
     let asked = false;

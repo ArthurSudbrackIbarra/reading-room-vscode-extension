@@ -220,6 +220,109 @@ describe('downloads with text boxes', () => {
     expect(annotations[0].textContent?.join('')).toBe(text.text);
   });
 
+  it('switch the fill color inside a line for the parts in a color of their own', async () => {
+    const text = makeText({
+      id: 'colors',
+      text: 'black red blue black',
+      color: 'black',
+      spans: [
+        { start: 6, end: 9, color: 'red' },
+        { start: 10, end: 14, color: '#0000FF' },
+      ],
+    });
+    const { ops, fonts, rect } = textBoxAppearance(text, pageGeometry([0, 0, 612, 792]));
+    const lines = ops.split(NL);
+    // The color of the box first (#1F2328), then red (#D1242F) and blue where they start, and the color of the box again.
+    const black = '0.122 0.137 0.157 rg';
+    const red = '0.82 0.141 0.184 rg';
+    const blue = '0 0 1 rg';
+    expect(lines.filter((line) => line.endsWith(' rg'))).toEqual([black, red, black, blue, black]);
+    // Each color is set right before the text it is for.
+    const shown = (hex: string) => Buffer.from(hex, 'hex').toString('latin1');
+    const drawn = lines.flatMap((line, i) =>
+      line.endsWith(' Tj') ? [{ text: shown(line.slice(1, line.indexOf('>'))), fill: lines.slice(0, i).findLast((l) => l.endsWith(' rg')) }] : [],
+    );
+    expect(drawn).toEqual([
+      { text: 'black ', fill: black },
+      { text: 'red', fill: red },
+      { text: ' ', fill: black },
+      { text: 'blue', fill: blue },
+      { text: ' black', fill: black },
+    ]);
+    // One face, one line, and the same width as the text in one color: a color takes no room.
+    expect(fonts).toEqual(['Helvetica']);
+    expect(ops.match(/ Tm/g)).toHaveLength(1);
+    expect(rect[2] - rect[0]).toBeCloseTo(textWidth(text.text, { size: 12 }) + 2 * TEXT_PAD_X, 1);
+    // In the download: the annotation says the color of the box, and pdf.js reads the text back whole.
+    const { pdf } = await annotate(await pdfWithPages([0]), { highlights: [], drawings: [text] });
+    const [{ annotations }] = await annotationsOf(pdf);
+    expect(annotations[0].textContent?.join('')).toBe(text.text);
+    expect([...(annotations[0].defaultAppearanceData?.fontColor ?? [])]).toEqual([0x1f, 0x23, 0x28]);
+    const doc = await PDFDocument.load(pdf);
+    expect(
+      appearanceOf(doc, 0)[0]
+        .split(NL)
+        .filter((line) => line.endsWith(' rg')),
+    ).toEqual([black, red, black, blue, black]);
+  });
+
+  it('draw an underline in the color of its text: it is cut where the color changes', () => {
+    const text = makeText({
+      id: 'under',
+      text: 'aaa bbb ccc',
+      color: 'black',
+      spans: [
+        { start: 0, end: 4, underline: true },
+        { start: 4, end: 7, underline: true, color: 'red' },
+        { start: 7, end: 11, underline: true },
+      ],
+    });
+    const { ops } = textBoxAppearance(text, pageGeometry([0, 0, 612, 792]));
+    const lines = ops.split(NL);
+    const after = lines.slice(lines.indexOf('ET') + 1, -1);
+    const black = '0.122 0.137 0.157 rg';
+    const red = '0.82 0.141 0.184 rg';
+    // Three pieces, each in the color of the text above it. (The text ended in the color of the box: it is not set again.)
+    expect(after.map((line) => (line.endsWith(' rg') ? line : 're'))).toEqual(['re', red, 're', black, 're']);
+    const rects = after.filter((line) => line.endsWith(' re f')).map((line) => line.split(' ').map(parseFloat));
+    const first = textWidth('aaa ', { size: 12 });
+    const second = textWidth('bbb', { size: 12 });
+    expect(rects[0][0]).toBeCloseTo(TEXT_PAD_X, 2);
+    expect(rects[0][2]).toBeCloseTo(first, 2);
+    expect(rects[1][0]).toBeCloseTo(TEXT_PAD_X + first, 2);
+    expect(rects[1][2]).toBeCloseTo(second, 2);
+    expect(rects[2][0]).toBeCloseTo(TEXT_PAD_X + first + second, 2);
+    expect(rects[2][2]).toBeCloseTo(textWidth(' ccc', { size: 12 }), 2);
+    // Underlined text in one color of its own, next to text in the color of the box: one piece, in that color.
+    const one = textBoxAppearance(makeText({ text: 'aaa bbb', color: 'black', spans: [{ start: 4, end: 7, underline: true, color: 'red' }] }), pageGeometry([0, 0, 612, 792]));
+    const tail = one.ops.split(NL).slice(one.ops.split(NL).indexOf('ET') + 1, -1);
+    // (The text ended in red: the underline needs no color of its own.)
+    expect(tail).toHaveLength(1);
+    expect(tail[0]).toMatch(/ re f$/);
+    expect(one.ops.split(NL).filter((line) => line.endsWith(' rg'))).toEqual([black, red]);
+  });
+
+  it('draw a box without colored parts as before: its color once, for the text and the underlines', () => {
+    const text = makeText({
+      id: 'plain',
+      text: 'aaa bbb',
+      color: 'red',
+      spans: [
+        { start: 0, end: 4, underline: true },
+        { start: 4, end: 7, bold: true, underline: true },
+      ],
+    });
+    const { ops } = textBoxAppearance(text, pageGeometry([0, 0, 612, 792]));
+    const lines = ops.split(NL);
+    expect(lines.filter((line) => line.endsWith(' rg'))).toEqual(['0.82 0.141 0.184 rg']);
+    expect(lines[2]).toBe('0.82 0.141 0.184 rg');
+    expect(lines[3]).toBe('BT');
+    // One underline under both faces, right after the text.
+    expect(lines.slice(lines.indexOf('ET') + 1)).toHaveLength(2);
+    expect(lines.at(-2)).toMatch(/ re f$/);
+    expect(lines.at(-1)).toBe('Q');
+  });
+
   it('wrap bold text by its own widths when the viewer sent no lines', () => {
     const words = 'aaaa bbbb cccc';
     const plain = textWidth('aaaa bbbb', { size: 12 });

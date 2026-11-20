@@ -10,6 +10,7 @@ import { RenderService } from './preview/RenderService';
 import { copyFolderFromFirst } from './store/atomicWrite';
 import { ANNOTATIONS_FOLDER, Backup, backupRoot } from './store/Backup';
 import { HighlightStore } from './store/HighlightStore';
+import { GlossaryStore } from './store/GlossaryStore';
 import { HistoryStore } from './store/HistoryStore';
 import { TranslationService } from './translate/TranslationService';
 import { SECTION, readSettings } from './util/settings';
@@ -17,6 +18,7 @@ import { SECTION, readSettings } from './util/settings';
 let manager: PreviewManager | undefined;
 let store: HighlightStore | undefined;
 let history: HistoryStore | undefined;
+let glossary: GlossaryStore | undefined;
 let backup: Backup | undefined;
 let renderer: RenderService | undefined;
 
@@ -30,10 +32,10 @@ const EARLIER_IDS = ['local.reading-room', 'local.markdown-pdf-viewer'];
 /** The id of the copies installed from a .vsix. One of them may still be installed next to this one. */
 const VSIX_ID = 'local.reading-room';
 
-/** How many documents have annotations in a folder of annotation files. */
+/** How many documents have annotations (or a glossary) in a folder of annotation files. */
 function countDocuments(folder: string): number {
   try {
-    return new Set(readdirSync(folder).flatMap((name) => /^([0-9a-f]{64})(\.drawings)?\.json$/.exec(name)?.[1] ?? [])).size;
+    return new Set(readdirSync(folder).flatMap((name) => /^([0-9a-f]{64})(\.drawings|\.glossary)?\.json$/.exec(name)?.[1] ?? [])).size;
   } catch {
     return 0;
   }
@@ -142,7 +144,10 @@ export function activate(context: vscode.ExtensionContext): void {
     dir: annotations,
     log,
     onFilesChanged: (key) => copies.changed(key),
-    onMigrate: (from, to) => history?.migrate(from, to),
+    onMigrate: async (from, to) => {
+      await history?.migrate(from, to);
+      await glossary?.migrate(from, to);
+    },
     onCorrupt: (ref, movedTo) => {
       void vscode.window.showWarningMessage(`Reading Room: the stored annotations of ${ref.uri.split('/').pop()} were unreadable. The file was kept as ${movedTo}.`);
     },
@@ -156,12 +161,14 @@ export function activate(context: vscode.ExtensionContext): void {
   const annotationsStore = store;
   // The undo history of each document is kept next to its annotations (and in the backup with them).
   history = new HistoryStore({ dir: annotations, keyOf: (ref) => annotationsStore.keyOf(ref), log, onFilesChanged: (key) => copies.changed(key) });
+  // So is the glossary of each document: all of them together are every term the reader defined.
+  glossary = new GlossaryStore({ dir: annotations, keyOf: (ref) => annotationsStore.keyOf(ref), log, onFilesChanged: (key) => copies.changed(key) });
   // Converted PDFs live in the extension's own storage folder, never next to the documents.
   const pdfCache = new PdfCache({ dir: vscode.Uri.joinPath(context.globalStorageUri, 'cache').fsPath, log });
   renderer = new RenderService(context, log);
   // The translator starts (in a worker thread) with the first translation, not here.
   const translation = new TranslationService(context, log);
-  manager = new PreviewManager(context, log, store, history, renderer, pdfCache, translation);
+  manager = new PreviewManager(context, log, store, history, renderer, pdfCache, translation, glossary);
   context.subscriptions.push(manager, renderer, translation);
 
   const m = manager;
@@ -189,6 +196,8 @@ export function activate(context: vscode.ExtensionContext): void {
     'readingRoom.toggleText': withPanel((p) => p.toggleText()),
     'readingRoom.toggleSelectTool': withPanel((p) => p.toggleSelect()),
     'readingRoom.toggleTranslate': withPanel((p) => p.toggleTranslate()),
+    'readingRoom.toggleGlossary': withPanel((p) => p.toggleGlossary()),
+    'readingRoom.importGlossary': withPanel((p) => p.importGlossary()),
     'readingRoom.manageTranslationLanguages': () => translation.manage(),
     'readingRoom.deleteAllDrawings': () => m.deleteAllDrawings(undefined, 'ink'),
     'readingRoom.deleteAllTextBoxes': () => m.deleteAllDrawings(undefined, 'text'),
@@ -207,6 +216,7 @@ export function activate(context: vscode.ExtensionContext): void {
     'readingRoom.revealBackupFolder': async () => {
       await store?.flush();
       await history?.flush();
+      await glossary?.flush();
       await copies.flush();
       if (!existsSync(copies.directory)) {
         void vscode.window.showInformationMessage(
@@ -230,7 +240,8 @@ export async function deactivate(): Promise<void> {
   try {
     await store?.flush();
     await history?.flush();
-    // Last: the backup copies what the two above just wrote.
+    await glossary?.flush();
+    // Last: the backup copies what the three above just wrote.
     await backup?.flush();
   } finally {
     manager?.dispose();

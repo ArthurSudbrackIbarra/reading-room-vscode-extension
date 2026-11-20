@@ -9,6 +9,7 @@ import { DEFAULT_DRAW_TOOL, DEFAULT_INK_WIDTH, isDrawTool, isInkWidth, isTextDra
 import { CUSTOM_SOUND_EXTENSIONS, type SoundRequest } from '../shared/sounds';
 import { DEFAULT_COLOR, isHighlightColor, type DocumentKind, type PageTheme } from '../shared/types';
 import type { DocumentRef, HighlightStore } from '../store/HighlightStore';
+import type { GlossaryStore } from '../store/GlossaryStore';
 import type { HistoryStore } from '../store/HistoryStore';
 import { SoundLibrary, type SoundFile } from '../store/SoundLibrary';
 import { RENDER_SETTINGS, SECTION, readSettings } from '../util/settings';
@@ -65,6 +66,7 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
     readonly renderer: RenderService,
     readonly pdfCache: PdfCache,
     readonly translation: TranslationService,
+    readonly glossary: GlossaryStore,
   ) {
     const saved = context.globalState.get<Partial<UiState>>(UI_STATE_KEY) ?? {};
     this.ui = {
@@ -234,6 +236,7 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
     if (!this.panels.has(panel.uri.toString())) {
       this.store.evict(this.refFor(panel.uri));
       this.history.evict(this.refFor(panel.uri));
+      this.glossary.evict(this.refFor(panel.uri));
     }
     // A sound playing in this viewer keeps going in another open viewer.
     this.sounds.viewerClosed(panel, this.current());
@@ -342,6 +345,10 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
             this.refFor(newUri.scheme === 'file' ? vscode.Uri.file(path) : vscode.Uri.parse(path)),
           );
           if (moved > 0) this.log.info(`Moved highlight data of ${moved} file(s) from ${oldUri.toString()} to ${newUri.toString()}`);
+          // (The glossary of a document with annotations moved with them; this takes the documents that only have a glossary.)
+          await this.glossary.migrateFolder(this.refFor(oldUri), this.refFor(newUri), (path) =>
+            this.refFor(newUri.scheme === 'file' ? vscode.Uri.file(path) : vscode.Uri.parse(path)),
+          );
           const prefix = `${oldUri.toString()}/`;
           for (const [key, panel] of [...this.panels]) {
             if (!key.startsWith(prefix)) continue;
@@ -430,8 +437,17 @@ export class PreviewManager implements vscode.Disposable, PanelHost {
     if (!pick) return;
     const added = await this.store.mergeInto(pick.record, this.refFor(panel.uri));
     await this.store.flush();
+    // The glossary of that file comes along: its terms that this file does not define itself.
+    const source: DocumentRef = pick.record.fsPath
+      ? { uri: pick.record.uri, scheme: 'file', fsPath: pick.record.fsPath }
+      : { uri: pick.record.uri, scheme: vscode.Uri.parse(pick.record.uri).scheme };
+    const terms = await this.glossary.mergeInto(await this.glossary.get(source), this.refFor(panel.uri));
+    this.glossary.evict(source);
+    await this.glossary.flush();
     await panel.reloadHighlights();
-    const copied = [plural(added.highlights, 'highlight'), added.drawings > 0 ? plural(added.drawings, 'drawing') : ''].filter(Boolean).join(' and ');
+    const drawn = added.drawings > 0 ? plural(added.drawings, 'drawing') : '';
+    const parts = [plural(added.highlights, 'highlight'), drawn, terms > 0 ? plural(terms, 'glossary term') : ''].filter(Boolean);
+    const copied = parts.length > 2 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts.join(' and ');
     void vscode.window.showInformationMessage(
       `Copied ${copied}. Highlights whose text is not in this file are listed as orphaned; drawings and text boxes stay at their place on the page.`,
     );

@@ -1,7 +1,7 @@
 // Small rules of the viewer's interface that the host and the viewer share (and that have tests).
 
 /** The sections of the annotations list; each can be collapsed, and that is remembered for all files. */
-export const LIST_SECTIONS = ['highlights', 'orphaned', 'drawings', 'texts'] as const;
+export const LIST_SECTIONS = ['highlights', 'orphaned', 'drawings', 'texts', 'glossary'] as const;
 export type ListSection = (typeof LIST_SECTIONS)[number];
 
 /** The collapsed sections as a viewer sent them or as they were stored: known names only, each once. */

@@ -1,8 +1,8 @@
 {
   "name": "reading-room",
   "displayName": "Reading Room",
-  "description": "A quiet place to read and study inside VS Code. Open PDF, Markdown and text files as pages, highlight them, write notes, draw and type on them, translate what you select on your own computer, keep your place, play rain or a fireplace while you read, and download it all as a PDF.",
-  "version": "0.14.0",
+  "description": "A quiet place to read and study inside VS Code. Open PDF, Markdown and text files as pages, highlight them, write notes, draw and type on them, translate what you select on your own computer, keep a glossary of the terms you meet, keep your place, play rain or a fireplace while you read, and download it all as a PDF.",
+  "version": "0.15.0",
   "publisher": "ArthurSudbrackIbarra",
   "license": "MIT",
   "repository": {
@@ -41,6 +41,7 @@
     "text box",
     "translate",
     "translation",
+    "glossary",
     "bookmark",
     "ambient sounds"
   ],
@@ -145,6 +146,16 @@
       {
         "command": "readingRoom.toggleTranslate",
         "title": "Toggle Translate Mode",
+        "category": "Reading Room"
+      },
+      {
+        "command": "readingRoom.toggleGlossary",
+        "title": "Toggle Glossary Mode",
+        "category": "Reading Room"
+      },
+      {
+        "command": "readingRoom.importGlossary",
+        "title": "Import Glossary Terms from Other Files…",
         "category": "Reading Room"
       },
       {
@@ -322,6 +333,14 @@
         },
         {
           "command": "readingRoom.toggleTranslate",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
+        },
+        {
+          "command": "readingRoom.toggleGlossary",
+          "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
+        },
+        {
+          "command": "readingRoom.importGlossary",
           "when": "activeWebviewPanelId == 'readingRoom.preview' || activeCustomEditorId == 'readingRoom.pdf'"
         },
         {

@@ -126,6 +126,25 @@ export function translateIcon(): SVGSVGElement {
   ]);
 }
 
+/**
+ * The glossary tool (define a term, read what a term means): a dictionary. A closed book standing
+ * upright, its spine on the left and the edge of its pages along the bottom, with a capital A on
+ * its cover. The book is 13 units wide in the 18 of the box, 2.5 from either side.
+ */
+export function glossaryIcon(size = 18): SVGSVGElement {
+  return svg(
+    '0 0 18 18',
+    size,
+    [
+      // The cover and the spine: one line around the book, open where the pages show at the bottom.
+      ['path', { ...STROKE, d: 'M2.5 14.1V3.9a2 2 0 0 1 2-2h11v14.2h-11a2 2 0 0 1 0-4h11' }],
+      // The A, in the middle of the cover (which is what is above the pages).
+      ['path', { ...STROKE, d: 'M6.2 9.9 9 4.1l2.8 5.8M7.25 7.9h3.5' }],
+    ],
+    'mpv-svg-icon',
+  );
+}
+
 /** The eyedropper of the color picker: a pipette at 45°, its tip at the bottom left. */
 export function eyedropperIcon(): SVGSVGElement {
   return icon16([

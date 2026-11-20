@@ -14,6 +14,8 @@ type RenderResult = Awaited<ReturnType<Converter['render']>> & {
   /** Local files the render read, for invalidating the disk cache when they change. */
   deps: CacheDependency[];
 };
+/** The first part of a long document, converted ahead of the rest. */
+export type PartialRender = ConverterModule.PartialRender;
 
 export interface RenderInput {
   uri: vscode.Uri;
@@ -84,7 +86,11 @@ export class RenderService implements vscode.Disposable {
     return this.converterPromise;
   }
 
-  async render(input: RenderInput, theme: PageTheme): Promise<RenderResult> {
+  /**
+   * Converts a document. `onPartial`: a long document is converted in batches, and this is called
+   * with each first part of it as soon as that part is a PDF (see converter/batches.ts).
+   */
+  async render(input: RenderInput, theme: PageTheme, onPartial?: (partial: PartialRender) => void): Promise<RenderResult> {
     const converter = await this.converter();
     const attempt = async (): Promise<RenderResult> => {
       const settings = readSettings();
@@ -112,6 +118,7 @@ export class RenderService implements vscode.Disposable {
             throw err;
           }
         },
+        onPartial,
       });
       return { ...result, deps: [...deps.values()] };
     };

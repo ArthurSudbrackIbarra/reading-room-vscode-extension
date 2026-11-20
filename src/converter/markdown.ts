@@ -9,6 +9,7 @@ import { full as emoji } from 'markdown-it-emoji';
 import katex from '@vscode/markdown-it-katex';
 import frontMatter from 'markdown-it-front-matter';
 import { alert } from '@mdit/plugin-alert';
+import { BLOCK_WEIGHT, DIAGRAM_WEIGHT, IMAGE_WEIGHT } from './batches';
 import { resolveResourceUrl, rewriteHtmlUrls, type UrlContext } from './urls';
 import { escapeHtml, plainCodeHtml, type CodeHighlighter } from './highlight';
 
@@ -38,6 +39,16 @@ function fenceLanguage(md: MarkdownItInstance, info: string): string {
   // Accept "```ts title=x", "```{.python}" and "```ts{1,3}" styles.
   const match = /^\{?\.?([^\s{}]+)/.exec(unescaped);
   return match ? match[1] : '';
+}
+
+/** Tokens whose addresses were resolved already: the first part of a document is rendered again with the rest. */
+const resolved = new WeakSet<Token>();
+
+/** True the first time a token is rendered (its addresses are resolved then, in the token itself). */
+function firstRender(token: Token): boolean {
+  if (resolved.has(token)) return false;
+  resolved.add(token);
+  return true;
 }
 
 function createMarkdownIt(onFrontMatter: (raw: string) => void): MarkdownItInstance {
@@ -91,7 +102,7 @@ function createMarkdownIt(onFrontMatter: (raw: string) => void): MarkdownItInsta
     const env = rawEnv as unknown as MarkdownEnv;
     const token = tokens[idx];
     const src = token.attrGet('src');
-    if (src !== null && src !== undefined) token.attrSet('src', resolveResourceUrl(String(src), env.urlContext));
+    if (src !== null && src !== undefined && firstRender(token)) token.attrSet('src', resolveResourceUrl(String(src), env.urlContext));
     return renderImage(tokens, idx, options, rawEnv, self);
   };
 
@@ -100,20 +111,20 @@ function createMarkdownIt(onFrontMatter: (raw: string) => void): MarkdownItInsta
     const env = rawEnv as unknown as MarkdownEnv;
     const token = tokens[idx];
     const href = token.attrGet('href');
-    if (href !== null && href !== undefined) token.attrSet('href', resolveResourceUrl(String(href), env.urlContext));
+    if (href !== null && href !== undefined && firstRender(token)) token.attrSet('href', resolveResourceUrl(String(href), env.urlContext));
     return renderLinkOpen(tokens, idx, options, rawEnv, self);
   };
 
   const renderHtmlBlock = md.renderer.rules.html_block!;
   md.renderer.rules.html_block = (tokens, idx, options, rawEnv, self) => {
     const env = rawEnv as unknown as MarkdownEnv;
-    tokens[idx].content = rewriteHtmlUrls(tokens[idx].content, env.urlContext);
+    if (firstRender(tokens[idx])) tokens[idx].content = rewriteHtmlUrls(tokens[idx].content, env.urlContext);
     return renderHtmlBlock(tokens, idx, options, rawEnv, self);
   };
   const renderHtmlInline = md.renderer.rules.html_inline!;
   md.renderer.rules.html_inline = (tokens, idx, options, rawEnv, self) => {
     const env = rawEnv as unknown as MarkdownEnv;
-    tokens[idx].content = rewriteHtmlUrls(tokens[idx].content, env.urlContext);
+    if (firstRender(tokens[idx])) tokens[idx].content = rewriteHtmlUrls(tokens[idx].content, env.urlContext);
     return renderHtmlInline(tokens, idx, options, rawEnv, self);
   };
 
@@ -158,9 +169,47 @@ export function parseMarkdown(source: string, urlContext: UrlContext): ParsedMar
   return { tokens, env, md, languages, title: frontMatterTitle(rawFrontMatter) ?? firstHeading(tokens) };
 }
 
-/** Second pass: render the parsed tokens to HTML with a ready highlighter. */
-export function renderParsed(parsed: ParsedMarkdown, highlighter: CodeHighlighter): string {
+/**
+ * Second pass: render the parsed tokens to HTML with a ready highlighter. `end`: only the tokens
+ * before this index (the first blocks of the document, see `topLevelBlocks`). The Mermaid sources
+ * of what was rendered are in `parsed.env.mermaid` afterwards (a new list for every call).
+ */
+export function renderParsed(parsed: ParsedMarkdown, highlighter: CodeHighlighter, end = parsed.tokens.length): string {
   parsed.env.highlighter = highlighter;
   parsed.env.mermaid = [];
-  return parsed.md.renderer.render(parsed.tokens, parsed.md.options, parsed.env as unknown as Record<string, unknown>);
+  const tokens = end < parsed.tokens.length ? parsed.tokens.slice(0, end) : parsed.tokens;
+  return parsed.md.renderer.render(tokens, parsed.md.options, parsed.env as unknown as Record<string, unknown>);
+}
+
+function isMermaid(md: MarkdownItInstance, token: Token): boolean {
+  return token.type === 'fence' && fenceLanguage(md, token.info).toLowerCase() === 'mermaid';
+}
+
+/**
+ * The top-level blocks of a parsed document (a paragraph, a heading, a whole list, a table, a
+ * fence…): the index after the last token of each, and what it weighs (see batches.ts). The
+ * document can be cut after any of them and still render.
+ */
+export function topLevelBlocks(parsed: ParsedMarkdown): { end: number; weight: number }[] {
+  const blocks: { end: number; weight: number }[] = [];
+  let weight = 0;
+  parsed.tokens.forEach((token, i) => {
+    weight += isMermaid(parsed.md, token) ? DIAGRAM_WEIGHT : token.content.length;
+    for (const child of token.children ?? []) if (child.type === 'image') weight += IMAGE_WEIGHT;
+    // A block ends with a token of the top level that opens nothing.
+    if (token.level !== 0 || token.nesting > 0) return;
+    blocks.push({ end: i + 1, weight: weight + BLOCK_WEIGHT });
+    weight = 0;
+  });
+  return blocks;
+}
+
+/** The fence languages used before token `end` (the grammars a first part of the document needs). */
+export function languagesBefore(parsed: ParsedMarkdown, end: number): Set<string> {
+  const languages = new Set<string>();
+  for (let i = 0; i < end && i < parsed.tokens.length; i++) {
+    const token = parsed.tokens[i];
+    if (token.type === 'fence') languages.add(fenceLanguage(parsed.md, token.info));
+  }
+  return languages;
 }

@@ -5,7 +5,7 @@ import { sanitizeState, type AnchorState } from '../anchoring/anchor';
 import { sanitizeBinding, type DrawingBinding } from '../anchoring/binding';
 import { DEFAULT_INK, isInk, sanitizeInk, type Ink } from './colors';
 import { round2, simplifyPoints, type PdfPoint, type Shape } from './drawingGeometry';
-import { CHAR_STYLES, rangeStyle, sanitizeSpans, styleRange, type CharStyle, type TextSpan } from './richText';
+import { CHAR_STYLES, MIXED_COLOR, colorRange, rangeColor, rangeStyle, sanitizeSpans, styleRange, withoutColor, type CharStyle, type TextSpan } from './richText';
 
 export type { PdfPoint } from './drawingGeometry';
 export type { Ink } from './colors';
@@ -53,13 +53,14 @@ export interface TextBoxStyle {
   /** Font size in PDF points. */
   size: number;
   align: TextAlign;
+  /** The color of its text, except for the parts that have a color of their own (see `spans`). */
   color: Ink;
 }
 
 /**
  * A text style as the text bar shows and sets it: the box's own, plus bold, italic and underline,
  * which belong to the characters (of a box: whether all of its text has them; for new text:
- * whether what is typed next gets them).
+ * whether what is typed next gets them). The color set on a box goes to all of its text.
  */
 export interface TextStyle extends TextBoxStyle, CharStyle {}
 
@@ -126,7 +127,7 @@ export interface TextDrawing extends TextBoxStyle {
   points: PdfPoint[];
   /** The text; lines are separated by "\n". Never empty. */
   text: string;
-  /** The bold, italic and underlined parts of the text. Absent: none. */
+  /** The bold, italic and underlined parts of the text, and the parts with a color of their own. Absent: none. */
   spans?: TextSpan[];
   /** Width of the box in points: lines wrap to fit. Absent: as wide as the longest line. */
   boxWidth?: number;
@@ -232,20 +233,46 @@ export function commonTextStyle(texts: StyledText[]): { style: TextStyle; mixed:
   };
 }
 
-/** A text box with a style change applied: bold, italic and underline go to all of its text. */
+function withSpans<T extends Pick<TextDrawing, 'spans'>>(text: T, spans: TextSpan[] | undefined): T {
+  if (spans) text.spans = spans;
+  else delete text.spans;
+  return text;
+}
+
+/**
+ * A text box with a style change applied: bold, italic, underline and the color go to all of its
+ * text (so the parts that had a color of their own lose it).
+ */
 export function applyTextStyle<T extends StyledText>(text: T, patch: Partial<TextStyle>): T {
   const next = { ...text };
+  const length = text.text.length;
   if (patch.size !== undefined) next.size = patch.size;
   if (patch.align !== undefined) next.align = patch.align;
-  if (patch.color !== undefined) next.color = patch.color;
+  if (patch.color !== undefined) {
+    next.color = patch.color;
+    withSpans(next, colorRange(next.spans, length, 0, length, undefined));
+  }
   const chars: Partial<CharStyle> = {};
   for (const name of CHAR_STYLES) if (patch[name] !== undefined) chars[name] = patch[name];
-  if (Object.keys(chars).length > 0) {
-    const spans = styleRange(text.spans, text.text.length, 0, text.text.length, chars);
-    if (spans) next.spans = spans;
-    else delete next.spans;
-  }
+  if (Object.keys(chars).length > 0) withSpans(next, styleRange(next.spans, length, 0, length, chars));
   return next;
+}
+
+/**
+ * The colors of a text box as they are stored once typing ends, so that the color of the box is
+ * the color of its text wherever the reader did not choose another: when all of its text (line
+ * breaks aside) has one color of its own, that is the color of the box; and a part whose own color
+ * is the color of the box has none of its own.
+ */
+export function normalizeTextColors<T extends Pick<TextDrawing, 'text' | 'spans' | 'color'>>(text: T): T {
+  const next = { ...text };
+  const length = text.text.length;
+  const all = rangeColor(text.text, text.spans, 0, length);
+  if (all !== undefined && all !== MIXED_COLOR) {
+    next.color = all;
+    return withSpans(next, colorRange(text.spans, length, 0, length, undefined));
+  }
+  return withSpans(next, withoutColor(text.spans, length, next.color));
 }
 
 export function isDrawingTool(value: unknown): value is DrawingTool {

@@ -1,5 +1,5 @@
-// Undo/redo for the reader's edits: highlights, their colors and notes, the reading marker, and
-// drawings. Each edit is recorded as an operation; undoing applies its inverse. No DOM access, so
+// Undo/redo for the reader's edits: highlights, their colors and notes, the reading marker,
+// drawings, and the terms of the glossary. Each edit is recorded as an operation; undoing applies its inverse. No DOM access, so
 // it is unit-testable. Every change is reported, so the host can keep the history on disk.
 import { MAX_HISTORY_STEPS, inverse, type EditOp, type HistoryChange, type StoredHistory, type UndoStep } from '../src/shared/history';
 

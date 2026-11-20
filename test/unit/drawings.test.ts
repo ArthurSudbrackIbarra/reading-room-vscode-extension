@@ -7,6 +7,7 @@ import {
   MIN_TEXT_SIZE,
   applyTextStyle,
   normalizeText,
+  normalizeTextColors,
   sanitizeDrawing,
   sanitizeTextStyle,
   textStyleOf,
@@ -234,6 +235,114 @@ describe('text boxes', () => {
     expect(bold.spans).toEqual([{ start: 0, end: 7, bold: true }]);
     expect(textStyleOf(bold)).toMatchObject({ bold: true, size: 20 });
     expect(applyTextStyle(bold, { bold: false })).not.toHaveProperty('spans');
+  });
+
+  it('keep the parts in a color of their own: known colors, custom ones as #RRGGBB', () => {
+    const text = makeText({ text: 'abcdefghij', color: 'black' });
+    const spans = [
+      { start: 5, end: 8, color: '#1f77b4' },
+      { start: 0, end: 3, bold: true, color: 'red' },
+      { start: 8, end: 50, color: 'not a color', underline: true },
+      { start: 3, end: 4, color: 'nope' },
+    ];
+    const clean = sanitizeDrawing({ ...text, spans });
+    expect(clean).toMatchObject({
+      color: 'black',
+      spans: [
+        { start: 0, end: 3, bold: true, color: 'red' },
+        { start: 5, end: 8, color: '#1F77B4' },
+        { start: 8, end: 10, underline: true },
+      ],
+    });
+    // What was cleaned once comes back the same: a round trip through the store changes nothing.
+    expect(sanitizeDrawing(structuredClone(clean))).toEqual(clean);
+    // Loading does not move colors between the box and its parts (that happens when typing ends).
+    const all = makeText({ text: 'ab', color: 'black', spans: [{ start: 0, end: 2, color: 'red' }] });
+    expect(sanitizeDrawing(structuredClone(all))).toEqual(all);
+  });
+
+  it('read a text box of 0.14 (no colors on its parts) as it is', () => {
+    const old = makeText({ id: 't-old', text: 'one two', color: '#336699', spans: [{ start: 0, end: 3, bold: true, italic: true }], boxWidth: 120 });
+    expect(sanitizeDrawing(JSON.parse(JSON.stringify(old)))).toEqual(old);
+    expect(JSON.stringify(sanitizeDrawing(JSON.parse(JSON.stringify(old))))).toBe(JSON.stringify(old));
+    const plain = makeText({ id: 't-plain', text: 'one two' });
+    expect(sanitizeDrawing(JSON.parse(JSON.stringify(plain)))).toEqual(plain);
+    expect(normalizeTextColors(old)).toEqual(old);
+    expect(normalizeTextColors(plain)).toEqual(plain);
+  });
+
+  it('give a color set on the whole box to all of its text: parts lose their own', () => {
+    const text = makeText({
+      text: 'one two three',
+      color: 'black',
+      spans: [
+        { start: 0, end: 3, bold: true, color: 'red' },
+        { start: 4, end: 7, color: 'blue' },
+      ],
+    });
+    const green = applyTextStyle(text, { color: 'green' });
+    expect(green.color).toBe('green');
+    expect(green.spans).toEqual([{ start: 0, end: 3, bold: true }]);
+    // The box it was made from is not changed.
+    expect(text.color).toBe('black');
+    expect(text.spans).toHaveLength(2);
+    // Nothing but colors on the parts: no spans are left.
+    expect(applyTextStyle(makeText({ text: 'ab', spans: [{ start: 0, end: 1, color: 'red' }] }), { color: 'red' })).not.toHaveProperty('spans');
+    // Bold and the size leave the colors of the parts alone.
+    const bold = applyTextStyle(text, { bold: true, size: 20 });
+    expect(bold.color).toBe('black');
+    expect(bold.spans).toEqual([
+      { start: 0, end: 3, bold: true, color: 'red' },
+      { start: 3, end: 4, bold: true },
+      { start: 4, end: 7, bold: true, color: 'blue' },
+      { start: 7, end: 13, bold: true },
+    ]);
+    // The style of the box names the color of the box, whatever its parts have.
+    expect(textStyleOf(text).color).toBe('black');
+    // A color and bold in one change.
+    expect(applyTextStyle(text, { color: 'pink', bold: false })).toMatchObject({ color: 'pink' });
+    expect(applyTextStyle(text, { color: 'pink', bold: false })).not.toHaveProperty('spans');
+  });
+
+  it('store the colors once typing ends: text all in one color is a box of that color', () => {
+    const NL = String.fromCharCode(10);
+    // Every character in red (the line break aside): a red box, without colored parts.
+    const all = makeText({
+      text: `ab${NL}cd`,
+      color: 'black',
+      spans: [
+        { start: 0, end: 2, color: 'red', bold: true },
+        { start: 3, end: 5, color: 'red' },
+      ],
+    });
+    const red = normalizeTextColors(all);
+    expect(red.color).toBe('red');
+    expect(red.spans).toEqual([{ start: 0, end: 2, bold: true }]);
+    expect(all.color).toBe('black');
+    // The line break carried the color too: nothing is left of it.
+    expect(normalizeTextColors(makeText({ text: `a${NL}b`, color: 'black', spans: [{ start: 0, end: 3, color: 'blue' }] }))).toMatchObject({ color: 'blue' });
+    expect(normalizeTextColors(makeText({ text: `a${NL}b`, color: 'black', spans: [{ start: 0, end: 3, color: 'blue' }] }))).not.toHaveProperty('spans');
+    // A part in the color of the box has no color of its own.
+    const same = normalizeTextColors(
+      makeText({
+        text: 'one two',
+        color: 'black',
+        spans: [
+          { start: 0, end: 3, color: 'black', italic: true },
+          { start: 4, end: 7, color: 'green' },
+        ],
+      }),
+    );
+    expect(same.color).toBe('black');
+    expect(same.spans).toEqual([
+      { start: 0, end: 3, italic: true },
+      { start: 4, end: 7, color: 'green' },
+    ]);
+    // Two colors, or one color on part of the text: the box keeps its own.
+    const two = makeText({ text: 'one two', color: 'black', spans: [{ start: 0, end: 3, color: 'red' }] });
+    expect(normalizeTextColors(two)).toEqual(two);
+    // Already as stored: stays as it is.
+    expect(normalizeTextColors(red)).toEqual(red);
   });
 
   it('show the style several boxes have in common', () => {

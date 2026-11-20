@@ -45,6 +45,7 @@ import {
   fitStroke,
   isTextDrawing,
   normalizeText,
+  normalizeTextColors,
   type DrawTool,
   type Drawing,
   type DrawingTool,
@@ -435,22 +436,29 @@ export class DrawingController {
     return [...this.stored.values()].map((d) => ({ drawing: withoutAnchoring(d), binding: d.binding, states: this.liveStates.get(d.id) ?? d.anchorStates }));
   }
 
-  /** Takes over where a resolving run put every drawing (or that it has no place in this version). */
-  applyResults(results: Map<string, DrawingResult>, provisional: boolean): void {
+  /**
+   * Takes over where a resolving run put every drawing (or that it has no place in this version).
+   * `partial`: the document shown is the first part of a long one (see AnchoringController).
+   */
+  applyResults(results: Map<string, DrawingResult>, provisional: boolean, partial = false): void {
     const editing = this.edit?.draft.id;
     for (const [id, stored] of this.stored) {
       const r = results.get(id);
       if (!r) continue;
       this.results.set(id, r);
-      if (r.binding) {
-        stored.binding = r.binding;
-        delete stored.anchorStates;
-      }
-      if (provisional) {
-        this.liveStates.set(id, r.states);
-      } else {
-        this.liveStates.delete(id);
-        if (stored.binding) stored.anchorStates = r.states;
+      // In the first part of a long document a drawing is shown where it is there, and nothing of
+      // that is kept: neither a binding made for it nor where its anchors were found.
+      if (!partial) {
+        if (r.binding) {
+          stored.binding = r.binding;
+          delete stored.anchorStates;
+        }
+        if (provisional) {
+          this.liveStates.set(id, r.states);
+        } else {
+          this.liveStates.delete(id);
+          if (stored.binding) stored.anchorStates = r.states;
+        }
       }
       this.outlines.delete(id);
       if (r.status === 'anchored' && r.shown) {
@@ -2335,6 +2343,31 @@ export class DrawingController {
     return this.edit !== undefined && this.editor.hasSelection;
   }
 
+  /**
+   * The color where the reader is typing: of what is typed next, or of the selected text (of its
+   * first character when it has several colors). Where that has no color of its own, the box's.
+   */
+  get editingColor(): Ink | undefined {
+    return this.edit ? (this.editor.color ?? this.edit.draft.color) : undefined;
+  }
+
+  /**
+   * A color picked while typing goes where bold goes: to the selected text ('selection'), or,
+   * with just a caret, to what is typed next ('next'). A box that is still empty takes it as its
+   * own color ('box'). `final` is false while the color is being tried out in the color picker.
+   */
+  setEditingColor(color: Ink, final = true): 'selection' | 'next' | 'box' | undefined {
+    const edit = this.edit;
+    if (!edit) return undefined;
+    if (this.editor.value === '') {
+      // (The editor learns the new color of the box first, so what is typed next has no color of its own.)
+      this.setEditingStyle({ color });
+      this.editor.setColor(color, final);
+      return 'box';
+    }
+    return this.editor.setColor(color, final) ? 'selection' : 'next';
+  }
+
   /** Bold, italic or underline on the selected text, or for what is typed next. Returns the new state. */
   toggleEditingStyle(name: CharStyleName): boolean | undefined {
     return this.edit ? this.editor.toggle(name) : undefined;
@@ -2461,9 +2494,11 @@ export class DrawingController {
       this.events.editingChanged(undefined);
       return;
     }
-    const after: TextDrawing = { ...edit.draft, text };
-    if (spans) after.spans = spans;
-    else delete after.spans;
+    const typed: TextDrawing = { ...edit.draft, text };
+    if (spans) typed.spans = spans;
+    else delete typed.spans;
+    // Text that is all in one color is a box of that color.
+    const after = normalizeTextColors(typed);
     if (before && sameText(before, after)) {
       this.redraw(pageIndex);
       this.select(after.id, false);
