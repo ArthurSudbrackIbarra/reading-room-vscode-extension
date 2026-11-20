@@ -34,6 +34,8 @@ export interface AnchoringHost {
 export interface RenderInfo {
   renderId: number;
   provisional: boolean;
+  /** The first part of a long document, shown while the rest is converted. */
+  partial?: boolean;
   hints: CopyHint[];
   /** Hashes of the earlier versions of the text the host keeps. */
   snapshots: string[];
@@ -43,6 +45,12 @@ export interface PreparedDocument {
   doc: PDFDocumentProxy;
   renderId: number;
   provisional: boolean;
+  /**
+   * The first part of a long document. Only what stands exactly where it stood is shown in it,
+   * and nothing a run finds in it is kept: the whole document, when it comes, is resolved from
+   * what is stored, as if this part had never been shown.
+   */
+  partial: boolean;
   hints: CopyHint[];
   pages: PageData[];
   model: TextModel;
@@ -127,6 +135,7 @@ export class AnchoringController implements DrawingBinder {
       doc: opened.doc,
       renderId: info.renderId,
       provisional: info.provisional,
+      partial: info.partial === true,
       hints: info.hints,
       pages: read.pages,
       model,
@@ -195,6 +204,7 @@ export class AnchoringController implements DrawingBinder {
       },
       log: (message) => this.host.log('warn', message),
       first: this.firstRun,
+      quick: p.partial,
     });
     if (!result) return undefined;
     this.remember(p.model.hash, p.model.text);
@@ -347,6 +357,16 @@ export class AnchoringController implements DrawingBinder {
   // ---------- Results ----------
 
   private show(p: PreparedDocument, result: RunResult): void {
+    if (p.partial) {
+      // What is not in this part is most likely further down, and what was found somewhere else
+      // than where it stood may belong further down too: neither is shown, or called missing.
+      const sure = <T extends { status: string; kind?: string }>(found: Map<string, T>) => new Map([...found].filter(([, r]) => r.status === 'anchored' && r.kind === 'exact'));
+      const marker = result.marker;
+      this.highlights.applyResolutions(sure(result.highlights), new Map(), true, true);
+      void this.marker.applyResult(marker && marker.status === 'anchored' && marker.kind === 'exact' && !marker.approximate ? marker : undefined, true, true);
+      this.drawings.applyResults(sure(result.drawings), true, true);
+      return;
+    }
     this.highlights.applyResolutions(result.highlights, result.upgraded, p.provisional);
     void this.marker.applyResult(result.marker, p.provisional);
     this.drawings.applyResults(result.drawings, p.provisional);
@@ -354,6 +374,8 @@ export class AnchoringController implements DrawingBinder {
 
   private apply(p: PreparedDocument, result: RunResult): void {
     this.show(p, result);
+    // A first part tells the reader nothing about their annotations, and the host nothing to store.
+    if (p.partial) return;
     this.firstRun = false;
     this.host.report(result);
     const seq = ++this.applySeq;

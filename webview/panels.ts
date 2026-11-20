@@ -3,13 +3,14 @@
 import type { OrphanReason, ResolutionKind } from '../src/anchoring/anchor';
 import type { BindingFlag } from '../src/anchoring/binding';
 import { TOOL_NAMES, commonTextStyle, type InkDrawing, type InkWidth, type TextDrawing, type TextStyle } from '../src/shared/drawings';
+import type { GlossaryTerm } from '../src/shared/glossary';
 import { HIGHLIGHT_COLORS, HIGHLIGHT_HEX, MAX_NOTE_LENGTH, type Highlight, type HighlightColor, type ReadingMarker } from '../src/shared/types';
 import { sanitizeSections, type ListSection } from '../src/shared/ui';
 import { ColorButton } from './colorPicker';
 import { h, icon, iconButton, labelButton, MOD_KEY, placeFloating, swatchButton } from './dom';
 import { COLOR_NAMES, textStyleControls, widthRadios, type TextStyleControls, type WidthRadios } from './drawingBar';
 import { setInk } from './drawings';
-import { bookIcon, highlighterIcon, letterIcon, translateIcon } from './icons';
+import { bookIcon, glossaryIcon, highlighterIcon, letterIcon, translateIcon } from './icons';
 import { MenuButton } from './menu';
 
 export { MOD_KEY };
@@ -54,6 +55,13 @@ export interface TextEntry {
   onPage: boolean;
   orphan?: OrphanInfo;
   flags?: BindingFlag[];
+}
+
+/** A term of the glossary in the list. */
+export interface TermEntry {
+  data: GlossaryTerm;
+  /** How many times it is written in the document shown. */
+  count: number;
 }
 
 /** Why an annotation is orphaned, as said in the list (also read by screen readers: never color alone). */
@@ -106,6 +114,10 @@ export interface SidebarActions {
   acceptDrawing(id: string): void;
   removeAllDrawings(): void;
   removeAllTextBoxes(): void;
+  /** The glossary: go to a place where the term is written (the next one each time), change it, delete it. */
+  revealTerm(id: string): void;
+  editTerm(id: string): void;
+  removeTerm(id: string): void;
   /** The reader collapsed or opened a section (remembered for all files). */
   sectionsChanged(collapsed: ListSection[]): void;
   close(): void;
@@ -199,6 +211,8 @@ export class Sidebar {
   );
   private readonly tools: HTMLElement;
   private data: ListData = { entries: [], marker: null, drawings: [], texts: [] };
+  /** The terms of the glossary (given apart from the annotations: they change apart from them). */
+  private glossary: TermEntry[] = [];
   private query = '';
   private readonly colors = new Set<HighlightColor>();
   private withNotes = false;
@@ -280,6 +294,12 @@ export class Sidebar {
     this.draw();
   }
 
+  /** The glossary of the document, by the alphabet. `draw: false` when `render` follows right away. */
+  setGlossary(terms: TermEntry[], draw = true): void {
+    this.glossary = terms;
+    if (draw) this.draw();
+  }
+
   private get filtering(): boolean {
     return this.query !== '' || this.colors.size > 0 || this.withNotes;
   }
@@ -306,7 +326,8 @@ export class Sidebar {
 
   private draw(): void {
     const { entries, marker, drawings, texts } = this.data;
-    const total = entries.length + drawings.length + texts.length;
+    const glossary = this.glossary;
+    const total = entries.length + drawings.length + texts.length + glossary.length;
     this.count.textContent = String(total);
     this.count.hidden = total === 0;
     // Nothing to search while the list is empty.
@@ -341,6 +362,19 @@ export class Sidebar {
         ),
       );
       if (found.length === 0) items.push(h('p', { class: 'mpv-list-note', text: 'No highlight matches.' }));
+      // A search (without a filter by color or note, which terms do not have) looks in the glossary too.
+      const searched = this.query !== '' && this.colors.size === 0 && !this.withNotes;
+      const terms = searched ? glossary.filter((t) => `${t.data.term}\n${t.data.definition}`.toLowerCase().includes(this.query)) : [];
+      if (terms.length > 0) {
+        items.push(
+          ...this.section(
+            'glossary',
+            'Glossary',
+            `${terms.length} of ${glossary.length}`,
+            terms.map((t) => this.termItem(t)),
+          ),
+        );
+      }
       items.push(h('p', { class: 'mpv-list-note', text: 'Drawings and text boxes are hidden while a search or filter is on.' }));
     } else {
       if (marker) items.push(h('ul', { class: 'mpv-list-marker' }, this.markerItem(marker)));
@@ -392,6 +426,16 @@ export class Sidebar {
             String(texts.length),
             texts.map((e) => this.textItem(e)),
             { action: removeAll },
+          ),
+        );
+      }
+      if (glossary.length > 0) {
+        items.push(
+          ...this.section(
+            'glossary',
+            'Glossary',
+            String(glossary.length),
+            glossary.map((t) => this.termItem(t)),
           ),
         );
       }
@@ -576,6 +620,31 @@ export class Sidebar {
         : [editNote(note ? 'Edit note' : 'Add note'), rowAction('copy', 'Copy', 'Copy the highlighted text', () => this.actions.copy(quote)), grow(), remove],
       activate: orphaned ? undefined : () => this.actions.reveal(id),
       keepSelected: orphaned,
+    });
+  }
+
+  /** A term of the glossary: the term, what it means, how often it is written. A click goes to where it is written. */
+  private termItem(entry: TermEntry): HTMLElement {
+    const { id, term, definition } = entry.data;
+    const query = this.filtering ? this.query : '';
+    const written = entry.count === 0 ? 'Not written in this document' : entry.count === 1 ? 'Written once' : `Written ${entry.count} times`;
+    const go = entry.count > 1 ? 'Go to where it is written (click again for the next place)' : 'Go to where it is written';
+    const title = entry.count === 0 ? 'This term is not written in this document' : go;
+    return this.row({
+      key: `g:${id}`,
+      title,
+      lead: h('span', { class: 'mpv-row-lead mpv-term-lead' }, glossaryIcon(16)),
+      body: [
+        h('span', { class: 'mpv-row-text mpv-term-name' }, ...marked(term, query)),
+        h('span', { class: 'mpv-term-meaning' }, ...marked(excerpt(definition, 220), query)),
+        h('span', { class: 'mpv-row-meta', text: written }),
+      ],
+      actions: [
+        rowAction('edit', 'Edit', 'Change the term or what it means', () => this.actions.editTerm(id)),
+        h('span', { class: 'mpv-grow' }),
+        rowAction('trash', undefined, 'Delete this term from the glossary', () => this.actions.removeTerm(id), true),
+      ],
+      activate: entry.count > 0 ? () => this.actions.revealTerm(id) : undefined,
     });
   }
 
@@ -1097,15 +1166,19 @@ export class MarkerPopover {
   }
 }
 
-/** Shown next to a fresh selection (when no tool is on): the colors to highlight it in, a note, the reading marker. */
+/** Shown next to a fresh selection (when no tool is on): the colors to highlight it in, a note, the reading marker, then translate and define. */
 export class SelectionBar {
   readonly element: HTMLElement;
   private readonly swatches: Map<HighlightColor, HTMLButtonElement>;
 
   private readonly translateButton = h('button', { class: 'mpv-btn', type: 'button', title: 'Translate', 'aria-label': 'Translate' }, translateIcon());
-  private readonly translateSep = sep();
+  private readonly defineButton = h(
+    'button',
+    { class: 'mpv-btn', type: 'button', title: 'Define this term in the glossary', 'aria-label': 'Define this term in the glossary' },
+    glossaryIcon(),
+  );
 
-  constructor(actions: { pick(color: HighlightColor): void; note(): void; marker(): void; translate(): void }) {
+  constructor(actions: { pick(color: HighlightColor): void; note(): void; marker(): void; translate(): void; define(): void }) {
     this.swatches = highlightSwatches(
       (name) => `Highlight in ${name.toLowerCase()}`,
       (color) => actions.pick(color),
@@ -1113,20 +1186,23 @@ export class SelectionBar {
     const note = iconButton('comment', 'Highlight and add a note');
     const marker = iconButton('bookmark', 'Mark this as where I stopped reading');
     // The selection stays while a button is pressed.
-    for (const button of [...this.swatches.values(), note, marker, this.translateButton]) button.addEventListener('pointerdown', (e) => e.preventDefault());
+    for (const button of [...this.swatches.values(), note, marker, this.translateButton, this.defineButton]) button.addEventListener('pointerdown', (e) => e.preventDefault());
     note.addEventListener('click', () => actions.note());
     marker.addEventListener('click', () => actions.marker());
     this.translateButton.addEventListener('click', () => actions.translate());
+    this.defineButton.addEventListener('click', () => actions.define());
+    // Two groups with one line between them: what highlights (the colors, and the note that comes with a
+    // highlight), then what does something else with the selection (marker, translate, define).
     const row = h(
       'div',
       { class: 'mpv-popover-row' },
       h('span', { class: 'mpv-popover-label mpv-label', text: 'Highlight' }),
       ...this.swatches.values(),
-      sep(),
       note,
+      sep(),
       marker,
-      this.translateSep,
       this.translateButton,
+      this.defineButton,
     );
     this.element = h('div', { class: 'mpv-popover mpv-selection-bar', hidden: true }, row);
     document.body.append(this.element);
@@ -1140,10 +1216,11 @@ export class SelectionBar {
   /** Translating is offered when this build can translate. */
   setTranslateAvailable(available: boolean): void {
     this.translateButton.hidden = !available;
-    this.translateSep.hidden = !available;
   }
 
-  show(x: number, y: number): void {
+  /** `definable`: what is selected is short enough to be a term of the glossary (a word, a short phrase). */
+  show(x: number, y: number, definable = true): void {
+    this.defineButton.hidden = !definable;
     placeFloating(this.element, x, y);
   }
 

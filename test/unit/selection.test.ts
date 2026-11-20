@@ -151,6 +151,28 @@ describe('copied drawings and text boxes', () => {
     expect(back[0].drawing).toEqual(text);
   });
 
+  it('keep the bold parts of a text box and the parts in a color of their own', () => {
+    const spans = [
+      { start: 0, end: 1, bold: true, color: 'red' },
+      { start: 2, end: 6, color: '#1F77B4' },
+    ];
+    const text = {
+      id: 't',
+      tool: 'text',
+      pageIndex: 0,
+      points: [[72, 700]],
+      text: 'A note',
+      spans,
+      size: 12,
+      align: 'left',
+      color: 'black',
+      createdAt: NOW,
+      updatedAt: NOW,
+    } as Drawing;
+    const back = decodeClip(encodeClip([{ drawing: text, page: [[72, 92]] }]));
+    expect(back[0].drawing).toEqual(text);
+  });
+
   it('ignore anything that is not theirs', () => {
     expect(decodeClip('')).toEqual([]);
     expect(decodeClip('hello')).toEqual([]);

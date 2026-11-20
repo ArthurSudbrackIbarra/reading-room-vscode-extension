@@ -2,9 +2,26 @@
 // a text box as HTML inside the page's SVG (a foreignObject in page units, so it zooms with the
 // page), the editor is an editable element with the very same styles laid out at the same size
 // and scaled to the zoom, and a hidden twin measures boxes: all three wrap lines identically.
-// Bold, italic and underlined parts are spans inside that text.
+// Bold, italic and underlined parts, and parts in a color of their own, are spans inside that text.
+import type { Ink } from '../src/shared/colors';
 import { MAX_TEXT_LENGTH, TEXT_LINE_HEIGHT, TEXT_PAD_Y, cleanText, type TextDrawing, type TextLayout } from '../src/shared/drawings';
-import { PLAIN, rangeStyle, replaceRange, styleAt, styleRange, textRuns, type CharStyle, type CharStyleName, type TextSpan } from '../src/shared/richText';
+import {
+  MIXED_COLOR,
+  PLAIN,
+  colorAt,
+  colorRange,
+  rangeColor,
+  rangeStyle,
+  replaceRange,
+  sameSpans,
+  styleAt,
+  styleRange,
+  textRuns,
+  type CharStyle,
+  type CharStyleName,
+  type TextSpan,
+  type TypingStyle,
+} from '../src/shared/richText';
 import { setInk } from './drawings';
 
 export interface BoxSize {
@@ -30,24 +47,42 @@ export function styleTextElement(el: HTMLElement, text: Styled): void {
   }
 }
 
-/** The classes of a stretch of text in one style ('' for plain text). */
-function runClass(style: CharStyle): string {
-  return [style.bold && 'mpv-t-b', style.italic && 'mpv-t-i', style.underline && 'mpv-t-u'].filter(Boolean).join(' ');
+/** How a stretch of text in one style is shown: its classes ('' for plain text in the color of the box), and its own color if it has one. */
+interface RunLook {
+  className: string;
+  color?: Ink;
 }
 
-/** A stretch of text in one style: a text node, inside a span if it is bold, italic or underlined. */
-function runNode(text: string, className: string): Node {
+function runLook(style: TypingStyle): RunLook {
+  // (A colored stretch carries its ink: `mpv-ink` is the class `setInk` adds.)
+  const className = [style.bold && 'mpv-t-b', style.italic && 'mpv-t-i', style.underline && 'mpv-t-u', style.color && 'mpv-t-c mpv-ink'].filter(Boolean).join(' ');
+  return style.color ? { className, color: style.color } : { className };
+}
+
+/** A stretch of text in one style: a text node, inside a span if it is bold, italic, underlined or in a color of its own. */
+function runNode(text: string, look: RunLook): Node {
   const node = document.createTextNode(text);
-  if (!className) return node;
+  if (!look.className) return node;
   const span = document.createElement('span');
-  span.className = className;
+  span.className = look.className;
+  if (look.color) {
+    setInk(span, look.color);
+    span.dataset.ink = look.color;
+  }
   span.append(node);
   return span;
 }
 
+/** The text node of a stretch that is shown this way already (undefined: it has to be made again). */
+function shownText(node: Node, look: RunLook): Text | undefined {
+  if (!look.className) return node instanceof Text ? node : undefined;
+  if (!(node instanceof HTMLSpanElement) || node.className !== look.className || (node.dataset.ink ?? '') !== (look.color ?? '') || node.childNodes.length !== 1) return undefined;
+  return node.firstChild instanceof Text ? node.firstChild : undefined;
+}
+
 /** Fills an element with a text, its styled parts in spans. */
 export function fillText(el: HTMLElement, text: string, spans: readonly TextSpan[] | undefined): void {
-  el.replaceChildren(...textRuns(text, spans).map((run) => runNode(run.text, runClass(run))));
+  el.replaceChildren(...textRuns(text, spans).map((run) => runNode(run.text, runLook(run))));
 }
 
 /** The text nodes of an element in order, and where each starts in the text. */
@@ -231,15 +266,20 @@ function setData(node: Text, value: string): void {
  *
  * The editor owns the text: every change the reader makes (typing, deleting, pasting, cutting)
  * is applied to its own copy of the text and of the styled parts, and the element is redrawn
- * from that. So the element only ever holds text nodes and bold/italic/underline spans, pasted
- * text is plain, and bold can be put on any part. Undo and redo (while typing) are its own too.
+ * from that. So the element only ever holds text nodes and bold/italic/underline/color spans,
+ * pasted text is plain, and bold or a color can be put on any part. Undo and redo (while typing)
+ * are its own too.
  */
 export class TextEditor {
   readonly element: HTMLDivElement;
   private text = '';
   private styled: TextSpan[] | undefined;
-  /** The style of what is typed next. */
-  private typing: CharStyle = { ...PLAIN };
+  /** The style of what is typed next (without a color of its own: in the color of the box). */
+  private typing: TypingStyle = { ...PLAIN };
+  /** The color of the box: a part in that color has no color of its own. */
+  private boxColor?: Ink;
+  /** A color is being tried out on the selection (dragging in the color picker): the state before it, kept once for undo. */
+  private coloring?: Snapshot;
   /** The selection, as offsets in the text (equal: a caret). */
   private anchor = 0;
   private focusAt = 0;
@@ -300,7 +340,7 @@ export class TextEditor {
     return this.text;
   }
 
-  /** The bold, italic and underlined parts of the text. */
+  /** The bold, italic and underlined parts of the text, and the parts in a color of their own. */
   get spans(): TextSpan[] | undefined {
     return this.styled ? this.styled.map((span) => ({ ...span })) : undefined;
   }
@@ -308,7 +348,22 @@ export class TextEditor {
   /** Bold, italic and underline at the caret (what is typed next), or of all of the selection. */
   get charStyle(): CharStyle {
     const [start, end] = this.range();
-    return start === end ? { ...this.typing } : rangeStyle(this.text, this.styled, start, end);
+    if (start !== end) return rangeStyle(this.text, this.styled, start, end);
+    return { bold: this.typing.bold, italic: this.typing.italic, underline: this.typing.underline };
+  }
+
+  /**
+   * The color of its own at the caret (of what is typed next), or of the selection (of its first
+   * character when it has several colors). Undefined: the color of the box.
+   */
+  get color(): Ink | undefined {
+    const [start, end] = this.range();
+    if (start === end) return this.typing.color;
+    const color = rangeColor(this.text, this.styled, start, end);
+    if (color !== MIXED_COLOR) return color;
+    let first = start;
+    while (first < end - 1 && this.text[first] === '\n') first++;
+    return colorAt(this.styled, first);
   }
 
   /** Whether there is a selection (not just a caret). */
@@ -323,6 +378,7 @@ export class TextEditor {
     this.history.length = 0;
     this.undone.length = 0;
     this.lastEdit = undefined;
+    this.coloring = undefined;
     this.composing = false;
     this.restyle(text);
     this.element.replaceChildren();
@@ -336,6 +392,7 @@ export class TextEditor {
 
   restyle(text: Styled): void {
     this.element.className = 'mpv-text-editor';
+    this.boxColor = text.color;
     styleTextElement(this.element, text);
   }
 
@@ -363,6 +420,7 @@ export class TextEditor {
     this.styled = undefined;
     this.history.length = 0;
     this.undone.length = 0;
+    this.coloring = undefined;
     if (hadFocus) this.container.focus({ preventScroll: true });
   }
 
@@ -388,6 +446,40 @@ export class TextEditor {
     return on;
   }
 
+  /**
+   * A color, like bold: on the selection, or, with just a caret, for what is typed next. The
+   * color of the box itself is no color of a part: picking it takes the part's own color away.
+   * `final` is false while the reader drags in the color picker: the colors tried out on the way
+   * are one step to undo, with the one settled on. True when it went to a selection.
+   */
+  setColor(color: Ink, final = true): boolean {
+    const own = color === this.boxColor ? undefined : color;
+    const [start, end] = this.range();
+    const typing: TypingStyle = { bold: this.typing.bold, italic: this.typing.italic, underline: this.typing.underline };
+    if (own) typing.color = own;
+    this.typing = typing;
+    if (start === end) {
+      this.coloring = undefined;
+      this.events.selection();
+      return false;
+    }
+    if (!this.coloring) {
+      this.remember('other', start);
+      this.coloring = this.history[this.history.length - 1];
+    }
+    this.styled = colorRange(this.styled, this.text.length, start, end, own);
+    if (final) {
+      // Back at the colors it had (the same color picked again): nothing to undo.
+      if (this.history[this.history.length - 1] === this.coloring && sameSpans(this.coloring.spans, this.styled)) this.history.pop();
+      this.coloring = undefined;
+    }
+    this.render();
+    this.select(this.anchor, this.focusAt);
+    this.events.input();
+    this.events.selection();
+    return true;
+  }
+
   /** Takes back the last change made while typing here. False if there is none. */
   undo(): boolean {
     return this.restore(this.history, this.undone);
@@ -403,10 +495,18 @@ export class TextEditor {
     return [Math.min(this.anchor, this.focusAt), Math.max(this.anchor, this.focusAt)];
   }
 
+  /** The style and the color of the character at an offset, as a style to type in. */
+  private typingAt(offset: number): TypingStyle {
+    const style: TypingStyle = styleAt(this.styled, offset);
+    const color = colorAt(this.styled, offset);
+    if (color !== undefined) style.color = color;
+    return style;
+  }
+
   /** The style typing continues in at a caret: that of the character before it (on its line), else of the one after. */
-  private styleBefore(at: number): CharStyle {
-    if (at > 0 && this.text[at - 1] !== '\n') return styleAt(this.styled, at - 1);
-    if (at < this.text.length && this.text[at] !== '\n') return styleAt(this.styled, at);
+  private styleBefore(at: number): TypingStyle {
+    if (at > 0 && this.text[at - 1] !== '\n') return this.typingAt(at - 1);
+    if (at < this.text.length && this.text[at] !== '\n') return this.typingAt(at);
     return { ...this.typing };
   }
 
@@ -434,6 +534,7 @@ export class TextEditor {
     this.text = snapshot.text;
     this.styled = snapshot.spans;
     this.lastEdit = undefined;
+    this.coloring = undefined;
     this.render();
     this.select(snapshot.anchor, snapshot.focus);
     this.typing = this.styleBefore(this.focusAt);
@@ -492,6 +593,9 @@ export class TextEditor {
     // An input method composes in the element itself; its text is taken when it changes (see syncFromElement).
     if (e.isComposing || e.inputType === 'insertCompositionText' || e.inputType === 'insertFromComposition' || e.inputType === 'deleteCompositionText') return;
     e.preventDefault();
+    // The browser says that the caret moved a moment after it did: a key pressed right after an
+    // arrow key would be typed in the style of where the caret was. Take the caret's place now.
+    this.onSelectionChange();
     const type = e.inputType;
     if (type === 'historyUndo') {
       this.undo();
@@ -545,21 +649,17 @@ export class TextEditor {
   /** Redraws the element from the text, changing as little of it as possible. */
   private render(): void {
     const el = this.element;
-    const runs = textRuns(this.text, this.styled).map((run) => ({ text: run.text, className: runClass(run) }));
+    const runs = textRuns(this.text, this.styled).map((run) => ({ text: run.text, look: runLook(run) }));
     // The line break an editable element needs to show an empty last line (it is not part of the text).
     const needsBreak = this.text === '' || this.text.endsWith('\n');
     const children = [...el.childNodes];
     const last = children[children.length - 1];
     const hasBreak = last instanceof HTMLBRElement;
     const content = hasBreak ? children.slice(0, -1) : children;
-    const textOf = (node: Node, className: string): Text | undefined => {
-      if (!className) return node instanceof Text ? node : undefined;
-      if (!(node instanceof HTMLSpanElement) || node.className !== className || node.childNodes.length !== 1) return undefined;
-      return node.firstChild instanceof Text ? node.firstChild : undefined;
-    };
-    const nodes = content.length === runs.length ? runs.map((run, i) => textOf(content[i], run.className)) : [];
+    // (A stretch is kept only when it has the same classes and the same color.)
+    const nodes = content.length === runs.length ? runs.map((run, i) => shownText(content[i], run.look)) : [];
     if (runs.length === 0 || nodes.length !== runs.length || nodes.some((node) => !node)) {
-      el.replaceChildren(...runs.map((run) => runNode(run.text, run.className)), ...(needsBreak ? [document.createElement('br')] : []));
+      el.replaceChildren(...runs.map((run) => runNode(run.text, run.look)), ...(needsBreak ? [document.createElement('br')] : []));
       return;
     }
     runs.forEach((run, i) => setData(nodes[i]!, run.text));
@@ -602,12 +702,16 @@ export class TextEditor {
 
   private onSelectionChange(): void {
     if (!this.open || this.composing) return;
+    // While the keyboard is elsewhere (in the color picker, a menu), the selection the reader made
+    // here stands: redrawing the text moves the browser's own, and that is not the reader's doing.
+    if (document.activeElement !== this.element) return;
     const selection = this.readSelection();
     if (!selection || (selection[0] === this.anchor && selection[1] === this.focusAt)) return;
     [this.anchor, this.focusAt] = selection;
     // The caret moved: typing continues in the style found there (a selection: in that of its start).
-    this.typing = selection[0] === selection[1] ? this.styleBefore(selection[0]) : styleAt(this.styled, Math.min(...selection));
+    this.typing = selection[0] === selection[1] ? this.styleBefore(selection[0]) : this.typingAt(Math.min(...selection));
     this.lastEdit = undefined;
+    this.coloring = undefined;
     this.events.selection();
   }
 }

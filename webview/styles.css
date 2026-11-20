@@ -947,6 +947,27 @@ body[data-size='mini'] .mpv-textbar > .mpv-done {
   }
 }
 
+/* Under the last page of the first part of a long document, while the rest is converted. It
+   stands in the room the viewer leaves under its last page anyway (that page's 14 px margin and
+   the viewer's 28 px of padding), in the middle of it, so nothing moves when it goes. */
+.mpv-more {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 42px;
+  margin-top: -42px;
+  padding: 0 16px;
+  color: var(--mpv-fg-2);
+  font-size: var(--mpv-fs-2);
+}
+
+.mpv-more[hidden] {
+  display: none;
+}
+
 .mpv-banner {
   display: flex;
   flex: 0 0 auto;
@@ -1853,8 +1874,9 @@ body.mpv-select-mode .mpv-viewer-container {
 }
 
 /* The bar next to a selection: as wide as what it holds (the general limit of a popover cut its last
-   button off at the edge). Its last button stands as far from the end of the bar as from the line
-   before it: 6 px on either side. In a panel narrower than the bar, it wraps. */
+   button off at the edge). Its last button stands as far from the end of the bar as its buttons stand
+   from each other and from the line between its two groups: 6 px. In a panel narrower than the bar,
+   it wraps. */
 .mpv-selection-bar {
   max-width: calc(100vw - 8px);
 }
@@ -2847,6 +2869,13 @@ body[data-kind='pdf'][data-page-theme='dark'] .pdfViewer .page .canvasWrapper {
   text-decoration-thickness: 0.05em;
 }
 
+/* A part in a color of its own carries its ink (see .mpv-ink): its text, its underline and the
+   caret inside it take that color; the rest of the text has the color of the box. */
+.mpv-text-body .mpv-t-c {
+  color: var(--ink);
+  caret-color: var(--ink);
+}
+
 .mpv-text-measure {
   position: fixed;
   left: -100000px;
@@ -3065,6 +3094,142 @@ body.mpv-text-mode .pdfViewer .page {
 
 .mpv-translation-footnote {
   font-size: var(--mpv-fs-3);
+}
+
+/* ---------- Glossary ---------- */
+
+/* The marks of the glossary's terms: a layer right above the highlights, under the text. Every
+   place where a term is written has a dotted line under it, in a purple of its own (a lighter one
+   on dark pages), so it is told apart from a highlight, a link and an underline of the text. */
+.mpv-term-layer {
+  --mpv-term: #8250df;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+body[data-page-theme='dark'] .mpv-term-layer {
+  --mpv-term: #bc8cff;
+}
+
+/* (The weight of the line follows the size of the text: the viewer sets it per mark.) */
+.mpv-term {
+  position: absolute;
+  box-sizing: border-box;
+  border-bottom: var(--mpv-term-line, 1.5px) dotted var(--mpv-term);
+  border-radius: 1.5px 1.5px 0 0;
+}
+
+/* Under the pointer (a click says what the term means). */
+.mpv-term.mpv-hover {
+  background: color-mix(in srgb, var(--mpv-term) 16%, transparent);
+}
+
+/* For a moment, the place the list went to. */
+.mpv-term.mpv-flash {
+  animation: mpv-term-flash 1.6s ease-out;
+}
+
+@keyframes mpv-term-flash {
+  0%,
+  40% {
+    background: color-mix(in srgb, var(--mpv-term) 34%, transparent);
+    outline: 2px solid var(--mpv-term);
+    outline-offset: 2px;
+  }
+  100% {
+    background: transparent;
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+  }
+}
+
+/* What a term means: "Glossary · written 12 times", the term, its meaning, then Edit and Delete. */
+.mpv-term-popover {
+  min-width: 180px;
+  max-width: min(320px, calc(100vw - 8px));
+}
+
+/* The text starts where the icons of the buttons under it start (as in the marker's popover). */
+.mpv-term-popover-title {
+  padding: 2px 9px 0;
+}
+
+.mpv-term-popover-label {
+  display: block;
+  color: var(--mpv-fg-2);
+  font-size: var(--mpv-fs-3);
+}
+
+.mpv-term-popover-name {
+  display: block;
+  color: var(--mpv-fg-strong);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* A long meaning scrolls inside the popover. */
+.mpv-term-definition {
+  max-height: min(40vh, 240px);
+  padding: 0 9px 2px;
+  overflow-y: auto;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: text;
+  user-select: text;
+}
+
+/* Where a term is defined or changed: the term, what it means, then Cancel and Save. It looks
+   like the editor of a note, with one more field. */
+.mpv-define-popover {
+  width: min(300px, calc(100vw - 8px));
+}
+
+.mpv-define-term {
+  display: block;
+  width: 100%;
+}
+
+/* Two fields: the one being typed in has the focus color, not both. */
+.mpv-define-popover .mpv-note-input {
+  border-color: var(--mpv-field-line);
+}
+
+.mpv-define-term:focus,
+.mpv-define-popover .mpv-note-input:focus {
+  border-color: var(--mpv-focus);
+  outline: 0;
+}
+
+.mpv-define-problem {
+  margin: 0;
+  padding: 0 2px;
+  color: var(--mpv-danger);
+  font-size: var(--mpv-fs-2);
+}
+
+/* The glossary in the list: the term stands out, its meaning under it is quieter. The book is
+   16 px in a line of 18. */
+.mpv-term-lead {
+  padding-top: 1px;
+  color: var(--mpv-fg-2);
+}
+
+.mpv-term-name {
+  color: var(--mpv-fg-strong);
+  font-weight: 600;
+}
+
+.mpv-term-meaning {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--mpv-fg);
+  font-size: var(--mpv-fs-2);
+  overflow-wrap: anywhere;
 }
 
 /* ---------- Motion ---------- */

@@ -212,4 +212,31 @@ describe('what a run reports', () => {
     expect([...fresh.highlights.keys()].sort()).toEqual(['a', 'b', 'c', 'e']);
     expect(fresh.highlights.get('e')).toMatchObject({ status: 'anchored' });
   });
+
+  it('P1: in the first part of a document (quick), what is there stands exactly where it stood, and the rest is left as not found without a search', async () => {
+    const runs = new ResolverRuns();
+    const whole = makeDocument(TEXT);
+    const made = input(whole, ['quick brown fox', 'rivers and lakes', 'typed notes']);
+    const first = await runs.run(whole, made, { oldText: () => undefined });
+    // What the store holds after the document was last shown: every highlight found in it.
+    const stored: RunInput = { highlights: made.highlights.map((h) => ({ ...h, state: first!.highlights.get(h.id)!.state })), drawings: [] };
+
+    // The first two paragraphs alone, shown ahead of the rest.
+    const part = makeDocument(TEXT.split('\n\n').slice(0, 2).join('\n\n'), {}, 2);
+    expect(whole.text.startsWith(part.text)).toBe(true);
+    let quickPass = 0;
+    const inPart = await runs.run(part, stored, { oldText: () => undefined, quick: true, onQuick: () => quickPass++ });
+    expect(inPart!.highlights.get('h0')).toMatchObject({ status: 'anchored', kind: 'exact', start: whole.text.indexOf('quick brown fox') });
+    expect(inPart!.highlights.get('h1')).toMatchObject({ status: 'orphaned', reason: 'not-found' });
+    expect(inPart!.highlights.get('h2')).toMatchObject({ status: 'orphaned', reason: 'not-found' });
+    // Nothing is left to search for, and no first results are handed out ahead of a search.
+    expect(inPart!.pending.size).toBe(0);
+    expect(quickPass).toBe(0);
+
+    // The whole document, resolved from what is stored (the part changed none of it): all as before, and nothing to report.
+    const again = await runs.run(makeDocument(TEXT, {}, 3), stored, { oldText: () => undefined });
+    for (const h of made.highlights) expect(again!.highlights.get(h.id)).toMatchObject({ status: 'anchored', kind: 'exact' });
+    expect(summaryMessage(again!.summary)).toBeUndefined();
+    expect(again!.summary.massOrphan).toBe(false);
+  });
 });

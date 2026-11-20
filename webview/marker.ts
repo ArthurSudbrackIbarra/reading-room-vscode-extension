@@ -129,6 +129,15 @@ export class ReadingMarkerController {
     return { page: m.pageIndex, y: m.y, ...(m.anchor ? { anchor: m.anchor } : {}), ...(m.rel ? { rel: m.rel } : {}), state: this.liveState ?? m.state };
   }
 
+  /**
+   * Where the marker was when it was last found (else where it was placed): a first guess for a
+   * document whose pages are shown before its text is read.
+   */
+  get lastPlace(): { pageIndex: number; y: number } | undefined {
+    const m = this.marker;
+    return m ? { pageIndex: m.state?.found?.page ?? m.pageIndex, y: m.y } : undefined;
+  }
+
   /** The state the last saved render left, for the host. */
   get resolvedState(): AnchorState | undefined {
     return this.result?.state;
@@ -138,12 +147,14 @@ export class ReadingMarkerController {
    * Takes over where a resolving run found the marker. On a rendered page the top of the line is
    * measured in the text layer, like when the reader placed it.
    */
-  async applyResult(result: MarkerResult | undefined, provisional: boolean): Promise<void> {
+  async applyResult(result: MarkerResult | undefined, provisional: boolean, partial = false): Promise<void> {
     const marker = this.marker;
     if (!marker || !result) return;
     const seq = ++this.resolveSeq;
     this.result = result;
-    if (provisional) {
+    if (partial) {
+      // The first part of a long document: shown there, and not remembered.
+    } else if (provisional) {
       this.liveState = result.state;
     } else {
       this.liveState = undefined;

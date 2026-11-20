@@ -70,13 +70,13 @@ To try a build without installing it, open the folder in VS Code and press `F5`,
 | `src/extension.ts` | Activation: the store, the cache, the lazily loaded converter, the commands; brings over the data of the [earlier name](#the-earlier-name) |
 | `src/converter/` | Markdown/text → HTML → PDF; no `vscode` dependency |
 | `src/preview/` | Viewers (preview panels and the PDF custom editor), commands, rendering, downloads |
-| `src/store/` | Highlight, note, drawing, text box and marker storage; the undo history (`HistoryStore.ts`); the copy outside VS Code's storage (`Backup.ts`); the reader's own sounds; `atomicWrite.ts`, the only code that writes into the storage folder and the backup |
+| `src/store/` | Highlight, note, drawing, text box and marker storage; the undo history (`HistoryStore.ts`); the glossaries (`GlossaryStore.ts`); the copy outside VS Code's storage (`Backup.ts`); the reader's own sounds; `atomicWrite.ts`, the only code that writes into the storage folder and the backup |
 | `src/cache/` | The disk cache of converted PDFs |
 | `src/anchoring/` | Keeping annotations on their content. Pure TypeScript, no `vscode` and no DOM: the text model, the diff between two versions (`diff.ts`), finding an anchor again (`resolve.ts`), what drawings are bound to (`layout.ts`, `binding.ts`), matching PDF pages (`pageAlign.ts`), resolving everything for one render (`runs.ts`) |
-| `src/shared/` | Types, messages, colors, the drawing and text box model and geometry, small rules of the interface (`ui.ts`: size classes, list sections), and what selecting several annotations needs without the DOM (`selection.ts`: Shift+click ranges, moving a group, the clipboard format), shared by the extension and the viewer |
+| `src/shared/` | Types, messages, colors, the drawing and text box model and geometry, the glossary model and the search for its terms (`glossary.ts`), small rules of the interface (`ui.ts`: size classes, list sections), and what selecting several annotations needs without the DOM (`selection.ts`: Shift+click ranges, moving a group, the clipboard format), shared by the extension and the viewer |
 | `src/translate/` | The translate tool on the host: the list of language packs (`registry.ts`, `models.json`), packs on disk (`PackStore.ts`), telling the language (`detect.ts`), the translator in its worker thread (`engine.ts`, `worker.ts`, `EngineWorker.ts`), and what ties them to VS Code (`TranslationService.ts`). Only the last one imports `vscode` |
 | `src/export/` | PDF annotations (text boxes in `textBox.ts`), the Downloads folder, a download made from one version of the document (`pin.ts`), the message after it (`summary.ts`) |
-| `webview/` | The PDF.js-based viewer: the toolbar (`toolbar.ts`), the tool trays (`drawingBar.ts`), menus (`menu.ts`), the list and the popovers (`panels.ts`), highlights, notes, drawings, text boxes, the color picker, reading marker, undo stack, dark pages, reading sounds. One stylesheet (`styles.css`): its tokens are at the top, and CSS classes keep the prefix `mpv-` from the extension's first name |
+| `webview/` | The PDF.js-based viewer: the toolbar (`toolbar.ts`), the tool trays (`drawingBar.ts`), menus (`menu.ts`), the list and the popovers (`panels.ts`), highlights, notes, drawings, text boxes, the glossary (`glossary.ts`), the color picker, reading marker, undo stack, dark pages, reading sounds. One stylesheet (`styles.css`): its tokens are at the top, and CSS classes keep the prefix `mpv-` from the extension's first name |
 | `test/fixtures/store-0.4.0/`, `store-0.7.0/` | The store code of 0.4.0 and 0.7.0, for the downgrade tests |
 | `test/unit/anchoring/` | Tests of the anchoring engine (`scenario.ts` has the helpers) |
 | `media/sounds/` | The built-in reading sound loops (Ogg Vorbis: VS Code's Chromium cannot play Opus or AAC) |
@@ -104,6 +104,8 @@ Markdown and text files are turned into HTML (markdown-it with plugins, Shiki, K
 - Links: external ones stay; `#heading` links become PDF destinations; relative links to other files are written as `file:///…` and mapped back when clicked in the viewer.
 - Text files are decoded the way the editor decodes them (`files.encoding`, auto-guessing), shown in a monospace font, with web and mail addresses as links.
 - Converted PDFs are cached per document and page theme (`cache/`, see below).
+- **Long documents are converted in batches** (`src/converter/batches.ts`). The document is cut after top-level blocks (a paragraph, a list, a table, a fence; for text files, lines), each weighed by its length (a picture and a diagram count for more). A document of at least twelve times the first batch (about ninety pages) gets a first batch of about eight pages, then batches eight times larger while the document is at least three times a batch. Every batch starts at the top, so its pages are the pages of the whole document (all but its last, which ends early; its footer has no total). Batches are printed in their own browser page while the whole document is printed alongside; each is handed to the host as soon as it is a PDF (`onPartial`), and none after the whole document is done. Only the whole document is cached and stored against.
+- The panel starts converting when it is created, not when its viewer is ready, and gives the viewer the current PDF once when it is. With nothing on screen it passes `onPartial`; with an earlier version on screen, that version stays until the new one is whole.
 - PDF files are shown by PDF.js as they are. Dark pages for them are a color inversion that keeps hues; pictures are inverted back, except those that fill most of a page (probably a scan of text).
 
 ## How annotations are anchored
@@ -117,6 +119,8 @@ Every annotation is attached to content, not to a position.
 - **Drawings and text boxes** (`binding.ts`, `layout.ts`) get a binding when they are made, moved or resized: `text-stretch` (fitted to the words of one line), `text-pin` (pinned to the first words under them; text boxes always), `span` (two ends on two words, or a mark beside some lines), `line`, `block` (a picture or a diagram) or `page`. Their stored points never change by themselves; the place on screen is computed for each render.
 - **PDF files that are replaced** (`pageAlign.ts`): pages are matched by their text, or by a signature of how they look when they have none.
 - **Runs** (`runs.ts`): one resolving run at a time per document, a quick pass and a slower one, each annotation on its own (one failure never stops the others), a summary for the message at the bottom and for the banner when most annotations are orphaned.
+- **The first part of a long document** (`partial` in the `pdf` message, always `provisional` too) is resolved with the quick pass only. Only what stands exactly where it stood is shown; nothing it finds is kept (no states, no bindings), nothing is reported to the reader or the host, and what is not on its pages is not listed. So the whole document, when it comes, is resolved from what is stored, as if no part had been shown. What the reader adds meanwhile is stored as usual and found again by its text.
+- **A large document with nothing on screen** (more than forty pages) is put on screen before its text is read, at the reading marker's last place; the tools wait until the text model is there (`reading` in `webview/main.ts`).
 - **The viewer** (`webview/anchoring.ts`) reads a new PDF and places every annotation in it before the screen switches. A stroke being drawn or a note being typed is not interrupted. Renders of unsaved text are shown but not stored. A download is made from one version of the document.
 - **Selections** become text ranges through the PDF.js text layer (`webview/highlights.ts`, `boundaryIndex`). A selection that ends at an element boundary (right in front of a differently styled piece of text) ends before that piece, not after it.
 
@@ -176,10 +180,11 @@ One JSON file per document, named after a SHA-256 hash of the file's absolute pa
 
 The selectors are W3C Web Annotation selectors. Next to it:
 
-- **`<hash>.drawings.json`**: drawings and text boxes, in PDF units of their page (zooming never changes them). A drawing has its tool, color (a name such as `red`, or a hex code), width, page and points. What the eraser leaves of a drawing is a pen stroke marked `"polyline": true`. A text box has its text, top left corner, size, alignment, color, the bold, italic and underlined parts (`spans`) and, if set, its width.
+- **`<hash>.drawings.json`**: drawings and text boxes, in PDF units of their page (zooming never changes them). A drawing has its tool, color (a name such as `red`, or a hex code), width, page and points. What the eraser leaves of a drawing is a pen stroke marked `"polyline": true`. A text box has its text, top left corner, size, alignment, color, the bold, italic, underlined and colored parts (`spans`; a part's `color` is there since 0.15, and 0.14 drops it when it rewrites the file) and, if set, its width.
 - **`<hash>.anchors.json`** (since 0.8): what each highlight, the marker and each drawing is attached to, and where that was last found. Earlier versions never read it, and the two files above keep their format, so going back to an earlier version loses nothing.
 - **`<hash>.text-<id>.gz`** (since 0.8): a compressed copy of the document's text for the versions annotations were last found in (at most twelve, 4 MB). `readingRoom.textSnapshots` turns them off.
 - **`<hash>.history.json`** (since 0.13): the undo history, `done` (oldest first) and `undone` (the next redo last). A step is a label and an operation that holds whole annotations (`create`, `delete`, `update`, `replace`, `marker`, `createDrawing`, `deleteDrawing`, `updateDrawing`, or a `batch` of them), so it can be reverted without anything else. At most 500 steps each way and 2 MB; the oldest go first. It stays when a document has no annotations left, because deleting them can be undone.
+- **`<hash>.glossary.json`** (since 0.15): the glossary of the document, `terms` with an id, the term, its definition and two dates. One per document; all of them together are what **Import Glossary Terms** offers (`GlossaryStore.list()`), including those of documents that no longer exist. Earlier versions never read it. An unreadable one is kept as `….glossary.unreadable-<time>.json`.
 
 Rules of the store:
 
@@ -196,6 +201,14 @@ How undo lasts (`src/shared/history.ts`, `src/store/HistoryStore.ts`, `webview/u
 - A step from an earlier session may be about something that is gone or back by other means (another window, files put back by hand). The viewer skips such a part and applies the rest.
 - The history follows a renamed document (`onMigrate` of the store). **Reattach** leaves it alone: what it adds does not undo what was done here.
 
+The glossary (`src/shared/glossary.ts`, `src/store/GlossaryStore.ts`, `webview/glossary.ts`):
+
+- Where terms are written is never stored: it is a search in the text model, done again whenever the document or the glossary changes. Whole words only (scripts written without spaces have no such limit); a term without a small letter is matched exactly, any other in lower case that keeps the length of the text; places never overlap (the longer term wins, then the one matched exactly).
+- Two terms are the same term when they are found in the same places (`termKey`): a document has one definition per key.
+- The viewer changes the glossary through undo steps (`term`: before and after) and tells the host (`saveTerms`, `deleteTerms`); the host checks every term and writes the file, coalesced, merging what another window wrote meanwhile (per id the later change wins; a deletion on either side holds).
+- Import: the host collects the terms of the other documents, asks the viewer which are written in its text (`glossaryCheck`), shows them in a multi-select list and sends the picked ones back (`importTerms`), so the import is one undo step of the viewer.
+- The glossary follows a renamed document and a renamed folder, and **Reattach** copies the terms the target does not define.
+
 ### The backup
 
 VS Code deletes `globalStorage/<id>` when an extension is uninstalled (at its next start). So `highlights/` has a second copy outside VS Code (`src/store/Backup.ts`):
@@ -206,7 +219,7 @@ VS Code deletes `globalStorage/<id>` when an extension is uninstalled (at its ne
 | macOS | `~/Library/Application Support/Reading Room/backup/highlights/` |
 | Linux | `$XDG_DATA_HOME/reading-room/backup/highlights/` (`~/.local/share/…` by default) |
 
-- The two stores report every file they write, move or remove (`onFilesChanged`, by the document's key). A second later the backup makes its files of that document the same as the storage folder's: changed ones are copied (atomically), missing ones removed. A document that cannot be copied does not hold up the others and is tried again with the next change.
+- The stores (annotations, undo history, glossaries) report every file they write, move or remove (`onFilesChanged`, by the document's key). A second later the backup makes its files of that document the same as the storage folder's: changed ones are copied (atomically), missing ones removed. A document that cannot be copied does not hold up the others and is tried again with the next change.
 - At start, files the backup does not have, or has an older version of, are copied. Nothing is removed then: several profiles and editors share the folder, and each of them only removes what it removed itself.
 - When the extension starts and `highlights/` is missing or empty, it is copied from the backup (`adoptEarlierData` in `src/extension.ts`, before anything reads the store), and the reader is told. Otherwise the backup is never read.
 - `sounds/`, `cache/` and `translation/` are not in it: sound files can be 150 MB each, and the cache and the language packs are made or downloaded again.

@@ -1,11 +1,11 @@
 // The viewer toolbar: one row in three zones, with flexible space between them.
 //   find your place:  [☰] [↑ n / N ↓] [− zoom ▾ +]
-//   annotate:         [select] [highlight] [draw] [text] [translate] [🔖 ▾] [↶]
+//   annotate:         [select] [highlight] [draw] [text] [translate] [glossary] [🔖 ▾] [↶]
 //   the room:         [🎧] [◐] [⤓ ▾] [⋯]
-// The five tools stand side by side, each in its own square: at most one is on, and the one that
+// The six tools stand side by side, each in its own square: at most one is on, and the one that
 // is on is tinted and ringed; its options are in its tray (the row under the toolbar). The three
 // tools that make something show their color in a band under their icon. (In a mini panel the
-// fifth, the translate tool, is in More.)
+// last two, the translate tool and the glossary tool, are in More.)
 // The toolbar never wraps. As the viewer gets narrower, controls move into the More menu, which
 // always lists exactly what is not on the bar (see `layout`).
 import type { Ink } from '../src/shared/colors';
@@ -14,7 +14,7 @@ import { HIGHLIGHT_HEX, MAX_ZOOM, MIN_ZOOM, type DocumentKind, type HighlightCol
 import { narrower, sizeClassOf, type SizeClass } from '../src/shared/ui';
 import { h, iconButton, MOD_KEY, placeUnder } from './dom';
 import { setInk } from './drawings';
-import { chevronIcon, drawIcon, highlighterIcon, minusIcon, pageIcon, plusIcon, selectIcon, textIcon, translateIcon } from './icons';
+import { chevronIcon, drawIcon, glossaryIcon, highlighterIcon, minusIcon, pageIcon, plusIcon, selectIcon, textIcon, translateIcon } from './icons';
 import { byKeyboard, menu, type MenuPart } from './menu';
 import { headphonesIcon } from './sounds';
 
@@ -31,6 +31,9 @@ export interface ToolbarActions {
   toggleText(): void;
   toggleSelect(): void;
   toggleTranslate(): void;
+  toggleGlossary(): void;
+  /** Offers the terms defined in other documents that are written in this one. */
+  importGlossary(): void;
   /** Takes back the last change (or, while typing, the last typing). */
   undo(): void;
   placeMarker(): void;
@@ -59,9 +62,13 @@ const DARK_ON_TITLE = 'Dark pages are on: click for light pages';
 const SELECT_ON_TITLE = 'Selecting is on (Esc to stop)';
 const TRANSLATE_TITLE = 'Translate: select text to read it in another language (translated on this computer)';
 const TRANSLATE_ON_TITLE = 'Translating is on: selecting text translates it (Esc to stop)';
+const GLOSSARY_TITLE = 'Glossary: select a word or a phrase to define it, click a marked term to read what it means';
+const GLOSSARY_ON_TITLE = 'Defining terms is on: select a word or a phrase to define it (Esc to stop)';
 const DOWNLOAD_TITLE = 'Download PDF with annotations';
 /** The entry of More that keeps the selection bar away. */
 export const QUIET_LABEL = 'No bar when selecting text';
+/** The entry of More that brings in terms defined in other documents. */
+export const IMPORT_GLOSSARY_LABEL = 'Import glossary terms…';
 
 const ZOOM_FITS: { value: ZoomValue; label: string; icon: string }[] = [
   { value: 'page-width', label: 'Fit width', icon: 'arrow-both' },
@@ -95,6 +102,7 @@ export class Toolbar {
   private readonly textButton = toolButton('mpv-text-button', TEXT_TITLE, textIcon());
   private readonly selectButton = toolButton('mpv-select-button', SELECT_TITLE, selectIcon());
   private readonly translateButton = toolButton('mpv-translate-button', TRANSLATE_TITLE, translateIcon());
+  private readonly glossaryButton = toolButton('mpv-glossary-button', GLOSSARY_TITLE, glossaryIcon());
   private readonly markerButton = iconButton('bookmark', 'Mark where you stopped reading: click this, then click a line', { 'aria-pressed': 'false' });
   private readonly markerMenu = menuToggle('Reading marker options');
   private readonly markerSplit: HTMLElement;
@@ -132,6 +140,7 @@ export class Toolbar {
   private soundsAvailable = false;
   private translateAvailable = true;
   private translating = false;
+  private defining = false;
 
   constructor(private readonly actions: ToolbarActions) {
     const zoomOutTitle = `Zoom out (${MOD_KEY}+-)`;
@@ -158,6 +167,7 @@ export class Toolbar {
       this.drawButton,
       this.textButton,
       this.translateButton,
+      this.glossaryButton,
     );
 
     this.element = h(
@@ -182,6 +192,7 @@ export class Toolbar {
     this.textButton.addEventListener('click', () => actions.toggleText());
     this.selectButton.addEventListener('click', () => actions.toggleSelect());
     this.translateButton.addEventListener('click', () => actions.toggleTranslate());
+    this.glossaryButton.addEventListener('click', () => actions.toggleGlossary());
     // The button does not take the keyboard: while typing in a text box, it undoes the typing.
     this.undoButton.addEventListener('pointerdown', (e) => e.preventDefault());
     this.undoButton.addEventListener('click', () => actions.undo());
@@ -230,8 +241,9 @@ export class Toolbar {
     this.downloadSplit.hidden = size !== 'wide';
     this.markerSplit.hidden = tight;
     this.soundsButton.hidden = !this.soundsAvailable || tight;
-    // The fifth tool is the one that makes nothing on the page: in a mini panel it is in More.
+    // The last two tools are the ones that draw nothing on the page: in a mini panel they are in More.
     this.translateButton.hidden = !this.translateAvailable || size === 'mini';
+    this.glossaryButton.hidden = size === 'mini';
     // Dark pages is on the bar wherever there is room for it: everywhere but in a mini panel.
     this.themeButton.hidden = size === 'mini';
     // Narrow: the page field without its arrows. Mini: "Go to page…" in More.
@@ -304,8 +316,11 @@ export class Toolbar {
         { icon: 'zoom-in', label: 'Other zoom levels', more: true, run: () => this.openZoom(this.moreButton, true) },
       ]);
     }
-    if (size === 'mini' && this.translateAvailable) {
-      groups.push([{ icon: translateIcon(), label: 'Translate', role: 'checkbox', checked: this.translating, run: () => actions.toggleTranslate() }]);
+    if (size === 'mini') {
+      const tools: MenuPart[] = [];
+      if (this.translateAvailable) tools.push({ icon: translateIcon(), label: 'Translate', role: 'checkbox', checked: this.translating, run: () => actions.toggleTranslate() });
+      tools.push({ icon: glossaryIcon(), label: 'Define terms', role: 'checkbox', checked: this.defining, run: () => actions.toggleGlossary() });
+      groups.push(tools);
     }
     if (tight) {
       const reading = this.markerParts(false);
@@ -320,6 +335,8 @@ export class Toolbar {
     }
     // For readers who follow the lines with the selection: nothing opens over the text they select.
     room.push({ icon: 'eye-closed', label: QUIET_LABEL, role: 'checkbox', checked: this.quietSelection, run: () => actions.toggleQuietSelection() });
+    // What is about the document, not the viewer: the terms of other documents, and converting it again.
+    room.push({ icon: glossaryIcon(), label: IMPORT_GLOSSARY_LABEL, run: () => actions.importGlossary() });
     room.push({
       icon: 'refresh',
       label: this.kind === 'pdf' ? 'Reload from disk' : size === 'wide' ? 'Convert the document again' : 'Convert again',
@@ -449,6 +466,12 @@ export class Toolbar {
   setTranslating(active: boolean): void {
     this.translating = active;
     this.setPressed(this.translateButton, active, active ? TRANSLATE_ON_TITLE : TRANSLATE_TITLE);
+  }
+
+  /** The glossary tool: selecting text defines it. */
+  setDefining(active: boolean): void {
+    this.defining = active;
+    this.setPressed(this.glossaryButton, active, active ? GLOSSARY_ON_TITLE : GLOSSARY_TITLE);
   }
 
   /** The translate tool is not on the bar when this build cannot translate (no list of language packs). */

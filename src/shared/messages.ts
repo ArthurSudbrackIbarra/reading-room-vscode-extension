@@ -3,6 +3,7 @@ import type { CopyHint } from '../anchoring/diff';
 import type { ResolvedPayload } from '../store/resolutions';
 import type { HexColor, Ink } from './colors';
 import type { DrawTool, Drawing, InkWidth, TextLayout, TextStyle } from './drawings';
+import type { GlossaryTerm } from './glossary';
 import type { HistoryChange, StoredHistory } from './history';
 import type { CustomSound, SoundRequest, SoundState } from './sounds';
 import type { TranslateLanguage, TranslateRequest, TranslationUpdate } from './translate';
@@ -17,6 +18,8 @@ export interface ViewerInit {
   highlights: Highlight[];
   marker: ReadingMarker | null;
   drawings: Drawing[];
+  /** The glossary of the document: the terms the reader defined in it. */
+  glossary: GlossaryTerm[];
   zoom: ZoomValue;
   color: HighlightColor;
   theme: PageTheme;
@@ -85,6 +88,11 @@ export type HostToViewer =
       fromCache?: boolean;
       /** A render of unsaved text: what it does to the annotations is shown but not stored. */
       provisional?: boolean;
+      /**
+       * The first part of a long document, shown while the rest is converted (always `provisional`
+       * too). The whole document follows in another message.
+       */
+      partial?: boolean;
       /** Which of two identical neighboring blocks is the copy (from the editor's change events). */
       hints?: CopyHint[];
       /** Hashes of the earlier versions of the text that are kept on disk. */
@@ -94,13 +102,27 @@ export type HostToViewer =
   | { type: 'snapshots'; requestId: number; texts: Record<string, string> }
   | { type: 'renderError'; message: string; firstRender: boolean }
   | { type: 'zoom'; action: 'in' | 'out' }
-  | { type: 'highlights'; highlights: Highlight[]; marker: ReadingMarker | null; drawings: Drawing[]; readOnly?: boolean; pages?: string[]; history?: StoredHistory }
+  | {
+      type: 'highlights';
+      highlights: Highlight[];
+      marker: ReadingMarker | null;
+      drawings: Drawing[];
+      glossary?: GlossaryTerm[];
+      readOnly?: boolean;
+      pages?: string[];
+      history?: StoredHistory;
+    }
   | { type: 'toggleList' }
   | { type: 'toggleTool' }
   | { type: 'toggleDrawing' }
   | { type: 'toggleText' }
   | { type: 'toggleSelect' }
   | { type: 'toggleTranslate' }
+  | { type: 'toggleGlossary' }
+  /** Asks which of these terms (of other documents) are written in the document shown; answered with `glossaryFound`. */
+  | { type: 'glossaryCheck'; requestId: number; terms: string[] }
+  /** Terms the reader picked from other documents: added to the glossary as one undoable step. */
+  | { type: 'importTerms'; terms: { term: string; definition: string }[] }
   /** How the translation a viewer asked for is going, and its result. */
   | { type: 'translation'; requestId: number; update: TranslationUpdate }
   | { type: 'fullView'; full: boolean }
@@ -144,7 +166,9 @@ export type ViewerCommand =
   /** Asks the reader to confirm, then deletes every drawing of the file. */
   | 'deleteAllDrawings'
   /** Asks the reader to confirm, then deletes every text box of the file. */
-  | 'deleteAllTextBoxes';
+  | 'deleteAllTextBoxes'
+  /** Offers the terms defined in other documents that are written in this one. */
+  | 'importGlossary';
 
 export type ViewerToHost =
   | { type: 'ready' }
@@ -159,6 +183,11 @@ export type ViewerToHost =
   /** New drawings and text boxes, or new versions of existing ones (moved, edited, restyled, brought back by undo). */
   | { type: 'saveDrawings'; drawings: Drawing[] }
   | { type: 'deleteDrawings'; ids: string[] }
+  /** New terms of the glossary, or new versions of existing ones (edited, brought back by undo). */
+  | { type: 'saveTerms'; terms: GlossaryTerm[] }
+  | { type: 'deleteTerms'; ids: string[] }
+  /** Which of the terms asked about (`glossaryCheck`) are written in the document shown. */
+  | { type: 'glossaryFound'; requestId: number; found: string[] }
   /** The undo history changed: the stored copy follows. */
   | { type: 'history'; change: HistoryChange }
   | { type: 'drawStyleChanged'; style: Partial<DrawStyle> }

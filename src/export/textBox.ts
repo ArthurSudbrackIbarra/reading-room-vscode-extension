@@ -2,9 +2,10 @@
 // viewer showed it: the same lines (the viewer sends how it wrapped them), in Helvetica (one of
 // the PDF standard fonts, so nothing is embedded; Arial on screen has the same metrics), on the
 // same baselines, aligned and justified the same way, upright on pages with any /Rotate. Bold
-// and italic parts switch to Helvetica's bold and oblique faces inside a line.
+// and italic parts switch to Helvetica's bold and oblique faces inside a line, and parts in a
+// color of their own switch the fill color.
 import { PDFHexString, PDFName, PDFNumber, PDFString, StandardFontEmbedder, type PDFContext, type PDFPage, type PDFRef } from '@cantoo/pdf-lib';
-import { inkShades } from '../shared/colors';
+import { inkShades, type Ink } from '../shared/colors';
 import { invertMatrix, pageGeometry, pageRectToPdf, round2, textBoxRect, type Matrix, type PageGeometry } from '../shared/drawingGeometry';
 import { TEXT_BASELINE, TEXT_LINE_HEIGHT, TEXT_PAD_X, TEXT_PAD_Y, textStyleOf, type TextDrawing, type TextLayout } from '../shared/drawings';
 import { textRuns, type TextSpan } from '../shared/richText';
@@ -201,7 +202,13 @@ export function textBoxAppearance(text: TextDrawing, page: PageGeometry, layout?
   const contentWidth = text.boxWidth !== undefined ? Math.max(1, text.boxWidth - 2 * TEXT_PAD_X) : undefined;
   const matched = layout && layout.id === text.id ? matchLines(text.text, layout.lines) : undefined;
   const lines = matched ?? matchLines(text.text, wrapText(text.text, face, contentWidth)) ?? [{ line: text.text, start: 0, last: true }];
-  // Each line as its runs: one face each, encoded and measured (spaces at the end of a line take no room).
+  /** The fill color of an ink, as the operands of `rg` (downloads have light pages: the light shade). */
+  const fillOf = (ink: Ink): string => {
+    const [r, g, b] = hexToRgb(inkShades(ink).light);
+    return `${fmt(r)} ${fmt(g)} ${fmt(b)}`;
+  };
+  const color = fillOf(text.color);
+  // Each line as its runs: one face and one color each, encoded and measured (spaces at the end of a line take no room).
   const laid = lines.map(({ line, start }) => {
     const trimmed = line.replace(/ +$/, '');
     const runs = textRuns(text.text, text.spans, start, start + trimmed.length).map((run) => {
@@ -210,6 +217,8 @@ export function textBoxAppearance(text: TextDrawing, page: PageGeometry, layout?
       return {
         font,
         underline: run.underline,
+        // A part in a color of its own, else the color of the box.
+        fill: run.color ? fillOf(run.color) : color,
         codes: encoded.codes,
         width: (encoded.width * size) / 1000,
         replaced: encoded.replaced,
@@ -230,12 +239,13 @@ export function textBoxAppearance(text: TextDrawing, page: PageGeometry, layout?
   const top = box[1] + height;
   const cm: Matrix = [a, b, -c, -d, a * box[0] + c * top + e, b * box[0] + d * top + f];
 
-  const [r, g, bl] = hexToRgb(inkShades(text.color).light);
-  const color = `${fmt(r)} ${fmt(g)} ${fmt(bl)}`;
   const ops: string[] = ['q', `${cm.map(fmt).join(' ')} cm`, `${color} rg`, 'BT'];
-  const underlines: string[] = [];
+  /** The underlines, drawn after the text: each a rectangle in the color of its text. */
+  const underlines: { fill: string; rect: string }[] = [];
   const fonts = new Set<FontName>();
   let current: FontName | undefined;
+  /** The fill color set last. */
+  let fill = color;
   let replaced = 0;
   lines.forEach(({ last }, i) => {
     const { trimmed, runs } = laid[i];
@@ -247,10 +257,13 @@ export function textBoxAppearance(text: TextDrawing, page: PageGeometry, layout?
     else if (text.align === 'right') x += inner - natural[i];
     const wordSpacing = justify ? (inner - natural[i]) / spaces : 0;
     ops.push(`${fmt(wordSpacing)} Tw`, `1 0 0 1 ${fmt(x)} ${fmt(y)} Tm`);
-    /** Where the underline being drawn started (runs next to each other share one). */
+    /** Where the underline being drawn started, and its color (runs of one color next to each other share one). */
     let underlineFrom: number | undefined;
+    let underlineColor = color;
     const endUnderline = (to: number) => {
-      if (underlineFrom !== undefined && to > underlineFrom) underlines.push(`${fmt(underlineFrom)} ${fmt(y - 0.125 * size)} ${fmt(to - underlineFrom)} ${fmt(0.05 * size)} re f`);
+      if (underlineFrom !== undefined && to > underlineFrom) {
+        underlines.push({ fill: underlineColor, rect: `${fmt(underlineFrom)} ${fmt(y - 0.125 * size)} ${fmt(to - underlineFrom)} ${fmt(0.05 * size)} re f` });
+      }
       underlineFrom = undefined;
     };
     for (const run of runs) {
@@ -259,15 +272,31 @@ export function textBoxAppearance(text: TextDrawing, page: PageGeometry, layout?
         fonts.add(run.font);
         ops.push(`/${FONT_KEYS[run.font]} ${fmt(size)} Tf`);
       }
+      if (run.fill !== fill) {
+        fill = run.fill;
+        ops.push(`${fill} rg`);
+      }
       ops.push(`<${run.codes.map((code) => code.toString(16).padStart(2, '0')).join('')}> Tj`);
       replaced += run.replaced;
-      if (run.underline) underlineFrom ??= x;
-      else endUnderline(x);
+      // An underline is in the color of its text: it ends where the color changes.
+      if (!run.underline || run.fill !== underlineColor) endUnderline(x);
+      if (run.underline && underlineFrom === undefined) {
+        underlineFrom = x;
+        underlineColor = run.fill;
+      }
       x += run.width + wordSpacing * run.spaces;
     }
     endUnderline(x);
   });
-  ops.push('ET', ...underlines, 'Q');
+  ops.push('ET');
+  for (const underline of underlines) {
+    if (underline.fill !== fill) {
+      fill = underline.fill;
+      ops.push(`${fill} rg`);
+    }
+    ops.push(underline.rect);
+  }
+  ops.push('Q');
   const rect = pageRectToPdf(page, box).map(round2) as [number, number, number, number];
   return { rect, ops: ops.join('\n'), fonts: [...fonts], replaced, lines: lines.map((l) => l.line) };
 }

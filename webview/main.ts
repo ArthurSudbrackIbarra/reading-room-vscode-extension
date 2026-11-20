@@ -3,7 +3,7 @@ import { startWorker } from './pdfjs';
 import { Viewer, type ViewLocation } from './viewer';
 import { HighlightController } from './highlights';
 import { ReadingMarkerController } from './marker';
-import { AnchoringController, type PreparedDocument } from './anchoring';
+import { AnchoringController, type PreparedDocument, type RenderInfo } from './anchoring';
 import { massOrphanMessage, summaryMessage, type RunResult } from '../src/anchoring/runs';
 import { DarkPages } from './darkPages';
 import { PageLayers } from './pageLayers';
@@ -28,8 +28,10 @@ import { MAX_HISTORY_STEPS } from '../src/shared/history';
 import { UndoStack, type EditOp, type HighlightChanges } from './undo';
 import { ReadingSounds, canPlaySounds, type SoundSource } from './sounds';
 import { DrawingController, type DrawingMode } from './drawings';
-import { DrawingBar, HighlightTray, HintTray, SelectTray, TOOL_KEYS, TextBar, TranslateTray } from './drawingBar';
+import { DrawingBar, GlossaryTray, HighlightTray, HintTray, SelectTray, TOOL_KEYS, TextBar, TranslateTray } from './drawingBar';
 import { TranslationPopover } from './translate';
+import { DefinePopover, GlossaryController, TermPopover } from './glossary';
+import { MAX_TERMS, MAX_TERM_LENGTH, cleanDefinition, cleanTerm, occursIn, termKey, type GlossaryTerm } from '../src/shared/glossary';
 import { menu } from './menu';
 import { ColorPicker } from './colorPicker';
 import { h } from './dom';
@@ -88,6 +90,13 @@ function narrowPanel(): boolean {
 /** A pasted copy on the page of its original goes this far (points) down and to the right, and the next one as far again. */
 const PASTE_STEP = 12;
 
+/**
+ * A document with more pages than this is put on screen before its text is read (when nothing is
+ * on screen yet): reading the text of every page takes about a second per hundred pages. Smaller
+ * ones are read first, so their annotations are there with their pages.
+ */
+const SHOW_FIRST_PAGES = 40;
+
 /** What an undo step of a text style change says. */
 function formatLabel(patch: Partial<TextStyle>): string {
   if (patch.color !== undefined) return 'Change text color';
@@ -137,6 +146,10 @@ class App {
   private readonly selectTray: SelectTray;
   private readonly translateTray: TranslateTray;
   private readonly translation: TranslationPopover;
+  private readonly glossary: GlossaryController;
+  private readonly glossaryTray: GlossaryTray;
+  private readonly termPopover: TermPopover;
+  private readonly definePopover: DefinePopover;
   private readonly markerTray: HintTray;
   private readonly drawingPopover: DrawingPopover;
   private readonly textPopover: TextPopover;
@@ -163,6 +176,8 @@ class App {
   private textStyle: TextStyle = { ...DEFAULT_TEXT_STYLE };
   /** The translate tool: selecting text translates it. */
   private translateActive = false;
+  /** The glossary tool: selecting a word or a phrase defines it. */
+  private glossaryActive = false;
   /** The reader's choice in More: selecting text opens nothing (the selection bar stays away). */
   private quietSelection = false;
   private languages: TranslateLanguage[] = [];
@@ -193,6 +208,23 @@ class App {
   private orphanBanner = false;
   private readOnly = false;
   private readonly early: HostToViewer[] = [];
+  /** The document on screen is the first part of a long one: the rest is still being converted. */
+  private partial = false;
+  /** The pages of a large document are on screen and its text is still being read: the tools wait for it. */
+  private reading = false;
+  /**
+   * Set from the first PDF on screen until the reader was taken to where they stopped: where they
+   * were put meanwhile (`top`), and the place a restored panel was left at when the pages shown
+   * so far end before it (`restore`).
+   */
+  private placing?: { top: number; restore?: ViewLocation };
+  /** Under the last page of the first part of a long document: more is coming. */
+  private readonly moreNote = h(
+    'div',
+    { class: 'mpv-more', role: 'status', hidden: true },
+    h('span', { class: 'mpv-spinner mpv-spinner-sm', 'aria-hidden': 'true' }),
+    h('span', { class: 'mpv-label', text: 'The rest of the document is being converted…' }),
+  );
 
   constructor(
     root: HTMLElement,
@@ -213,6 +245,8 @@ class App {
       toggleText: () => this.setMode(this.drawings.textActive ? 'off' : 'text'),
       toggleSelect: () => this.setMode(this.drawings.selecting ? 'off' : 'select'),
       toggleTranslate: () => this.setTranslate(!this.translateActive),
+      toggleGlossary: () => this.setGlossary(!this.glossaryActive),
+      importGlossary: () => this.command('importGlossary'),
       undo: () => this.undoOrRedo(true),
       placeMarker: () => this.toggleMarkerPlacement(),
       goToMarker: () => this.goToMarker(),
@@ -274,6 +308,12 @@ class App {
       },
       removeAllDrawings: () => this.command('deleteAllDrawings'),
       removeAllTextBoxes: () => this.command('deleteAllTextBoxes'),
+      revealTerm: (id) => {
+        if (narrowPanel()) this.setListOpen(false, false);
+        void this.glossary.reveal(id);
+      },
+      editTerm: (id) => this.editTerm(id),
+      removeTerm: (id) => this.removeTerm(id),
       sectionsChanged: (collapsed) => post({ type: 'listSectionsChanged', collapsed }),
       close: () => this.setListOpen(false, true),
     });
@@ -294,6 +334,15 @@ class App {
       setTo: (code: string) => this.setTranslateLanguages(this.translateFrom, code),
     };
     this.translateTray = new TranslateTray({ ...languageActions, done: () => this.setTranslate(false) });
+    this.glossaryTray = new GlossaryTray({ done: () => this.setGlossary(false) });
+    this.termPopover = new TermPopover({
+      edit: (id, x, y) => this.editTerm(id, x, y),
+      remove: (id) => this.removeTerm(id),
+    });
+    this.definePopover = new DefinePopover({
+      save: (id, term, definition) => this.saveTerm(id, term, definition),
+      notice: (message) => this.toast.show(message, { durationMs: 7000 }),
+    });
     this.translation = new TranslationPopover({
       ...languageActions,
       copy: (text) => {
@@ -341,7 +390,7 @@ class App {
     this.colorPicker.onRecentChanged = (colors) => post({ type: 'recentColorsChanged', colors });
 
     const viewerElement = h('div', { id: 'viewer', class: 'pdfViewer' });
-    this.container = h('div', { id: 'viewerContainer', class: 'mpv-viewer-container', tabindex: 0 }, viewerElement);
+    this.container = h('div', { id: 'viewerContainer', class: 'mpv-viewer-container', tabindex: 0 }, viewerElement, this.moreNote);
     const main = h('main', { class: 'mpv-main' }, this.sidebar.element, this.container, this.status.element, this.toast.element);
     root.append(
       this.toolbar.element,
@@ -350,6 +399,7 @@ class App {
       this.textBar.element,
       this.selectTray.element,
       this.translateTray.element,
+      this.glossaryTray.element,
       this.markerTray.element,
       this.progress,
       this.banner.element,
@@ -376,6 +426,8 @@ class App {
       },
       needsResolve: () => this.anchoring?.requestRun(),
     });
+    // The marks of the glossary's terms: a layer right above the highlights, under the text.
+    this.glossary = new GlossaryController(this.viewer, this.layers, this.highlights, { changed: () => this.renderList() });
     this.marker = new ReadingMarkerController(
       this.viewer,
       this.layers,
@@ -465,6 +517,11 @@ class App {
         this.selectionBar.hide();
         this.translateSelection(x, y);
       },
+      define: () => {
+        const [x, y] = this.selectionBar.position;
+        this.selectionBar.hide();
+        this.defineSelection(x, y);
+      },
     });
 
     this.viewer.onScaleChange = (zoom, scale) => {
@@ -534,6 +591,7 @@ class App {
         this.highlights.setHighlights(init.highlights);
         this.marker.set(init.marker);
         this.drawings.setDrawings(init.drawings ?? []);
+        this.glossary.setTerms(init.glossary ?? []);
         this.anchoring.keepSnapshots = init.keepSnapshots !== false;
         this.anchoring.setStoredPages(init.pages);
         this.setReadOnly(init.readOnly === true);
@@ -597,7 +655,9 @@ class App {
             { label: 'Show Log', run: () => this.command('showLog') },
           ]);
         } else {
-          this.banner.show('error', `The PDF could not be updated: ${msg.message}`, [
+          // (With the first part of a long document on screen, it is the rest that did not come.)
+          this.moreNote.hidden = true;
+          this.banner.show('error', `${this.partial ? 'The rest of the document could not be converted' : 'The PDF could not be updated'}: ${msg.message}`, [
             { label: 'Retry', run: () => this.command('refresh') },
             { label: 'Show Log', run: () => this.command('showLog') },
           ]);
@@ -612,6 +672,11 @@ class App {
         this.highlights.setHighlights(msg.highlights);
         this.marker.set(msg.marker);
         this.drawings.setDrawings(msg.drawings ?? []);
+        if (msg.glossary) {
+          this.termPopover.hide();
+          this.definePopover.hide(false);
+          this.glossary.setTerms(msg.glossary);
+        }
         this.anchoring.setStoredPages(msg.pages);
         this.setReadOnly(msg.readOnly === true);
         this.undoStack.load(msg.readOnly ? undefined : msg.history);
@@ -637,6 +702,23 @@ class App {
         break;
       case 'toggleTranslate':
         this.setTranslate(!this.translateActive);
+        break;
+      case 'toggleGlossary':
+        this.setGlossary(!this.glossaryActive);
+        break;
+      case 'glossaryCheck': {
+        // Which terms of other documents are written in this one: answered once all of the
+        // document is here and read (not while only its beginning is shown).
+        const terms = Array.isArray(msg.terms) ? msg.terms : [];
+        const answer = (): void => {
+          if (this.partial || this.reading) setTimeout(() => void this.loading.then(answer), 400);
+          else post({ type: 'glossaryFound', requestId: msg.requestId, found: this.glossary.writtenHere(terms) });
+        };
+        void this.loading.then(answer);
+        break;
+      }
+      case 'importTerms':
+        this.importTerms(Array.isArray(msg.terms) ? msg.terms : []);
         break;
       case 'translation':
         if (this.translating?.requestId !== msg.requestId) break;
@@ -720,18 +802,49 @@ class App {
     const saved = getState();
     const restore: ViewLocation | undefined = !this.hasDocument && saved?.pageNumber ? { pageNumber: saved.pageNumber, fraction: saved.fraction ?? 0 } : undefined;
     if (restore) this.restoredLocation = true;
-    // The new PDF is opened and read, and every annotation is placed in it, before anything on
-    // screen changes: the previous PDF stays, with its annotations, under the progress bar.
     const opened = await this.viewer.open(data);
     if (!opened) return;
+    const info: RenderInfo = {
+      renderId: msg.renderId,
+      provisional: msg.provisional === true,
+      partial: msg.partial === true,
+      hints: msg.hints ?? [],
+      snapshots: msg.snapshots ?? [],
+    };
+    const pages = opened.doc.numPages;
+    if (!this.hasDocument && pages > SHOW_FIRST_PAGES) {
+      // Nothing is on screen and the document is large: reading the text of all its pages takes
+      // seconds, so the pages are shown at once and the reader can look at them meanwhile. The
+      // annotations appear, and the tools work, once the text is read.
+      this.layers.reset();
+      if (!(await opened.show(restore))) return;
+      this.onShown(msg, pages, restore);
+      this.setReading(true);
+      let prepared: PreparedDocument | undefined;
+      try {
+        // (The first page is drawn before the text is asked for: both are work for the same thread.)
+        await this.firstPageDrawn();
+        prepared = await this.anchoring.prepare(opened, info);
+      } catch (err) {
+        if (opened.stale()) return;
+        this.progress.hidden = true;
+        log('error', `Reading the text of the PDF failed: ${String(err)}`);
+        this.banner.show('error', `The text of this document could not be read, so its annotations cannot be shown: ${String(err)}`, [
+          { label: 'Retry', run: () => this.command('refresh') },
+        ]);
+        return;
+      }
+      // (Undefined: a newer PDF arrived meanwhile, and its own load goes on from here.)
+      if (!prepared) return;
+      this.anchoring.commit(prepared);
+      this.onCommitted();
+      return;
+    }
+    // The new PDF is opened and read, and every annotation is placed in it, before anything on
+    // screen changes: the previous PDF stays, with its annotations, under the progress bar.
     let prepared: PreparedDocument | undefined;
     try {
-      prepared = await this.anchoring.prepare(opened, {
-        renderId: msg.renderId,
-        provisional: msg.provisional === true,
-        hints: msg.hints ?? [],
-        snapshots: msg.snapshots ?? [],
-      });
+      prepared = await this.anchoring.prepare(opened, info);
     } catch (err) {
       opened.discard();
       throw err;
@@ -754,37 +867,106 @@ class App {
     this.drawings.select(undefined);
     this.layers.reset();
     if (!(await opened.show(restore))) return;
-    const firstLoad = !this.hasDocument;
+    this.onShown(msg, pages, restore);
+    // The switch: what was computed for the previous PDF is dropped, the prepared results are shown.
+    this.anchoring.commit(prepared);
+    this.onCommitted();
+  }
+
+  /** A PDF was put on screen: the loading screen goes, and what there is to say about the PDF is said. */
+  private onShown(msg: Extract<HostToViewer, { type: 'pdf' }>, pages: number, restore: ViewLocation | undefined): void {
+    const first = !this.hasDocument;
     this.hasDocument = true;
     this.status.hide();
-    this.progress.hidden = true;
     document.body.dataset.pageTheme = this.kind === 'pdf' ? this.theme : msg.theme;
     this.orphanBanner = false;
+    this.partial = msg.partial === true;
+    this.moreNote.hidden = !this.partial;
     if (msg.warnings.length > 0) {
-      const first = msg.warnings[0].message;
+      const warning = msg.warnings[0].message;
       const more = msg.warnings.length > 1 ? ` (and ${msg.warnings.length - 1} more)` : '';
-      this.banner.show('warning', `${first}${more}`, [{ label: 'Show Log', run: () => this.command('showLog') }]);
+      this.banner.show('warning', `${warning}${more}`, [{ label: 'Show Log', run: () => this.command('showLog') }]);
     } else if (this.readOnly) {
       this.showReadOnly();
     } else {
       this.banner.hide();
     }
-    // The switch: what was computed for the previous PDF is dropped, the prepared results are shown.
-    this.anchoring.commit(prepared);
-    // Opening a document (not restoring a panel): continue where the reader stopped.
-    if (firstLoad && !this.restoredLocation && this.marker.value && this.marker.goTo()) {
-      this.toast.show(`Continuing where you stopped reading (page ${(this.marker.pageIndex ?? 0) + 1}).`, { marker: true });
-    } else if (firstLoad && this.marker.value) {
-      // A restored panel is where it was left: the marker is offered when it is somewhere else.
-      setTimeout(() => {
-        if (!this.marker.value || this.marker.isVisible()) return;
-        this.toast.show(`You stopped on page ${(this.marker.pageIndex ?? this.marker.value.pageIndex) + 1}.`, {
-          marker: true,
-          action: { label: 'Continue', run: () => this.goToMarker() },
-          durationMs: 8000,
-        });
-      }, 600);
+    if (first) {
+      // Opening a document (not restoring a panel): its pages are shown where the reading marker
+      // last was, before the text is read and says where it is now.
+      const place = restore || this.restoredLocation ? undefined : this.marker.lastPlace;
+      if (place && place.pageIndex < pages) this.viewer.scrollToFraction(place.pageIndex, place.y, 0.25);
+      this.placing = { top: this.container.scrollTop, restore };
+    } else if (this.placing?.restore && !this.readerMoved(this.placing)) {
+      // More of a long document is on screen now: the place a restored panel was left at may be in it.
+      this.viewer.restoreLocation(this.placing.restore);
+      this.placing.top = this.container.scrollTop;
     }
+    // The first part of a long document may end before the place a restored panel was left at.
+    if (this.placing?.restore && this.placing.restore.pageNumber <= pages) this.placing.restore = undefined;
+  }
+
+  /** The annotations of the PDF on screen are placed: the reader is taken to where they stopped (once). */
+  private onCommitted(): void {
+    this.reading = false;
+    // The line stays while the rest of a long document is still being converted.
+    this.progress.hidden = !this.partial;
+    const placing = this.placing;
+    if (!placing) return;
+    const marker = this.marker.value;
+    // In the first part of a long document, the place the reader stopped at may be further down:
+    // they are taken there when it is on screen.
+    if (this.partial && (placing.restore || (marker && this.marker.pageIndex === undefined))) return;
+    this.placing = undefined;
+    if (!marker) return;
+    if (!this.restoredLocation && !this.readerMoved(placing) && this.marker.goTo()) {
+      this.toast.show(`Continuing where you stopped reading (page ${(this.marker.pageIndex ?? 0) + 1}).`, { marker: true });
+      return;
+    }
+    // A restored panel is where it was left, and a reader who scrolled on is where they went: the
+    // marker is offered when it is somewhere else.
+    setTimeout(() => {
+      if (!this.marker.value || this.marker.isVisible()) return;
+      this.toast.show(`You stopped on page ${(this.marker.pageIndex ?? this.marker.value.pageIndex) + 1}.`, {
+        marker: true,
+        action: { label: 'Continue', run: () => this.goToMarker() },
+        durationMs: 8000,
+      });
+    }, 600);
+  }
+
+  /** Whether the reader scrolled since they were last put somewhere. */
+  private readerMoved(placing: { top: number }): boolean {
+    return Math.abs(this.container.scrollTop - placing.top) > 8;
+  }
+
+  /** The text of the document on screen is being read: the line under the toolbar says something is going on. */
+  private setReading(reading: boolean): void {
+    this.reading = reading;
+    if (reading) this.progress.hidden = false;
+  }
+
+  /** Resolves when PDF.js has drawn a page of the document just shown (or after a moment, if none is in view). */
+  private firstPageDrawn(): Promise<void> {
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        this.viewer.eventBus.off('pagerendered', done);
+        resolve();
+      };
+      const timer = setTimeout(done, 1500);
+      this.viewer.eventBus.on('pagerendered', done);
+    });
+  }
+
+  /**
+   * False, with a word to the reader, while the text of a large document is still being read:
+   * no tool can work on it yet.
+   */
+  private textReady(): boolean {
+    if (!this.reading) return true;
+    this.toast.show('The text of this document is still being read. The tools are ready in a moment.');
+    return false;
   }
 
   private setReadOnly(readOnly: boolean): void {
@@ -855,9 +1037,13 @@ class App {
     const saved: Drawing[] = [];
     const deleted: string[] = [];
     let resolve = false;
+    const savedTerms: GlossaryTerm[] = [];
+    const deletedTerms: string[] = [];
     const flush = () => {
       if (saved.length > 0) post({ type: 'saveDrawings', drawings: saved.splice(0) });
       if (deleted.length > 0) post({ type: 'deleteDrawings', ids: deleted.splice(0) });
+      if (savedTerms.length > 0) post({ type: 'saveTerms', terms: savedTerms.splice(0) });
+      if (deletedTerms.length > 0) post({ type: 'deleteTerms', ids: deletedTerms.splice(0) });
     };
     const run = async (o: EditOp): Promise<void> => {
       switch (o.kind) {
@@ -905,6 +1091,22 @@ class App {
           if (saved.length > 0) flush();
           this.drawings.remove(o.drawing.id);
           deleted.push(o.drawing.id);
+          break;
+        case 'term':
+          // A term defined or changed (`after`), or deleted (only `before`).
+          if (this.termPopover.termId === (o.after ?? o.before)?.id) this.termPopover.hide();
+          if (o.after) {
+            // (The glossary got this term by other means meanwhile: that one stays.)
+            const other = this.glossary.byKey(o.after.term);
+            if (other && other.id !== o.after.id) break;
+            if (deletedTerms.length > 0) flush();
+            this.glossary.put(o.after);
+            savedTerms.push(o.after);
+          } else if (o.before && this.glossary.get(o.before.id)) {
+            if (savedTerms.length > 0) flush();
+            this.glossary.remove(o.before.id);
+            deletedTerms.push(o.before.id);
+          }
           break;
         case 'batch':
           for (const child of o.ops) await run(child);
@@ -973,6 +1175,8 @@ class App {
 
   /** Deletes every orphaned highlight, drawing and text box as one undo step. */
   private removeOrphans(): void {
+    // In the first part of a long document nothing is known to be missing yet.
+    if (this.partial) return;
     void this.drawingCommits.then(() => {
       const highlights = this.highlights.all.filter((h) => h.status === 'orphaned');
       const drawings = this.drawings.orphans().map((o) => o.drawing);
@@ -1254,7 +1458,8 @@ class App {
       value: first.color,
       onChange: (color, final) => {
         if (!final) {
-          for (const base of bases.values()) this.drawings.put({ ...base, color });
+          // (A text box shows what the color settled on will do: all of its text takes it, the parts with a color of their own too.)
+          for (const base of bases.values()) this.drawings.put(isTextDrawing(base) ? applyTextStyle(base, { color }) : { ...base, color });
           return;
         }
         this.changeDrawings([...bases.keys()], { color }, text ? 'Change text color' : 'Change drawing color', bases);
@@ -1284,13 +1489,15 @@ class App {
   }
 
   /**
-   * The style the text bar shows and works on: of the box being typed in (bold, italic and
-   * underline: at the caret, or of the selected text), else of the selected box (in text mode),
-   * else the one new boxes get.
+   * The style the text bar shows and works on: of the box being typed in (bold, italic, underline
+   * and the color: at the caret, or of the selected text), else of the selected box (in text
+   * mode), else the one new boxes get.
    */
   private currentTextStyle(): TextStyle {
     const editing = this.drawings.editing;
-    if (editing) return { size: editing.size, align: editing.align, color: editing.color, ...(this.drawings.editingCharStyle ?? PLAIN) };
+    if (editing) {
+      return { size: editing.size, align: editing.align, color: this.drawings.editingColor ?? editing.color, ...(this.drawings.editingCharStyle ?? PLAIN) };
+    }
     const selected = this.selectedText();
     return selected ? textStyleOf(selected) : this.textStyle;
   }
@@ -1306,11 +1513,12 @@ class App {
   }
 
   /**
-   * The text bar (or Ctrl+B/I/U) changed the style. While typing: size, alignment and color are
-   * the box's; bold, italic and underline go to the selected text, or, with just a caret, to
-   * what is typed next. Otherwise the selected box gets it (bold and so on: all of its text).
-   * New boxes get the style too, except for bold and so on put on part of a text. `final` is
-   * false while a color is being picked.
+   * The text bar (or Ctrl+B/I/U) changed the style. While typing: size and alignment are the
+   * box's; bold, italic, underline and the color go to the selected text, or, with just a caret,
+   * to what is typed next (a box that is still empty takes the color as its own). Otherwise the
+   * selected box gets it (bold, the color and so on: all of its text). New boxes get the style
+   * too, except for what was put on part of a text. `final` is false while a color is being
+   * picked.
    */
   private changeTextStyle(patch: Partial<TextStyle>, final = true, session?: { base?: TextDrawing }): void {
     /** What new text boxes take over. */
@@ -1319,16 +1527,18 @@ class App {
       const box: Partial<TextBoxStyle> = {};
       if (patch.size !== undefined) box.size = patch.size;
       if (patch.align !== undefined) box.align = patch.align;
-      if (patch.color !== undefined) box.color = patch.color;
       Object.assign(sticky, box);
       if (Object.keys(box).length > 0) this.drawings.setEditingStyle(box);
+      if (patch.color !== undefined && this.drawings.setEditingColor(patch.color, final) !== 'selection') sticky.color = patch.color;
       for (const name of CHAR_STYLES) {
         if (patch[name] === undefined) continue;
         const partial = this.drawings.editingSelection;
         const on = this.drawings.toggleEditingStyle(name);
         if (!partial && on !== undefined) sticky[name] = on;
       }
-      this.drawings.focusEditor();
+      // While the color picker is open the keyboard stays in it (and the text shows its new color,
+      // not the selection over it): the picker gives the keyboard back when it closes.
+      if (patch.color === undefined || !this.colorPicker.isOpen) this.drawings.focusEditor();
     } else {
       Object.assign(sticky, patch);
       const selected = this.selectedText();
@@ -1567,11 +1777,12 @@ class App {
       this.marker.stopPlacing();
       return;
     }
-    if (!this.hasDocument) return;
+    if (!this.hasDocument || !this.textReady()) return;
     this.hideFloating();
     // The highlight tool, draw mode, text mode and placing the marker exclude each other.
     if (this.toolActive) this.setTool(false, true);
     this.setTranslate(false);
+    this.setGlossary(false);
     this.setMode('off');
     this.marker.startPlacing();
   }
@@ -1587,7 +1798,8 @@ class App {
       return;
     }
     if (narrowPanel()) this.setListOpen(false, false);
-    this.marker.goTo();
+    // (In the first part of a long document, the marker may be on a page that is not there yet.)
+    if (!this.marker.goTo() && this.partial) this.toast.show('The page of the reading marker is still being converted. It is there in a moment.');
   }
 
   private removeMarker(): void {
@@ -1642,10 +1854,12 @@ class App {
   }
 
   private setTool(active: boolean, notify: boolean): void {
+    if (active && !this.textReady()) return;
     if (active) {
-      // The highlight tool, the translate tool, draw mode, text mode and placing the marker exclude each other.
+      // The highlight tool, the translate tool, the glossary tool, draw mode, text mode and placing the marker exclude each other.
       this.setMode('off');
       this.setTranslate(false);
+      this.setGlossary(false);
       if (this.marker.placing) this.marker.stopPlacing();
     }
     this.toolActive = active;
@@ -1671,8 +1885,8 @@ class App {
     post({ type: 'quietSelectionChanged', quiet });
     this.toast.show(
       quiet
-        ? 'Selecting text opens nothing now. To highlight or translate, turn that tool on first.'
-        : 'Selecting text opens the bar again: highlight, note, reading marker, translate.',
+        ? 'Selecting text opens nothing now. To highlight, translate or define a term, turn that tool on first.'
+        : 'Selecting text opens the bar again: highlight, note, reading marker, translate, define.',
       { durationMs: 6000 },
     );
   }
@@ -1682,9 +1896,11 @@ class App {
   /** The translate tool: while it is on, text that is selected is translated. It excludes the other tools. */
   private setTranslate(active: boolean): void {
     if (active === this.translateActive || (active && this.languages.length === 0)) return;
+    if (active && !this.textReady()) return;
     if (active) {
       this.setMode('off');
       if (this.toolActive) this.setTool(false, true);
+      this.setGlossary(false);
       if (this.marker.placing) this.marker.stopPlacing();
       this.hideFloating();
     } else {
@@ -1799,12 +2015,170 @@ class App {
     this.toast.show(before ? 'Translation added to the note.' : 'Highlighted, with the translation as its note.', { action: this.undoAction() });
   }
 
-  /** Draw mode, text mode or neither. Turning one on turns off the highlight tool, the translate tool and placing the marker. */
+  // ---------- The glossary ----------
+
+  /** The glossary tool: while it is on, a word or a phrase that is selected is defined. It excludes the other tools. */
+  private setGlossary(active: boolean): void {
+    if (active === this.glossaryActive) return;
+    if (active && !this.textReady()) return;
+    if (active) {
+      this.setMode('off');
+      if (this.toolActive) this.setTool(false, true);
+      this.setTranslate(false);
+      if (this.marker.placing) this.marker.stopPlacing();
+      this.hideFloating();
+    } else {
+      this.definePopover.hide();
+    }
+    this.glossaryActive = active;
+    document.body.classList.toggle('mpv-glossary-active', active);
+    this.toolbar.setDefining(active);
+    this.syncTrays();
+    // Text that is selected already is what the reader wants to define.
+    if (active && this.highlights.selectionRange()) {
+      const r = window.getSelection()?.getRangeAt(0).getBoundingClientRect();
+      if (r) this.defineSelection(r.left + r.width / 2, r.bottom);
+    }
+  }
+
+  /**
+   * Defines what is selected on the pages; the popover opens at (x, y). If the glossary has the
+   * term already, it opens for changing. The term is the selection as it reads (a word cut at the
+   * end of a line is whole again) when the document has it written so, else as it stands there.
+   */
+  private defineSelection(x: number, y: number): void {
+    const range = this.highlights.selectionRange();
+    const text = this.highlights.textModel?.text;
+    if (!range || !text) return;
+    const raw = text.slice(range[0], range[1]);
+    if (raw.length > MAX_TERM_LENGTH) {
+      this.toast.show(`A term is a word, an acronym or a short phrase: up to ${MAX_TERM_LENGTH} characters. Select less to define it.`, { durationMs: 6000 });
+      return;
+    }
+    const reading = cleanTerm(this.highlights.readingTextOf(range[0], range[1]));
+    const term = reading && reading !== raw && occursIn(text, reading) ? reading : cleanTerm(raw);
+    if (!term) return;
+    this.openDefine(this.glossary.byKey(term) ?? { term }, x, y);
+  }
+
+  private openDefine(source: { id?: string; term: string; definition?: string }, x: number, y: number): void {
+    this.popover.hide();
+    this.selectionBar.hide();
+    this.noteTooltip.hide();
+    this.markerPopover.hide();
+    this.translation.hide();
+    this.termPopover.hide();
+    this.definePopover.hide();
+    this.definePopover.show(source, x, y);
+  }
+
+  /** A marked term was clicked: what it means, with Edit and Delete. */
+  private showTerm(id: string, x: number, y: number): void {
+    const term = this.glossary.get(id);
+    if (!term) return;
+    this.popover.hide();
+    this.selectionBar.hide();
+    this.noteTooltip.hide();
+    this.markerPopover.hide();
+    this.translation.hide();
+    this.definePopover.hide();
+    this.termPopover.show(term, this.glossary.count(id), x, y);
+  }
+
+  /** Opens a term for changing: where its popover was, or (from the list) at a place where it is written. */
+  private editTerm(id: string, x?: number, y?: number): void {
+    const term = this.glossary.get(id);
+    if (!term) return;
+    if (x !== undefined && y !== undefined) {
+      this.openDefine(term, x, y);
+      return;
+    }
+    if (narrowPanel()) this.setListOpen(false, false);
+    void this.glossary.reveal(id).then((index) => {
+      // (The page it went to may still be rendering: a moment later the place is on screen.)
+      setTimeout(() => {
+        const current = this.glossary.get(id);
+        if (!current) return;
+        const r = index === undefined ? undefined : this.glossary.screenRectOf(index);
+        const view = this.container.getBoundingClientRect();
+        this.openDefine(current, r ? (r.left + r.right) / 2 : view.left + view.width / 2, r ? r.bottom : view.top + view.height / 3);
+      }, 200);
+    });
+  }
+
+  /**
+   * Stores a term the reader defined or changed (one undo step). Returns what keeps it from being
+   * stored (the popover says it), or undefined when it is stored.
+   */
+  private saveTerm(id: string | undefined, rawTerm: string, rawDefinition: string): string | undefined {
+    const term = cleanTerm(rawTerm);
+    const definition = cleanDefinition(rawDefinition);
+    if (!term) return 'Write the term.';
+    if (!definition) return 'Write what it means.';
+    const before = id ? this.glossary.get(id) : undefined;
+    const other = this.glossary.byKey(term);
+    if (other && other.id !== before?.id) return `“${other.term}” is in the glossary already.`;
+    if (!before && this.glossary.size >= MAX_TERMS) return `A glossary holds up to ${MAX_TERMS.toLocaleString('en-US')} terms.`;
+    if (before && before.term === term && before.definition === definition) return undefined;
+    const now = new Date().toISOString();
+    const after: GlossaryTerm = { id: before?.id ?? crypto.randomUUID(), term, definition, createdAt: before?.createdAt ?? now, updatedAt: now };
+    const op: EditOp = { kind: 'term', before: before ?? null, after };
+    void this.apply(op);
+    this.undoStack.record(op, before ? 'Edit term' : 'Define term');
+    // A new term (or one written differently now): how often it is marked, so the reader sees that it worked.
+    if (!before || before.term !== term) {
+      const count = this.glossary.count(after.id);
+      const marked = count === 0 ? 'It is not written in this document as a word of its own.' : `Marked ${count === 1 ? 'once' : `${count} times`} in this document.`;
+      this.toast.show(`“${term}” is in the glossary. ${marked}`, { action: this.undoAction(), durationMs: 6000 });
+    }
+    return undefined;
+  }
+
+  private removeTerm(id: string): void {
+    const before = this.glossary.get(id);
+    if (!before) return;
+    this.termPopover.hide();
+    const op: EditOp = { kind: 'term', before, after: null };
+    void this.apply(op);
+    this.undoStack.record(op, 'Delete term');
+    this.toast.show(`“${before.term}” deleted from the glossary.`, { action: this.undoAction() });
+  }
+
+  /** Terms the reader picked from other documents: those the glossary does not have yet are added, as one undo step. */
+  private importTerms(incoming: { term: string; definition: string }[]): void {
+    const now = new Date().toISOString();
+    const ops: EditOp[] = [];
+    const keys = new Set<string>();
+    for (const item of incoming) {
+      const term = cleanTerm(String(item?.term ?? ''));
+      const definition = cleanDefinition(String(item?.definition ?? ''));
+      const key = termKey(term);
+      if (!term || !definition || keys.has(key) || this.glossary.byKey(term)) continue;
+      if (this.glossary.size + ops.length >= MAX_TERMS) break;
+      keys.add(key);
+      ops.push({ kind: 'term', before: null, after: { id: crypto.randomUUID(), term, definition, createdAt: now, updatedAt: now } });
+    }
+    if (ops.length === 0) {
+      this.toast.show('The glossary of this document has these terms already.');
+      return;
+    }
+    const op: EditOp = ops.length === 1 ? ops[0] : { kind: 'batch', ops };
+    void this.apply(op);
+    this.undoStack.record(op, ops.length === 1 ? 'Import term' : `Import ${ops.length} terms`);
+    this.toast.show(ops.length === 1 ? 'One term added to the glossary of this document.' : `${ops.length} terms added to the glossary of this document.`, {
+      action: this.undoAction(),
+      durationMs: 6000,
+    });
+  }
+
+  /** Draw mode, text mode or neither. Turning one on turns off the highlight tool, the translate tool, the glossary tool and placing the marker. */
   private setMode(mode: DrawingMode): void {
     if (mode === this.drawings.mode) return;
+    if (mode !== 'off' && !this.textReady()) return;
     if (mode !== 'off') {
       if (this.toolActive) this.setTool(false, true);
       this.setTranslate(false);
+      this.setGlossary(false);
       if (this.marker.placing) this.marker.stopPlacing();
       this.hideFloating();
       window.getSelection()?.removeAllRanges();
@@ -1832,8 +2206,8 @@ class App {
     }
   }
 
-  private get trays(): (HighlightTray | DrawingBar | TextBar | SelectTray | TranslateTray | HintTray)[] {
-    return [this.highlightTray, this.drawingBar, this.textBar, this.selectTray, this.translateTray, this.markerTray];
+  private get trays(): (HighlightTray | DrawingBar | TextBar | SelectTray | TranslateTray | GlossaryTray | HintTray)[] {
+    return [this.highlightTray, this.drawingBar, this.textBar, this.selectTray, this.translateTray, this.glossaryTray, this.markerTray];
   }
 
   /**
@@ -1851,6 +2225,7 @@ class App {
     this.textBar.visible = mode === 'text';
     this.selectTray.visible = mode === 'select';
     this.translateTray.visible = this.translateActive;
+    this.glossaryTray.visible = this.glossaryActive;
     this.markerTray.visible = this.marker.placing;
     const moved = this.container.getBoundingClientRect().top - top;
     if (moved !== 0) this.container.scrollTop += moved;
@@ -1975,12 +2350,20 @@ class App {
     const marker = this.marker?.value;
     // Called while the controllers are still being built (their first `changed` events).
     if (!this.drawings) return;
+    // The glossary, by the alphabet (drawn with the rest, below).
+    this.sidebar.setGlossary(
+      this.glossary.all.map((data) => ({ data, count: this.glossary.count(data.id) })),
+      false,
+    );
     // Drawings as they are shown, then those whose content is not in this version.
     const shown = this.drawings.list().map((data) => ({ data, onPage: true, flags: this.drawings.flagsOf(data.id) }));
     const lost = this.drawings.orphans().map((o) => ({ data: o.drawing, onPage: false, orphan: { reason: o.result.reason } }));
     const listed = [...shown, ...lost];
+    // In the first part of a long document, what is not on its pages is most likely further down:
+    // it is not listed (nor called missing) until the whole document is there.
+    const highlights = this.highlights.list().filter((rt) => !this.partial || rt.start !== undefined);
     this.sidebar.render(
-      this.highlights.list().map((rt) => {
+      highlights.map((rt) => {
         const r = rt.resolution;
         const now = this.highlights.currentText(rt.data.id);
         return {
@@ -2014,6 +2397,9 @@ class App {
     this.noteTooltip.hide();
     this.drawingPopover.hide();
     this.textPopover.hide();
+    this.termPopover.hide();
+    // A term being defined stays open while the pages scroll or zoom, like a note being written.
+    if (!passive) this.definePopover.hide();
     // A picker opened from a bar stays (the bar does not move); one opened from a popover goes with it.
     const from = this.colorPicker.openedFrom;
     if (from && (!passive || !(this.drawingBar.element.contains(from) || this.textBar.element.contains(from)))) this.colorPicker.close();
@@ -2059,8 +2445,11 @@ class App {
           this.highlights.createFromSelection(this.color);
         } else if (this.translateActive) {
           this.translateSelection(e.clientX, e.clientY);
+        } else if (this.glossaryActive) {
+          this.defineSelection(e.clientX, e.clientY);
         } else if (!this.quietSelection) {
-          this.selectionBar.show(e.clientX, e.clientY);
+          // (Defining is offered for what can be a term: a word, a short phrase.)
+          this.selectionBar.show(e.clientX, e.clientY, range[1] - range[0] <= MAX_TERM_LENGTH);
         }
       }, 0);
     });
@@ -2078,6 +2467,13 @@ class App {
       const selection = window.getSelection();
       if (selection && !selection.isCollapsed) return;
       if ((e.target as Element | null)?.closest?.('.annotationLayer a, .annotationLayer section, .mpv-marker-tab')) return;
+      // A marked term of the glossary: what it means. It is the smaller thing under the pointer, so
+      // it goes before a highlight on the same text. (With Ctrl the click is about selecting highlights.)
+      const term = (isMac ? e.metaKey : e.ctrlKey) ? undefined : this.glossary.hitTest(e.clientX, e.clientY);
+      if (term) {
+        this.showTerm(term.id, (term.rect.left + term.rect.right) / 2, term.rect.bottom);
+        return;
+      }
       const id = this.highlights.hitTest(e.clientX, e.clientY);
       if (!id) {
         this.popover.hide();
@@ -2095,18 +2491,25 @@ class App {
         frame = 0;
         if (this.marker.placing || this.drawings.mode !== 'off') {
           this.noteTooltip.hide();
+          this.glossary.setHover(undefined);
           c.classList.remove('mpv-over-highlight');
           return;
         }
         const badge = (e.target as Element | null)?.closest?.('.mpv-note-badge') as HTMLElement | null;
         const id = badge?.dataset.id ?? this.highlights.hitTest(e.clientX, e.clientY);
-        c.classList.toggle('mpv-over-highlight', !!id && !badge);
+        // A term of the glossary can be clicked too: the hand, and a tint on the term.
+        const term = badge ? undefined : this.glossary.hitTest(e.clientX, e.clientY);
+        this.glossary.setHover(term?.index);
+        c.classList.toggle('mpv-over-highlight', (!!id && !badge) || !!term);
         const note = id ? this.highlights.get(id)?.data.note : undefined;
         if (id && note && !this.popover.visible) this.noteTooltip.schedule(id, note, e.clientX, e.clientY);
         else this.noteTooltip.hide();
       });
     });
-    c.addEventListener('pointerleave', () => this.noteTooltip.hide());
+    c.addEventListener('pointerleave', () => {
+      this.noteTooltip.hide();
+      this.glossary.setHover(undefined);
+    });
 
     document.addEventListener('selectionchange', () => {
       const selection = window.getSelection();
@@ -2123,6 +2526,9 @@ class App {
       if (!this.markerPopover.element.contains(target)) this.markerPopover.hide();
       // (The menus of the tray are about the translation that is open too: picking a language there translates it again.)
       if (!this.translation.contains(target) && !this.translateTray.element.contains(target)) this.translation.hide();
+      // The glossary: what a term means closes; a term being defined is stored as far as it can be.
+      if (!this.termPopover.element.contains(target)) this.termPopover.hide();
+      if (!this.definePopover.contains(target)) this.definePopover.hide();
       // A press on the selected drawing hides its popover while it may move; it comes back after.
       // (Not while picking its color: the picker belongs to the popover.)
       if (!this.drawingPopover.element.contains(target) && !this.colorPicker.contains(target)) this.drawingPopover.hide();
@@ -2189,7 +2595,20 @@ class App {
       if (this.drawings.cancelGesture()) return;
       // Esc backs out of one thing at a time: a popover first (a menu and the color picker take
       // the key themselves), then the tool that is on.
-      if (this.popover.visible || this.selectionBar.visible || this.markerPopover.visible || this.drawingPopover.visible || this.textPopover.visible || this.translation.visible) {
+      // (A term being defined: Esc leaves it without storing what was typed.)
+      if (this.definePopover.visible) {
+        this.definePopover.hide(false);
+        return;
+      }
+      if (
+        this.popover.visible ||
+        this.selectionBar.visible ||
+        this.markerPopover.visible ||
+        this.drawingPopover.visible ||
+        this.textPopover.visible ||
+        this.translation.visible ||
+        this.termPopover.visible
+      ) {
         this.hideFloating();
         return;
       }
@@ -2214,6 +2633,10 @@ class App {
         this.setTranslate(false);
         return;
       }
+      if (this.glossaryActive) {
+        this.setGlossary(false);
+        return;
+      }
       this.hideFloating();
       if (this.toolbar.hasFocus()) this.container.focus();
     });
@@ -2225,7 +2648,7 @@ class App {
     document.addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
       const focused = document.activeElement;
-      if (isTextField(focused) || focused?.closest('.mpv-sounds, .mpv-menu, .mpv-status, .mpv-color-picker, .mpv-translation, select')) return;
+      if (isTextField(focused) || focused?.closest('.mpv-sounds, .mpv-menu, .mpv-status, .mpv-color-picker, .mpv-translation, .mpv-define-popover, select')) return;
       const tool = this.drawings.active ? TOOL_KEYS[e.key.toLowerCase()] : undefined;
       if (tool) {
         e.preventDefault();
@@ -2240,13 +2663,18 @@ class App {
         } else if (this.markerPopover.visible) {
           this.markerPopover.hide();
           this.removeMarker();
+        } else if (this.termPopover.termId) {
+          // The term whose popover is open.
+          this.removeTerm(this.termPopover.termId);
         } else {
           return;
         }
         e.preventDefault();
       } else if (e.key === 'Enter' && !focused?.closest('button, [role="button"]')) {
+        const term = this.termPopover.termId;
         if (selected && this.drawings.get(selected)?.tool === 'text') this.editText(selected);
         else if (highlight) this.popover.editNote();
+        else if (term) this.editTerm(term, ...this.termPopover.position);
         else return;
         e.preventDefault();
       }

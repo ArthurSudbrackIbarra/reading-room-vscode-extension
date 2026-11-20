@@ -47,8 +47,10 @@ import type { SoundRequest, SoundState } from '../shared/sounds';
 import type { SoundLibrary } from '../store/SoundLibrary';
 import { AUTO, CONTEXT_CHARS, MAX_TRANSLATE_CHARS } from '../shared/translate';
 import type { TranslationService } from '../translate/TranslationService';
+import { sanitizeTerms, sortTerms, termKey } from '../shared/glossary';
+import type { GlossaryStore } from '../store/GlossaryStore';
 import { readSettings } from '../util/settings';
-import { RenderError, type RenderService } from './RenderService';
+import { RenderError, type PartialRender, type RenderService } from './RenderService';
 import type { SoundCoordinator } from './SoundCoordinator';
 import { sanitizeSections, type ListSection } from '../shared/ui';
 import { buildWebviewHtml, webviewOptions } from './webviewHtml';
@@ -82,6 +84,8 @@ export interface PanelHost {
   readonly log: vscode.LogOutputChannel;
   readonly store: HighlightStore;
   readonly history: HistoryStore;
+  /** The glossary of every document (each has its own). */
+  readonly glossary: GlossaryStore;
   readonly renderer: RenderService;
   readonly pdfCache: PdfCache;
   readonly sounds: SoundCoordinator<PreviewPanel>;
@@ -126,6 +130,8 @@ interface Shown extends ShownPdf {
   theme: PageTheme;
   /** Made from unsaved text: what it does to the annotations is not stored. */
   provisional: boolean;
+  /** The first part of a long document, shown while the rest is converted (never stored either). */
+  partial?: boolean;
   /** Identifies the light render of the same text and settings (what a download is made of). */
   lightKey: string;
   hints: CopyHint[];
@@ -163,6 +169,8 @@ export const MARKDOWN_EXT = /\.(md|markdown|mdown|mkd|mkdn|mdwn|mdtxt|mdtext|rmd
 export const TEXT_EXT = /\.txt$/i;
 export const PDF_EXT = /\.pdf$/i;
 const EXPORT_TIMEOUT_MS = 60_000;
+/** How long a viewer has to say which terms are written in its document (it may still be reading it). */
+const GLOSSARY_CHECK_TIMEOUT_MS = 30_000;
 /** Bump when the converter output changes in a way the extension version does not capture. */
 const CACHE_SALT = 'v1';
 const MAX_CACHE_BYTES = 512 * 1024 * 1024;
@@ -209,6 +217,8 @@ export class PreviewPanel implements vscode.Disposable {
   private renderSeq = 0;
   /** What the viewer currently shows. */
   private shown?: Shown;
+  /** What was sent to the viewer since it last said it was ready. */
+  private posted?: Shown;
   /** Which of two identical neighboring blocks is the copy, collected from the editor until the next saved render. */
   private copyHints: CopyHint[] = [];
   private readOnlyTold = false;
@@ -220,6 +230,10 @@ export class PreviewPanel implements vscode.Disposable {
 
   private exportSeq = 0;
   private readonly exportWaiters = new Map<number, (data: ExportReply) => void>();
+  /** Questions to the viewer about which terms of other documents are written in this one. */
+  private glossarySeq = 0;
+  private readonly glossaryWaiters = new Map<number, (found: string[] | undefined) => void>();
+  private glossaryReadOnlyTold = false;
 
   constructor(
     private readonly host: PanelHost,
@@ -255,6 +269,9 @@ export class PreviewPanel implements vscode.Disposable {
     );
     this.watchFile();
     panel.webview.html = buildWebviewHtml(panel.webview, host.extensionUri, kind);
+    // The document is converted (or read) while the viewer starts, not after: whichever is done
+    // first waits for the other. A panel restored in the background waits until it is looked at.
+    if (panel.visible) void this.requestRender();
   }
 
   get uri(): vscode.Uri {
@@ -299,8 +316,11 @@ export class PreviewPanel implements vscode.Disposable {
   private post(message: HostToViewer): void {
     if (this.disposed) return;
     if (!this.ready) {
+      // A document converted before the viewer is ready is not queued: when the viewer is ready it
+      // gets the one that is current then (`shown`), once.
+      if (message.type === 'pdf') return;
       // Keep only the latest of each kind of state message until the viewer is ready.
-      if (!['pdf', 'requestExport', 'undo', 'redo', 'deleteAll', 'marker', 'soundsAdded'].includes(message.type)) {
+      if (!['requestExport', 'undo', 'redo', 'deleteAll', 'marker', 'soundsAdded'].includes(message.type)) {
         const i = this.outbox.findIndex((m) => m.type === message.type);
         if (i >= 0) this.outbox.splice(i, 1);
       }
@@ -379,6 +399,18 @@ export class PreviewPanel implements vscode.Disposable {
         });
         break;
       }
+      case 'saveTerms':
+        await this.saveTerms(msg.terms);
+        break;
+      case 'deleteTerms': {
+        const ids = (Array.isArray(msg.ids) ? msg.ids : []).filter((id): id is string => typeof id === 'string');
+        if (ids.length > 0 && (await this.glossaryWritable())) await this.host.glossary.removeTerms(this.ref, ids);
+        break;
+      }
+      case 'glossaryFound':
+        this.glossaryWaiters.get(msg.requestId)?.((Array.isArray(msg.found) ? msg.found : []).filter((term): term is string => typeof term === 'string'));
+        this.glossaryWaiters.delete(msg.requestId);
+        break;
       case 'history': {
         const ref = this.ref;
         const change = sanitizeHistoryChange(msg.change);
@@ -544,6 +576,35 @@ export class PreviewPanel implements vscode.Disposable {
   }
 
   /**
+   * Whether changes of the glossary are stored: not when the annotations or the glossary itself
+   * were saved by a newer version (the reader is told once).
+   */
+  private async glossaryWritable(): Promise<boolean> {
+    if (await this.host.store.isReadOnly(this.ref)) return false;
+    if (!(await this.host.glossary.isReadOnly(this.ref))) return true;
+    if (!this.glossaryReadOnlyTold) {
+      this.glossaryReadOnlyTold = true;
+      void vscode.window.showWarningMessage(
+        `Reading Room: the glossary of ${this.fileName} was saved by a newer version of this extension. Terms you define or change here are not stored. Update the extension to edit it.`,
+      );
+    }
+    return false;
+  }
+
+  /** Stores new terms of the glossary and new versions of existing ones, after checking every one of them. */
+  private async saveTerms(incoming: unknown): Promise<void> {
+    const terms = sanitizeTerms(structuredClone(incoming));
+    if (terms.length === 0 || !(await this.glossaryWritable())) return;
+    const refused = await this.host.glossary.save(this.ref, terms);
+    if (refused > 0) {
+      this.host.log.warn(`${count(refused, 'term')} of ${this.fileName} not saved: its glossary is full`);
+      void vscode.window.showWarningMessage(
+        `Reading Room: the glossary of ${this.fileName} is full, so ${count(refused, 'new term')} ${refused === 1 ? 'was' : 'were'} not saved. Delete some terms to make room.`,
+      );
+    }
+  }
+
+  /**
    * The record as the viewer gets it: annotations of earlier versions get their anchors first
    * (stored with the next write; nothing is written for a file without annotations).
    */
@@ -564,10 +625,13 @@ export class PreviewPanel implements vscode.Disposable {
   }
 
   private async onReady(): Promise<void> {
+    // Whatever was sent before went to a viewer that was not there yet (or is gone: a reload).
+    this.posted = undefined;
     this.ready = true;
     this.host.sounds.pageLoaded(this);
     const { record, readOnly } = await this.recordForViewer();
     const history = readOnly ? undefined : await this.host.history.get(this.ref);
+    const glossary = await this.host.glossary.get(this.ref);
     const ui = this.host.uiState();
     const margins = isConvertedKind(this.kind) ? { top: PAGE_MARGINS_MM.top * MM_TO_PT, bottom: PAGE_MARGINS_MM.bottom * MM_TO_PT } : { top: 0, bottom: 0 };
     void this.panel.webview.postMessage({
@@ -579,6 +643,7 @@ export class PreviewPanel implements vscode.Disposable {
         highlights: record.highlights,
         marker: record.marker ?? null,
         drawings: record.drawings,
+        glossary,
         zoom: record.view.zoom ?? DEFAULT_ZOOM,
         color: ui.color,
         theme: this.theme,
@@ -606,8 +671,9 @@ export class PreviewPanel implements vscode.Disposable {
     const queued = this.outbox.splice(0);
     for (const message of queued) void this.panel.webview.postMessage(message);
     if (this.shown) {
-      // The webview was reloaded (e.g. restored): show what we have, then refresh.
-      await this.postPdf(this.shown);
+      // Converted while the viewer started, or the webview was reloaded (e.g. restored): show what
+      // we have, unless it went out while this ran.
+      if (this.posted !== this.shown) await this.postPdf(this.shown);
     } else if (!this.renderLoop) {
       void this.requestRender();
     }
@@ -748,15 +814,40 @@ export class PreviewPanel implements vscode.Disposable {
         return;
       }
     }
-    const renderId = ++this.renderSeq;
     this.post({ type: 'rendering' });
+    // With nothing on screen yet, a long document is shown part by part while it is converted
+    // (see converter/batches.ts). With an earlier version on screen, that one stays until the
+    // new one is whole.
+    let whole = false;
+    const onPartial = this.shown
+      ? undefined
+      : (partial: PartialRender) => {
+          if (whole || this.disposed) return;
+          this.host.log.info(
+            `First part of ${this.uri.fsPath || this.uri.toString()} (${theme}, ${partial.pdf.byteLength} bytes, ${(partial.fraction * 100).toFixed(1)} % of the document) after ${partial.ms} ms`,
+          );
+          const part: Shown = {
+            key: `${key}:part:${partial.fraction}`,
+            pdf: plainBytes(partial.pdf),
+            warnings: [],
+            renderId: ++this.renderSeq,
+            theme,
+            provisional: true,
+            partial: true,
+            lightKey: `${lightKey}:part`,
+            hints: [],
+          };
+          this.shown = part;
+          void this.postPdf(part);
+        };
     try {
-      const result = await this.host.renderer.render({ uri: this.uri, text, kind: this.kind }, theme);
+      const result = await this.host.renderer.render({ uri: this.uri, text, kind: this.kind }, theme, onPartial);
+      whole = true;
       if (this.disposed) return;
       const rendered: ShownPdf = { key, pdf: result.pdf, warnings: result.warnings };
       this.cache.set(theme, rendered);
       for (const [t, entry] of this.cache) if (entry.key !== key && t !== theme) this.cache.delete(t);
-      await this.show(rendered, renderId, theme, provisional, lightKey);
+      await this.show(rendered, ++this.renderSeq, theme, provisional, lightKey);
       const timings = Object.entries(result.timings)
         .map(([k, v]) => `${k} ${v} ms`)
         .join(', ');
@@ -768,6 +859,7 @@ export class PreviewPanel implements vscode.Disposable {
           .catch((err: unknown) => this.host.log.warn(`Could not cache the PDF: ${String(err)}`));
       }
     } catch (err) {
+      whole = true;
       const message = err instanceof Error ? err.message : String(err);
       this.host.log.error(`Rendering ${this.uri.toString()} failed: ${message}`);
       this.post({ type: 'renderError', message, firstRender: !this.shown });
@@ -797,8 +889,10 @@ export class PreviewPanel implements vscode.Disposable {
   }
 
   private async postPdf(shown: Shown): Promise<void> {
-    const snapshots = readSettings().textSnapshots ? await this.host.store.snapshotHashes(this.ref).catch(() => []) : [];
+    // A first part is not compared with earlier versions of the text: the whole document is.
+    const snapshots = readSettings().textSnapshots && !shown.partial ? await this.host.store.snapshotHashes(this.ref).catch(() => []) : [];
     if (this.shown !== shown || this.disposed) return;
+    if (this.ready) this.posted = shown;
     this.post({
       type: 'pdf',
       data: shown.pdf,
@@ -806,6 +900,7 @@ export class PreviewPanel implements vscode.Disposable {
       theme: shown.theme,
       warnings: shown.warnings.map((message) => ({ message })),
       provisional: shown.provisional,
+      partial: shown.partial,
       hints: shown.hints,
       snapshots,
     });
@@ -907,6 +1002,100 @@ export class PreviewPanel implements vscode.Disposable {
     this.post({ type: 'toggleTranslate' });
   }
 
+  toggleGlossary(): void {
+    this.post({ type: 'toggleGlossary' });
+  }
+
+  /** Asks the viewer which of these terms are written in the document it shows. Undefined when it does not answer in time. */
+  private termsWrittenHere(terms: string[]): Promise<string[] | undefined> {
+    const requestId = ++this.glossarySeq;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.glossaryWaiters.delete(requestId);
+        resolve(undefined);
+      }, GLOSSARY_CHECK_TIMEOUT_MS);
+      this.glossaryWaiters.set(requestId, (found) => {
+        clearTimeout(timer);
+        resolve(found);
+      });
+      this.post({ type: 'glossaryCheck', requestId, terms });
+    });
+  }
+
+  /**
+   * Offers the terms the reader defined in other documents that are written in this one, and
+   * brings the ones they pick into this document's glossary (through the viewer, so it is one
+   * undoable step). A term this document already defines is not offered: its own meaning stays.
+   */
+  async importGlossary(): Promise<void> {
+    const store = this.host.glossary;
+    const ownKey = this.host.store.keyOf(this.ref);
+    const own = new Set((await store.get(this.ref)).map((t) => termKey(t.term)));
+    const others = (await store.list()).filter((g) => g.key !== ownKey);
+    if (others.length === 0) {
+      void vscode.window.showInformationMessage(
+        'There are no terms to import yet: no other document has a glossary. Define terms with the glossary tool (the book with an A), then import them here.',
+      );
+      return;
+    }
+    // One entry per term and meaning: the same term defined the same way in several files is one.
+    const groups = new Map<string, { term: string; definition: string; files: string[] }>();
+    for (const glossary of others) {
+      const file = glossary.fsPath?.split(/[\\/]/).pop() || panelTitle(vscode.Uri.parse(glossary.uri || 'file:///document')) || 'another document';
+      for (const { term, definition } of glossary.terms) {
+        if (own.has(termKey(term))) continue;
+        const key = `${termKey(term)}\n${definition}`;
+        const group = groups.get(key);
+        if (!group) groups.set(key, { term, definition, files: [file] });
+        else if (!group.files.includes(file)) group.files.push(file);
+      }
+    }
+    if (groups.size === 0) {
+      void vscode.window.showInformationMessage(`${this.fileName} already defines every term of your other documents.`);
+      return;
+    }
+    const written = await this.termsWrittenHere([...new Set([...groups.values()].map((g) => g.term))]);
+    if (this.disposed) return;
+    if (!written) {
+      void vscode.window.showWarningMessage('Reading Room: the viewer did not answer in time. Try again when the document is shown.');
+      return;
+    }
+    const here = new Set(written);
+    const valid = sortTerms([...groups.values()].filter((g) => here.has(g.term)));
+    if (valid.length === 0) {
+      void vscode.window.showInformationMessage(
+        `None of the ${count(groups.size, 'term')} defined in your other documents ${groups.size === 1 ? 'is' : 'are'} written in ${this.fileName}, so there is nothing to import.`,
+      );
+      return;
+    }
+    const from = (files: string[]): string => (files.length <= 2 ? files.join(' and ') : `${files[0]} and ${files.length - 1} other documents`);
+    const oneLine = (text: string): string => {
+      const line = text.replace(/\s+/g, ' ');
+      return line.length > 120 ? `${line.slice(0, 119)}…` : line;
+    };
+    const picked = await vscode.window.showQuickPick(
+      valid.map((g) => ({ label: g.term, description: oneLine(g.definition), detail: `From ${from(g.files)}`, group: g })),
+      {
+        canPickMany: true,
+        title: `Import glossary terms into ${this.fileName}`,
+        placeHolder: 'Pick the terms to bring into this document (only terms that are written in it are listed)',
+        matchOnDescription: true,
+        matchOnDetail: true,
+      },
+    );
+    if (!picked || picked.length === 0 || this.disposed) return;
+    // A term has one meaning in a document: of two picked for the same term, the first stays.
+    const chosen = new Map<string, { term: string; definition: string }>();
+    for (const { group } of picked) if (!chosen.has(termKey(group.term))) chosen.set(termKey(group.term), { term: group.term, definition: group.definition });
+    this.post({ type: 'importTerms', terms: [...chosen.values()] });
+    const dropped = picked.length - chosen.size;
+    if (dropped > 0) {
+      void vscode.window.showInformationMessage(
+        `Reading Room: you picked more than one meaning for ${dropped === 1 ? 'a term' : 'some terms'}. A document has one meaning per term, so the first one picked was imported.`,
+      );
+    }
+  }
+
   toggleText(): void {
     this.post({ type: 'toggleText' });
   }
@@ -938,7 +1127,8 @@ export class PreviewPanel implements vscode.Disposable {
     // The history stays: what was added from another file (Reattach) or moved with a rename does not undo what was done here.
     await this.historyChanges;
     const history = readOnly ? undefined : await this.host.history.get(this.ref);
-    this.post({ type: 'highlights', highlights: record.highlights, marker: record.marker ?? null, drawings: record.drawings, readOnly, pages: record.pages, history });
+    const glossary = await this.host.glossary.reload(this.ref);
+    this.post({ type: 'highlights', highlights: record.highlights, marker: record.marker ?? null, drawings: record.drawings, glossary, readOnly, pages: record.pages, history });
   }
 
   reveal(preserveFocus = false): void {
@@ -1019,6 +1209,9 @@ export class PreviewPanel implements vscode.Disposable {
         break;
       case 'deleteAllTextBoxes':
         await this.host.deleteAllDrawings(this, 'text');
+        break;
+      case 'importGlossary':
+        await this.importGlossary();
         break;
     }
   }
@@ -1248,6 +1441,8 @@ export class PreviewPanel implements vscode.Disposable {
     for (const waiter of this.exportWaiters.values())
       waiter({ renderId: -1, hash: '', highlights: [], orphaned: 0, drawings: [], skippedDrawings: 0, error: 'The viewer was closed.' });
     this.exportWaiters.clear();
+    for (const waiter of this.glossaryWaiters.values()) waiter(undefined);
+    this.glossaryWaiters.clear();
     this.watcher?.dispose();
     this.host.disposed(this);
     this.panel.dispose();

@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- **A glossary tool**, the book with an A in the toolbar, next to the translate tool. Write what a term means once, and find it explained wherever it is written.
+  - With the tool on, select a word, an acronym or a short phrase and write what it means. With no tool on, the book is at the end of the bar next to a selection.
+  - Every place where the term is written gets a dotted purple line under it. Click a marked term to read its meaning, change it or delete it.
+  - Whole words only: `MLP` is not marked inside `MLPs`. A term in capitals, like `MLP` or `IT`, is found exactly as written; any other term is found whatever its capitals.
+  - **Each document has its own glossary**, so the same acronym can mean two things in two documents. The annotations list shows it under **Glossary**, with how often each term is written; click a row to go to the term, and again for the next place.
+  - **Import glossary terms…** in the ⋯ menu lists the terms you defined in other documents that are written in this one, with where each comes from. Tick the ones to bring in. A term this document already defines keeps its meaning.
+  - Defining, changing, deleting and importing can be undone with `Ctrl+Z`.
+  - The glossary is stored with your annotations and is part of the backup, so it comes back after the extension is installed again. It follows a renamed document, and **Reattach Annotations from Another File…** copies it too.
+  - **Reading Room: Toggle Glossary Mode** and **Reading Room: Import Glossary Terms from Other Files…** are in the Command Palette.
+- **The bar next to a selection has two groups.** The note button stands with the highlight colors, since a note comes with a highlight. After one dividing line come the reading marker, translate and the glossary.
+- **Color for part of a text box.** The text color now works like bold. While you type in a box, select some of its text and pick a color: only that text changes. With nothing selected, the color is for what you type next. A box that is selected but not being typed in takes the color for all of its text. Downloads keep the colors, and an underline has the color of its text.
+- **Long documents no longer keep you waiting.** A long Markdown or text file used to show a loading screen until every page was converted and read. Now it is converted in batches:
+  - The first pages are on screen in about a second, with a line under the last one that says the rest is being converted. A very long document then shows a larger part, and at the end the whole document. In a test with a document of 510 pages, the first pages were converted after a third of a second and the whole document after about eight.
+  - You can read, highlight, draw and write meanwhile, and you stay where you are when the rest arrives. Annotations and the reading marker that are further down appear with their pages, and nothing is called missing in between.
+  - Short documents (under about ninety pages) are converted in one go, as before.
+  - **A large PDF or document** (more than forty pages) now shows its pages at once, at the reading marker if there is one. The tools are ready a few seconds later, when its text has been read; until then they say so.
+  - The conversion starts while the viewer is still loading, and the browser starts while the text is being read, so every document opens a little sooner.
+- **Esc in the color picker gives the keyboard back to the text box** you are typing in. It stayed on the color button, so the next `Ctrl+Z` undid the whole box instead of the typing.
+- **A letter typed right after an arrow key** takes the bold, italic, underline and color of where the caret now is. Typed very quickly, it took the style of where the caret was.
+
+## 0.14.0 — 2026-11-18
+
 - **No bar when selecting text**, a new entry of the ⋯ menu, for readers who follow the lines with the mouse as they read. While it is on, selecting text opens nothing: the bar with the colors, the note, the reading marker and the translation stays away. The highlight tool and the translate tool still work on what you select. It is off at first and remembered for all files.
 - **The bar next to a selection is not cut off any more.** Since the translate button joined it, the bar was wider than its box could be, and its last button touched the right edge. It is as wide as what it holds now, and the translate button stands as far from the end of the bar as from the line before it.
 - **The − and + of the zoom are in the middle of their squares.** Both stood a little over half a pixel to the left, which showed on the + when the pointer was on it.

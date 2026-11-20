@@ -33,6 +33,21 @@ export interface RenderRequest {
   chromiumPath?: string;
   /** Reads a resource (image, stylesheet, font) by URI path. Read-only; supplied by the host. */
   readResource(uriPath: string): Promise<Uint8Array>;
+  /**
+   * A long document is converted in batches (see batches.ts): this is called with each first
+   * part of it as soon as that part is a PDF, before the whole document is. Never called for a
+   * document that is converted in one go, nor after `render` has settled.
+   */
+  onPartial?(partial: PartialRender): void;
+}
+
+/** The first part of a document, converted ahead of the rest. */
+export interface PartialRender {
+  pdf: Uint8Array;
+  /** How much of the document it holds (0 to 1, by the size of its source). */
+  fraction: number;
+  /** How long after the start of the conversion it was there. */
+  ms: number;
 }
 
 export interface RenderResult {

@@ -133,6 +133,8 @@ export class HighlightController {
   private flashTimer?: ReturnType<typeof setTimeout>;
   /** The selected highlights (the one whose popover is open, those picked with the select tool): Delete deletes them. */
   private selected = new Set<string>();
+  /** Called when the viewer shows another document (its text model is the one to work with from now on). */
+  onDocument?: () => void;
 
   constructor(
     private readonly viewer: Viewer,
@@ -172,9 +174,11 @@ export class HighlightController {
 
   /**
    * Takes over the results of a resolving run: where every highlight is in the document shown,
-   * or why it is not. Rectangles are computed from the text layers (as they render).
+   * or why it is not. Rectangles are computed from the text layers (as they render). `partial`:
+   * the document shown is the first part of a long one, and the results are only those that are
+   * sure (see AnchoringController).
    */
-  applyResolutions(resolutions: Map<string, Resolution>, upgraded: Map<string, TextAnchor>, provisional: boolean): void {
+  applyResolutions(resolutions: Map<string, Resolution>, upgraded: Map<string, TextAnchor>, provisional: boolean, partial = false): void {
     for (const rt of this.runtimes.values()) {
       const r = resolutions.get(rt.data.id);
       if (!r) continue;
@@ -183,7 +187,10 @@ export class HighlightController {
       rt.start = r.status === 'anchored' ? r.start : undefined;
       rt.end = r.status === 'anchored' ? r.end : undefined;
       rt.data.status = r.status;
-      if (provisional) {
+      if (partial) {
+        // The first part of a long document: where things are in it is shown and not remembered
+        // (the whole document is resolved from what is stored).
+      } else if (provisional) {
         rt.liveState = r.state;
       } else {
         rt.liveState = undefined;
@@ -328,6 +335,7 @@ export class HighlightController {
       if (view?.textLayer?.div?.childElementCount) this.onTextLayer(i);
     }
     this.redrawAll();
+    this.onDocument?.();
   }
 
   /** Resolves when the work in `task` is done; exports wait for it. */
@@ -388,6 +396,18 @@ export class HighlightController {
       }
     }
     if (rects.length > 0) rt.pages.set(pageIndex, mergeLines(rects));
+  }
+
+  /**
+   * The rectangles (fractions of the page, one per line) of a range of the text on a page whose
+   * text layer is rendered. Undefined while it is not: what is drawn from them waits for it.
+   */
+  liveRects(start: number, end: number, pageIndex: number): Frac[] | undefined {
+    const live = this.live.get(pageIndex);
+    if (!live?.layer.isConnected) return undefined;
+    const probe: Runtime = { data: undefined as unknown as Highlight, start, end, pages: new Map() };
+    this.computePageRects(probe, pageIndex, live);
+    return probe.pages.get(pageIndex) ?? [];
   }
 
   /** Rectangles of an arbitrary text range (used by the reading marker). */
